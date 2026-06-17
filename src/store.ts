@@ -3,18 +3,10 @@
 // reads/writes Conversation snapshots. The Room owns the live<->disk mapping.
 
 import { mkdir, readdir, readFile, rename, unlink, writeFile } from "node:fs/promises"
-import { join, relative, resolve } from "node:path"
+import { join } from "node:path"
+import { assertInside } from "./path-guard.js"
 import { config } from "./config.js"
 import type { Conversation, ConversationMeta } from "./types.js"
-
-
-/** Throw if `target` resolves outside `root` — prevents path traversal via conversation ids. */
-function assertInside(root: string, target: string): void {
-  const rel = relative(root, resolve(target))
-  if (rel !== "" && (rel === ".." || rel.startsWith(`..${"/"}`) || rel.startsWith("..\\") || rel.startsWith("/"))) {
-    throw new Error(`Permission denied: "${target}" is outside the allowed directory.`)
-  }
-}
 
 export function conversationMeta(conv: Conversation): ConversationMeta {
   return {

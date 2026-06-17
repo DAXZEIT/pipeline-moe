@@ -18,10 +18,19 @@ export type SseEventName =
   | "transcript" // full transcript replacement (on conversation switch)
   | "conversations" // saved-conversation list + current id
 
+export const DEFAULT_SSE_MAX_CLIENTS = 10
+
 export class SseHub {
   private clients = new Set<Response>()
 
+  constructor(readonly maxClients: number = DEFAULT_SSE_MAX_CLIENTS) {}
+
   addClient(res: Response): void {
+    if (this.clients.size >= this.maxClients) {
+      res.writeHead(429, "Too Many SSE Connections")
+      res.end()
+      return
+    }
     res.setHeader("Content-Type", "text/event-stream")
     res.setHeader("Cache-Control", "no-cache, no-transform")
     res.setHeader("Connection", "keep-alive")

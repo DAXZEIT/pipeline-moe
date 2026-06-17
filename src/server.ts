@@ -6,6 +6,7 @@
 
 import { mkdir } from "node:fs/promises"
 import cors from "cors"
+import rateLimit from "express-rate-limit"
 import express from "express"
 import { config } from "./config.js"
 import { isAllowedModel, listModels, resolveModel } from "./model.js"
@@ -16,39 +17,10 @@ import { Room } from "./room.js"
 import { SseHub } from "./sse.js"
 import { ConversationStore } from "./store.js"
 import type { Persona } from "./types.js"
+import { parsePersona, VALID_TOOLS } from "./validation.js"
 
-const VALID_TOOLS = new Set(["read", "bash", "edit", "write", "grep", "find", "ls"])
 
-function slug(s: string): string {
-  return s
-    .toLowerCase()
-    .trim()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-}
 
-function parsePersona(body: Record<string, unknown>): Persona {
-  const name = String(body.name ?? "").trim()
-  if (!name) throw new Error("`name` is required")
-  const id = slug(String(body.id ?? name))
-  if (!id) throw new Error("could not derive a valid id from name")
-
-  const tools = Array.isArray(body.tools)
-    ? body.tools.map(String).filter((t) => VALID_TOOLS.has(t))
-    : ["read", "grep", "find", "ls"]
-
-  const systemPrompt = String(body.systemPrompt ?? "").trim()
-  if (!systemPrompt) throw new Error("`systemPrompt` is required")
-
-  return {
-    id,
-    name,
-    color: String(body.color ?? "#888888"),
-    icon: String(body.icon ?? "🤖"),
-    tools,
-    systemPrompt,
-  }
-}
 
 async function main(): Promise<void> {
   await mkdir(config.workspaceDir, { recursive: true })
@@ -270,7 +242,8 @@ async function main(): Promise<void> {
   })
 
   // Post a message to the room. Returns immediately; results stream over SSE.
-  app.post("/api/messages", (req, res) => {
+  // Rate limited to prevent agent loops from flooding the queue.
+  app.post("/api/messages", rateLimit({ windowMs: 60_000, max: 60, standardHeaders: true, legacyHeaders: false }), (req, res) => {
     const text = String(req.body?.text ?? "").trim()
     if (!text) {
       res.status(400).json({ error: "`text` is required" })

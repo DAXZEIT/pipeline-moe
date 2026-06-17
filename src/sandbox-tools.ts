@@ -8,7 +8,6 @@
 // the workspace as a best effort. Treat bash as trusted-local only.
 
 import { access as fsAccess, constants, mkdir, readFile, writeFile } from "node:fs/promises"
-import { isAbsolute, relative, resolve } from "node:path"
 import {
   createBashToolDefinition,
   createEditToolDefinition,
@@ -19,14 +18,7 @@ import {
   createWriteToolDefinition,
   type ToolDefinition,
 } from "@earendil-works/pi-coding-agent"
-
-/** Throw if `target` resolves outside `root`. */
-function assertInside(root: string, target: string): void {
-  const rel = relative(root, resolve(target))
-  if (rel !== "" && (rel === ".." || rel.startsWith(`..${"/"}`) || rel.startsWith("..\\") || isAbsolute(rel))) {
-    throw new Error(`Permission denied: "${target}" is outside the workspace.`)
-  }
-}
+import { assertInside } from "./path-guard.js"
 
 /** Build the confined tool definitions for the given built-in tool names. */
 export function buildConfinedTools(root: string, toolNames: string[]): ToolDefinition[] {

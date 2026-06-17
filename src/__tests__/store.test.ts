@@ -1,0 +1,84 @@
+import { mkdtemp, rm } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
+import { afterAll, beforeAll, expect, test } from "vitest"
+import { ConversationStore } from "../store.js"
+import type { Conversation } from "../types.js"
+
+let dir: string
+let store: ConversationStore
+
+const makeConv = (id: string): Conversation => ({
+  id,
+  title: "test",
+  createdAt: Date.now(),
+  updatedAt: Date.now(),
+  chaining: false,
+  defaultAgent: null,
+  personas: [],
+  transcript: [],
+})
+
+beforeAll(async () => {
+  dir = await mkdtemp(join(tmpdir(), "pipeline-moe-test-"))
+  store = new ConversationStore(dir)
+  await store.init()
+})
+
+afterAll(async () => {
+  await rm(dir, { recursive: true, force: true })
+})
+
+test("write and read a conversation", async () => {
+  const conv = makeConv("abc123")
+  await store.write(conv)
+  const got = await store.read("abc123")
+  expect(got).not.toBeNull()
+  expect(got!.id).toBe("abc123")
+})
+
+test("read non-existent returns null", async () => {
+  const got = await store.read("no-such-id")
+  expect(got).toBeNull()
+})
+
+test("list returns metadata for written conversations", async () => {
+  const conv = makeConv("list-test")
+  await store.write(conv)
+  const list = await store.list()
+  expect(list.some((m) => m.id === "list-test")).toBe(true)
+})
+
+test("remove deletes a conversation", async () => {
+  const conv = makeConv("rm-test")
+  await store.write(conv)
+  expect(await store.read("rm-test")).not.toBeNull()
+  await store.remove("rm-test")
+  expect(await store.read("rm-test")).toBeNull()
+})
+
+// ── Path traversal guards ──────────────────────────────────────────────
+// Note: read() and remove() wrap in try/catch and swallow errors (return null/undefined).
+// write() throws before the file operation because assertInside runs in file() first.
+
+test("write with traversal id throws Permission denied", async () => {
+  const conv = makeConv("../../../etc/passwd")
+  await expect(store.write(conv)).rejects.toThrow("Permission denied")
+})
+
+test("write with traversal in middle of id throws", async () => {
+  const conv = makeConv("foo/../../etc/passwd")
+  await expect(store.write(conv)).rejects.toThrow("Permission denied")
+})
+
+test("write with adjacent sibling traversal throws", async () => {
+  const conv = makeConv("../sibling")
+  await expect(store.write(conv)).rejects.toThrow("Permission denied")
+})
+
+test("read with traversal id returns null (error swallowed by try/catch)", async () => {
+  // read() wraps in try/catch and returns null on any error — including assertInside throws.
+  // This is a known limitation: the guard prevents the write, but read just returns null.
+  const got = await store.read("../../../etc/passwd")
+  expect(got).toBeNull()
+})
