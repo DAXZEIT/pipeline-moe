@@ -8,6 +8,7 @@
 // the workspace as a best effort. Treat bash as trusted-local only.
 
 import { access as fsAccess, constants, mkdir, readFile, writeFile } from "node:fs/promises"
+import { Type } from "typebox"
 import {
   createBashToolDefinition,
   createEditToolDefinition,
@@ -18,7 +19,46 @@ import {
   createWriteToolDefinition,
   type ToolDefinition,
 } from "@earendil-works/pi-coding-agent"
+import type { AgentToolResult } from "@earendil-works/pi-coding-agent"
+
+// Minimal text content type (mirrors pi-ai TextContent — not re-exported).
+interface TextContent {
+  type: "text"
+  text: string
+}
 import { assertInside } from "./path-guard.js"
+
+// ── ask_user tool ──────────────────────────────────────────────────────────
+// Allows an agent to pause the pipeline and ask the user a clarifying question.
+// The tool returns a confirmation message with terminate=true so the agent
+// naturally stops its turn. The Room detects this tool call in the activity
+// log and enters a "paused" state until the user responds.
+
+const askUserSchema = Type.Object({
+  question: Type.String({ description: "The question to ask the user" }),
+})
+
+export function createAskUserToolDefinition(): ToolDefinition<typeof askUserSchema, undefined> {
+  return {
+    name: "ask_user",
+    label: "Ask User",
+    description:
+      "Pause the pipeline and ask the user a clarifying question. " +
+      "Use this when you need information only the user can provide — " +
+      "preferences, credentials, or context you cannot determine yourself. " +
+      "The pipeline will pause and wait for the user's response. " +
+      "Do not use this for rhetorical questions or self-clarification.",
+    parameters: askUserSchema,
+    async execute(_toolCallId, { question }) {
+      const content: TextContent[] = [{
+        type: "text",
+        text: `Question sent to user: "${question}". The pipeline is paused. Waiting for the user's response. When the user replies, their answer will be delivered to you as the next input.`,
+      }]
+      const result: AgentToolResult<undefined> = { content, details: undefined, terminate: true }
+      return result
+    },
+  }
+}
 
 /** Build the confined tool definitions for the given built-in tool names. */
 export function buildConfinedTools(root: string, toolNames: string[]): ToolDefinition[] {
@@ -93,6 +133,9 @@ export function buildConfinedTools(root: string, toolNames: string[]): ToolDefin
   if (wanted.has("grep")) tools.push(createGrepToolDefinition(root) as ToolDefinition)
   if (wanted.has("find")) tools.push(createFindToolDefinition(root) as ToolDefinition)
   if (wanted.has("ls")) tools.push(createLsToolDefinition(root) as ToolDefinition)
+
+  // ask_user: available to all agents — no sandboxing needed, it's a communication tool.
+  tools.push(createAskUserToolDefinition() as ToolDefinition)
 
   return tools
 }

@@ -1,17 +1,33 @@
-import { useMemo, useRef, useState } from "react"
+import { useCallback, useMemo, useRef, useState } from "react"
+import type { ClipboardEvent } from "react"
 import type { RosterItem } from "../types"
 
 interface Props {
   roster: RosterItem[]
   turnActive: boolean
-  onSend: (text: string) => void
+  onSend: (text: string, images?: string[]) => void
   onAbort: () => void
+}
+
+/** Acceptable image mime types for paste/drag-drop. */
+const IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/webp", "image/gif"])
+
+/** Read a File as a base64 data URI. */
+function fileToDataUri(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader()
+    r.onload = () => resolve(String(r.result))
+    r.onerror = reject
+    r.readAsDataURL(file)
+  })
 }
 
 export function Composer({ roster, turnActive, onSend, onAbort }: Props) {
   const [value, setValue] = useState("")
   const [partial, setPartial] = useState<string | null>(null)
   const [highlight, setHighlight] = useState(0)
+  const [pendingImages, setPendingImages] = useState<string[]>([])
+  const [dragOver, setDragOver] = useState(false)
   const ref = useRef<HTMLTextAreaElement>(null)
 
   const handles = useMemo(() => ["all", ...roster.map((r) => r.id)], [roster])
@@ -19,6 +35,54 @@ export function Composer({ roster, turnActive, onSend, onAbort }: Props) {
     if (partial === null) return []
     return handles.filter((h) => h.startsWith(partial.toLowerCase()))
   }, [partial, handles])
+
+  // ── Image handling ────────────────────────────────────────────────────────
+
+  const addImages = useCallback(async (files: FileList | File[]) => {
+    const newUris: string[] = []
+    for (const f of Array.from(files)) {
+      if (!IMAGE_TYPES.has(f.type)) continue
+      try {
+        newUris.push(await fileToDataUri(f))
+      } catch {
+        // skip files that fail to read
+      }
+    }
+    setPendingImages((prev) => [...prev, ...newUris])
+  }, [])
+
+  const handlePaste = useCallback(
+    (e: ClipboardEvent) => {
+      if (e.clipboardData?.files?.length) {
+        e.preventDefault()
+        void addImages(e.clipboardData.files)
+      }
+    },
+    [addImages],
+  )
+
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault()
+    setDragOver(true)
+  }, [])
+
+  const handleDragLeave = useCallback((e: React.DragEvent) => {
+    e.preventDefault()
+    setDragOver(false)
+  }, [])
+
+  const handleDrop = useCallback(
+    (e: React.DragEvent) => {
+      e.preventDefault()
+      setDragOver(false)
+      if (e.dataTransfer.files?.length) {
+        void addImages(e.dataTransfer.files)
+      }
+    },
+    [addImages],
+  )
+
+  // ── Mention handling ──────────────────────────────────────────────────────
 
   function recomputeMention(text: string, caret: number) {
     const before = text.slice(0, caret)
@@ -37,13 +101,24 @@ export function Composer({ roster, turnActive, onSend, onAbort }: Props) {
     queueMicrotask(() => el?.focus())
   }
 
+  // ── Submit ────────────────────────────────────────────────────────────────
+
   function submit() {
     const text = value.trim()
-    if (!text) return
-    onSend(text)
+    if (!text && pendingImages.length === 0) return
+    onSend(text || "(image shared)", pendingImages.length > 0 ? pendingImages : undefined)
     setValue("")
     setPartial(null)
+    setPendingImages([])
   }
+
+  // ── Remove a pending image ────────────────────────────────────────────────
+
+  function removeImage(index: number) {
+    setPendingImages((prev) => prev.filter((_, i) => i !== index))
+  }
+
+  // ── Render ────────────────────────────────────────────────────────────────
 
   return (
     <div className="composer">
@@ -70,13 +145,36 @@ export function Composer({ roster, turnActive, onSend, onAbort }: Props) {
           })}
         </div>
       )}
+
+      {/* Image preview strip */}
+      {pendingImages.length > 0 && (
+        <div className="image-preview-strip">
+          {pendingImages.map((uri, i) => (
+            <div key={i} className="image-preview-thumb">
+              <img src={uri} alt={`attachment ${i + 1}`} />
+              <button
+                className="image-preview-remove"
+                onClick={() => removeImage(i)}
+                title="Remove image"
+              >
+                ✕
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
       <div className="composer-row">
         <textarea
           ref={ref}
           className="composer-input"
-          rows={1}
+          rows={3}
           value={value}
-          placeholder="Message the room — @ summons an agent, /kick @name removes one"
+          placeholder="Message the room — @ summons an agent, paste or drop images"
+          onPaste={handlePaste}
+          onDragOver={handleDragOver}
+          onDragLeave={handleDragLeave}
+          onDrop={handleDrop}
           onChange={(e) => {
             setValue(e.target.value)
             recomputeMention(e.target.value, e.target.selectionStart ?? e.target.value.length)

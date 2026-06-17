@@ -5,7 +5,8 @@ import { readdir, stat } from "node:fs/promises"
 import { join, relative } from "node:path"
 import type { WorkReceipt } from "./types.js"
 
-const IGNORED = new Set([".git", "node_modules", ".pi", "__pycache__"])
+const IGNORED = new Set([".git", "node_modules", ".pi", "__pycache__", "sessions", "agent_memory", "mdstrip", "temp_convert", "fetches", "media"])
+
 
 export type Snapshot = Map<string, string>
 

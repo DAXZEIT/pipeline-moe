@@ -409,6 +409,27 @@ body {
 .row.agent {
   align-self: flex-start;
 }
+
+/* Image gallery in transcript */
+.image-gallery {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 6px;
+}
+.image-thumb {
+  max-width: 200px;
+  max-height: 180px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  object-fit: contain;
+  cursor: pointer;
+  transition: transform 0.15s;
+}
+.image-thumb:hover {
+  transform: scale(1.03);
+}
+
 .agent-head {
   display: flex;
   align-items: center;
@@ -507,12 +528,55 @@ body {
   padding: 11px 13px;
   font: inherit;
   max-height: 160px;
-  min-height: 42px;
+  min-height: 84px;
 }
 .composer-input:focus {
   outline: none;
   border-color: var(--accent);
 }
+
+/* Image preview strip */
+.image-preview-strip {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+.image-preview-thumb {
+  position: relative;
+  width: 64px;
+  height: 64px;
+  border-radius: 6px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+}
+.image-preview-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.image-preview-remove {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 18px;
+  height: 18px;
+  border: none;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.75);
+  color: var(--danger);
+  font-size: 10px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+}
+.image-preview-remove:hover {
+  background: var(--danger);
+  color: #fff;
+}
+
 .mention-pop {
   position: absolute;
   bottom: 100%;
@@ -813,6 +877,29 @@ body {
   font-style: italic;
 }
 .reasoning-live pre {
+  margin: 4px 0 0;
+  padding: 6px 8px;
+  background: var(--bg2);
+  border: 1px dashed var(--border);
+  border-radius: 6px;
+  max-height: 180px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 11px;
+  color: var(--muted);
+}
+/* Completed reasoning (persisted after turn) */
+.reasoning-done {
+  margin: 6px 0;
+  font-size: 12px;
+}
+.reasoning-done > summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-style: italic;
+}
+.reasoning-done pre {
   margin: 4px 0 0;
   padding: 6px 8px;
   background: var(--bg2);

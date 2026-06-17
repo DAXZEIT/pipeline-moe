@@ -32,6 +32,23 @@ function ReceiptView({ r }: { r: Receipt }) {
   )
 }
 
+function ImageGallery({ images }: { images: string[] }) {
+  if (images.length === 0) return null
+  return (
+    <div className="image-gallery">
+      {images.map((path, i) => (
+        <img
+          key={i}
+          className="image-thumb"
+          src={`/api/media/${path.split("/").pop()}`}
+          alt={`attachment ${i + 1}`}
+          loading="lazy"
+        />
+      ))}
+    </div>
+  )
+}
+
 export function Transcript({
   messages,
   streaming,
@@ -62,6 +79,7 @@ export function Transcript({
         if (m.author === "user") {
           return (
             <div key={m.index} className="row user">
+              {m.images && m.images.length > 0 && <ImageGallery images={m.images} />}
               <div className="bubble bubble-user">{m.text}</div>
             </div>
           )
@@ -75,6 +93,12 @@ export function Transcript({
               <span className="agent-name">{m.authorName}</span>
             </div>
             {m.activity && m.activity.length > 0 && <ActivityView activity={m.activity} />}
+            {m.reasoning && (
+              <details className="reasoning-done">
+                <summary>💭 thought</summary>
+                <pre>{m.reasoning}</pre>
+              </details>
+            )}
             <div className="bubble bubble-agent" style={{ borderColor: color }}>
               {m.text}
             </div>

@@ -18,6 +18,12 @@ import type {
   WorkReceipt,
 } from "./types.js"
 
+/** State when the pipeline is paused waiting for a user response to an ask_user. */
+interface PendingQuestion {
+  askerId: string
+  heldQueue: Participant[]
+}
+
 const MENTION_RE = /@(\w+)/g
 
 /** What one agent produced in a turn, before it is posted to the transcript. */
@@ -25,7 +31,10 @@ interface RunOutput {
   target: Participant
   reply: string
   activity: ToolActivity[]
+  reasoning?: string
   receipt: WorkReceipt
+  /** If the agent called ask_user, the question text. */
+  question?: string
 }
 
 function newConvId(): string {
@@ -42,6 +51,8 @@ export class Room {
   private aborted = false
   /** When true, agents' @mentions chain to other agents. No turn budget. */
   private chaining = true
+  /** Set when an agent called ask_user — pipeline is paused until user responds. */
+  private pendingQuestion: PendingQuestion | null = null
   /** Agent that handles messages with no @mention. null = first active. */
   private defaultAgentId: string | null = null
 
@@ -153,11 +164,11 @@ export class Room {
   /** True while an agent is running or queued — editing a roster member's
    *  session (which disposes+recreates it) is unsafe during this window. */
   isBusy(): boolean {
-    return this.running.size > 0 || this.queue.length > 0
+    return this.running.size > 0 || this.queue.length > 0 || this.pendingQuestion !== null
   }
 
   private ensureIdle(): void {
-    if (this.running.size > 0 || this.queue.length > 0) {
+    if (this.running.size > 0 || this.queue.length > 0 || this.pendingQuestion !== null) {
       throw new Error("a turn is running — press Stop before switching discussions")
     }
   }
@@ -265,6 +276,9 @@ export class Room {
     authorName: string,
     text: string,
     activity?: ToolActivity[],
+    reasoning?: string,
+    images?: string[],
+    question?: string,
   ): TranscriptEntry {
     const entry: TranscriptEntry = {
       index: this.transcript.length,
@@ -273,6 +287,9 @@ export class Room {
       text,
       ts: Date.now(),
       ...(activity && activity.length > 0 ? { activity } : {}),
+      ...(reasoning ? { reasoning } : {}),
+      ...(images && images.length > 0 ? { images } : {}),
+      ...(question ? { question } : {}),
     }
     this.transcript.push(entry)
     this.hub.broadcast("message", entry)
@@ -338,30 +355,128 @@ export class Room {
   }
 
   /** Build the prompt for a participant: the room lines it hasn't seen yet
-   *  (excluding its own past messages, which live in its session memory). */
-  private buildContext(p: Participant): string {
+   *  (excluding its own past messages, which live in its session memory).
+   *  Also collects images from the last user message for vision support. */
+  private buildContext(p: Participant): { text: string; images?: string[] } {
     const unseen = this.transcript
       .slice(p.cursor)
       .filter((e) => e.author !== p.persona.id)
     const lines = unseen.map((e) => `${e.authorName}: ${e.text}`).join("\n\n")
-    return (
-      `${lines}\n\n---\n` +
-      `You are ${p.persona.name}. Respond to the conversation above from your perspective now.`
-    )
+
+    // Collect images from the last user message in the unseen range.
+    // These are the images the user attached to their most recent message.
+    const userEntry = [...unseen].reverse().find((e) => e.author === "user")
+    const images = userEntry?.images
+
+    return {
+      text: `${lines}\n\n---\nYou are ${p.persona.name}. Respond to the conversation above from your perspective now.`,
+      images,
+    }
   }
 
   /** Public entry point. Enqueues the message; processing streams over SSE. */
-  submit(text: string): void {
-    this.chain = this.chain.then(() => this.process(text)).catch((err) => {
+  submit(text: string, images?: string[]): void {
+    this.chain = this.chain.then(() => this.process(text, images)).catch((err) => {
       this.notice(`Room error: ${err instanceof Error ? err.message : String(err)}`, "error")
     })
   }
 
-  private async process(text: string): Promise<void> {
+  private async process(text: string, images?: string[]): Promise<void> {
     const trimmed = text.trim()
+
+    // Handle /cancel while paused — cancel the question and drain the held queue.
+    if (this.pendingQuestion && trimmed === "/cancel") {
+      const held = this.pendingQuestion.heldQueue
+      this.pendingQuestion = null
+      this.post("user", "You", trimmed)
+      this.notice("Question cancelled. Resuming pipeline.")
+      this.queue = held
+      this.aborted = false
+      const paused = await this.drainQueue()
+      if (paused) {
+        this.hub.broadcast("workspace", await listWorkspace(config.workspaceDir))
+        await this.saveCurrent()
+        return
+      }
+      this.queue = []
+      this.hub.broadcast("turn", { phase: "end" })
+      this.hub.broadcast("workspace", await listWorkspace(config.workspaceDir))
+      await this.saveCurrent()
+      return
+    }
+
     if (await this.handleSlashCommand(trimmed)) return
 
-    this.post("user", "You", trimmed)
+    // ── Resume from paused state ──────────────────────────────────────────
+    if (this.pendingQuestion) {
+      const pq = this.pendingQuestion
+      this.pendingQuestion = null
+
+      this.post("user", "You", trimmed, undefined, undefined, images)
+      this.hub.broadcast("turn", { phase: "resume", askerId: pq.askerId })
+      this.aborted = false
+
+      // Force-route to the agent that asked the question.
+      const asker = this.registry.get(pq.askerId)
+      if (!asker || !asker.active) {
+        this.notice(`@${pq.askerId} is no longer active — resuming held queue.`, "info")
+        this.queue = pq.heldQueue
+        const paused = await this.drainQueue()
+        if (paused) {
+          this.hub.broadcast("workspace", await listWorkspace(config.workspaceDir))
+          await this.saveCurrent()
+          return
+        }
+        this.queue = []
+        this.hub.broadcast("turn", { phase: "end" })
+        this.hub.broadcast("workspace", await listWorkspace(config.workspaceDir))
+        await this.saveCurrent()
+        return
+      }
+
+      const result = await this.runAgent(asker, this.buildContext(asker))
+      if (result && !this.aborted) {
+        // Post with question field if the asker asked another question.
+        this.post(asker.persona.id, asker.persona.name, result.reply || "(no response)", result.activity, result.reasoning, undefined, result.question)
+        if (receiptHasChanges(result.receipt)) this.hub.broadcast("receipt", result.receipt)
+        asker.cursor = this.transcript.length
+
+        // If the asker asked ANOTHER question, re-pause.
+        if (result.question) {
+          this.pendingQuestion = { askerId: asker.persona.id, heldQueue: pq.heldQueue }
+          this.hub.broadcast("turn", { phase: "pause", askerId: asker.persona.id, question: result.question })
+          this.hub.broadcast("workspace", await listWorkspace(config.workspaceDir))
+          await this.saveCurrent()
+          return
+        }
+
+        // Chain from asker's reply.
+        if (this.chaining) {
+          const next = this.resolveAgentMentions(result.reply, asker.persona.id)
+          if (next.length > 0) {
+            this.queue.push(...next)
+            this.hub.broadcast("turn", { phase: "chain", from: asker.persona.id, targets: next.map((t) => t.persona.id) })
+          }
+        }
+      }
+
+      // Restore the held queue and continue draining.
+      this.queue = pq.heldQueue
+      const paused = await this.drainQueue()
+      if (paused) {
+        this.hub.broadcast("workspace", await listWorkspace(config.workspaceDir))
+        await this.saveCurrent()
+        return
+      }
+      this.queue = []
+      this.hub.broadcast("turn", { phase: "end" })
+      this.hub.broadcast("workspace", await listWorkspace(config.workspaceDir))
+      await this.saveCurrent()
+      return
+    }
+
+    // ── Normal (non-paused) flow ──────────────────────────────────────────
+    this.post("user", "You", trimmed, undefined, undefined, images)
 
     const initial = this.resolveTargets(trimmed)
     if (initial.length === 0) {
@@ -373,39 +488,12 @@ export class Room {
     this.aborted = false
     this.hub.broadcast("turn", { phase: "start", targets: initial.map((t) => t.persona.id) })
 
-    // Drain the queue group by group. A "group" is either a single serial agent,
-    // or a contiguous run of parallel-flagged agents that run as a concurrent
-    // wave (lane-capped so local agents still serialize on the one llama slot).
-    // With chaining on, replies can append more agents (their @mentions).
-    while (this.queue.length > 0 && !this.aborted) {
-      const group = this.nextGroup()
-      if (group.length > 1) {
-        this.notice(`running ${group.length} in parallel: ${group.map((g) => `@${g.persona.id}`).join(" ")}`)
-        this.hub.broadcast("turn", { phase: "parallel", targets: group.map((g) => g.persona.id) })
-      }
-
-      const results = await this.runWave(group)
-
-      for (const out of results) {
-        if (!out || this.aborted) continue
-        this.post(out.target.persona.id, out.target.persona.name, out.reply || "(no response)", out.activity)
-        if (receiptHasChanges(out.receipt)) this.hub.broadcast("receipt", out.receipt)
-        // Mark this participant caught up through its own just-posted message.
-        out.target.cursor = this.transcript.length
-
-        // Chain: enqueue agents this reply explicitly @mentioned.
-        if (this.chaining) {
-          const next = this.resolveAgentMentions(out.reply, out.target.persona.id)
-          if (next.length > 0) {
-            this.queue.push(...next)
-            this.hub.broadcast("turn", {
-              phase: "chain",
-              from: out.target.persona.id,
-              targets: next.map((t) => t.persona.id),
-            })
-          }
-        }
-      }
+    // Drain the queue — shared method handles questions, chaining, and parallel waves.
+    const paused = await this.drainQueue()
+    if (paused) {
+      this.hub.broadcast("workspace", await listWorkspace(config.workspaceDir))
+      await this.saveCurrent()
+      return
     }
 
     this.queue = []
@@ -442,7 +530,8 @@ export class Room {
 
     return Promise.all(
       group.map((p) => {
-        const task = () => this.runAgent(p, contexts.get(p) ?? "")
+        const ctx = contexts.get(p) ?? { text: "" }
+        const task = () => this.runAgent(p, ctx)
         const lane = this.laneOf(p)
         // Local lane is single-slot: chain tasks so they never overlap.
         if (lane === "local") {
@@ -459,17 +548,22 @@ export class Room {
 
   /** Run one agent end to end: snapshot, prompt, snapshot, diff. Does NOT post —
    *  the caller posts results in group order to keep the transcript deterministic. */
-  private async runAgent(target: Participant, context: string): Promise<RunOutput | null> {
+  private async runAgent(
+    target: Participant,
+    context: { text: string; images?: string[] },
+  ): Promise<RunOutput | null> {
     const before = await snapshot(config.workspaceDir)
     this.running.add(target)
     try {
-      const result = await target.run(context)
+      const result = await target.run(context.text, context.images)
       if (this.aborted) return null
       const after = await snapshot(config.workspaceDir)
       return {
         target,
         reply: result.text,
         activity: result.activity,
+        reasoning: result.reasoning,
+        question: result.question,
         receipt: diffSnapshots(before, after, target.persona.id),
       }
     } catch (err) {
@@ -509,18 +603,99 @@ export class Room {
           this.notice(`Activated @${id}.`)
         } else this.notice(`/activate: unknown participant "${rawTarget ?? ""}".`, "error")
         return true
+      case "/compact": {
+        if (!id) {
+          this.notice(`/compact: usage — /compact @agent`, "error")
+          return true
+        }
+        const target = this.registry.get(id)
+        if (!target) {
+          this.notice(`/compact: unknown participant "${rawTarget ?? ""}".`, "error")
+          return true
+        }
+        if (this.isBusy()) {
+          this.notice(`/compact: wait until the current turn finishes.`, "error")
+          return true
+        }
+        this.notice(`Compacting @${id}'s context…`)
+        try {
+          const result = await target.compact()
+          this.notice(`@${id} compacted: ${result.tokensBefore} tokens before → summary generated.`)
+        } catch (err) {
+          this.notice(`/compact @${id} failed: ${err instanceof Error ? err.message : String(err)}`, "error")
+        }
+        return true
+      }
       default:
         this.notice(`Unknown command "${cmd}".`, "error")
         return true
     }
   }
 
+  /** Shared drain loop — replaces the 4 duplicated inline loops.
+   *  Returns true if the pipeline was paused by an ask_user (caller should return).
+   *  Handles parallel-wave questions correctly: posts ALL results from the wave
+   *  before pausing on the first question, so no agent output is silently dropped. */
+  private async drainQueue(): Promise<boolean> {
+    while (this.queue.length > 0 && !this.aborted) {
+      const group = this.nextGroup()
+      if (group.length > 1) {
+        this.notice(`running ${group.length} in parallel: ${group.map((g) => `@${g.persona.id}`).join(" ")}`)
+        this.hub.broadcast("turn", { phase: "parallel", targets: group.map((g) => g.persona.id) })
+      }
+
+      const results = await this.runWave(group)
+
+      // Collect which results have questions (we pause on the first one,
+      // but still post ALL results from this wave to avoid data loss).
+      let paused = false
+      let pauseAskerId: string | null = null
+      let pauseQuestion: string | null = null
+
+      for (const out of results) {
+        if (!out || this.aborted) continue
+
+        if (out.question && !paused) {
+          // First question in this wave — remember it, but don't return yet.
+          paused = true
+          pauseAskerId = out.target.persona.id
+          pauseQuestion = out.question
+        }
+
+        // Post the result (with question field if applicable).
+        this.post(out.target.persona.id, out.target.persona.name, out.reply || "(no response)", out.activity, out.reasoning, undefined, out.question)
+        if (receiptHasChanges(out.receipt)) this.hub.broadcast("receipt", out.receipt)
+        out.target.cursor = this.transcript.length
+
+        // Chain from this reply (even if it had a question — the question is
+        // posted as part of the message, so @mentions in the text still chain).
+        if (this.chaining) {
+          const next = this.resolveAgentMentions(out.reply, out.target.persona.id)
+          if (next.length > 0) {
+            this.queue.push(...next)
+            this.hub.broadcast("turn", { phase: "chain", from: out.target.persona.id, targets: next.map((t) => t.persona.id) })
+          }
+        }
+      }
+
+      // If we encountered a question in this wave, pause now (after all wave results are posted).
+      if (paused) {
+        this.pendingQuestion = { askerId: pauseAskerId!, heldQueue: [...this.queue] }
+        this.queue = []
+        this.hub.broadcast("turn", { phase: "pause", askerId: pauseAskerId!, question: pauseQuestion! })
+        return true
+      }
+    }
+    return false
+  }
+
   /** Stop everything: clear the pending queue and abort every running agent
    *  (a parallel wave can have several in flight at once). */
   async abortCurrent(): Promise<boolean> {
     this.aborted = true
-    const had = this.queue.length > 0 || this.running.size > 0
+    const had = this.queue.length > 0 || this.running.size > 0 || this.pendingQuestion !== null
     this.queue = []
+    this.pendingQuestion = null
     await Promise.all([...this.running].map((p) => p.abort()))
     return had
   }

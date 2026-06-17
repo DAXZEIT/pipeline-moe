@@ -28,11 +28,11 @@ export const api = {
   transcript: () => fetch(`${API_BASE}/api/transcript`).then((r) => json<Message[]>(r)),
   workspace: () => fetch(`${API_BASE}/api/workspace`).then((r) => json<WorkspaceFile[]>(r)),
 
-  sendMessage: (text: string) =>
+  sendMessage: (text: string, images?: string[]) =>
     fetch(`${API_BASE}/api/messages`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text }),
+      body: JSON.stringify({ text, ...(images && images.length > 0 ? { images } : {}) }),
     }).then((r) => json<{ accepted: boolean }>(r)),
 
   setActive: (id: string, active: boolean) =>
@@ -101,6 +101,11 @@ export const api = {
     }).then((r) => json<RosterItem>(r)),
 
   abort: () => fetch(`${API_BASE}/api/abort`, { method: "POST" }).then((r) => json(r)),
+
+  compact: (id: string) =>
+    fetch(`${API_BASE}/api/participants/${id}/compact`, { method: "POST" }).then((r) =>
+      json<{ summary: string; tokensBefore: number }>(r),
+    ),
 
   settings: () =>
     fetch(`${API_BASE}/api/settings`).then((r) =>

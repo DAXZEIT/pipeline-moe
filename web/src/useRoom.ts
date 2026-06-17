@@ -25,6 +25,7 @@ export function useRoom() {
   const [notices, setNotices] = useState<Notice[]>([])
   const [connected, setConnected] = useState(false)
   const [turnActive, setTurnActive] = useState(false)
+  const [paused, setPaused] = useState(false)
   const [chaining, setChainingState] = useState(true)
   const [defaultAgent, setDefaultAgentState] = useState<string | null>(null)
   const [conversations, setConversations] = useState<ConversationMeta[]>([])
@@ -135,6 +136,15 @@ export function useRoom() {
         setLiveReasoning({})
       } else if (data.phase === "end") {
         setTurnActive(false)
+        setPaused(false)
+      } else if (data.phase === "pause") {
+        setTurnActive(false)
+        setPaused(true)
+        pushNotice(`${data.askerId} is waiting for your answer.`)
+      } else if (data.phase === "resume") {
+        setPaused(false)
+        setTurnActive(true)
+        pushNotice(`Resuming — answering ${data.askerId}`)
       } else if (data.phase === "chain") {
         const to = (data.targets as string[]).map((t) => `@${t}`).join(" ")
         pushNotice(`@${data.from} → ${to}`)
@@ -168,8 +178,8 @@ export function useRoom() {
   }, [pushNotice])
 
   const send = useCallback(
-    (text: string) => {
-      api.sendMessage(text).catch((err) => pushNotice(String(err.message ?? err), "error"))
+    (text: string, images?: string[]) => {
+      api.sendMessage(text, images).catch((err) => pushNotice(String(err.message ?? err), "error"))
     },
     [pushNotice],
   )
@@ -235,6 +245,16 @@ export function useRoom() {
     api.abort().catch(() => {})
   }, [])
 
+  const compactAgent = useCallback(
+    (id: string) => {
+      pushNotice(`Compacting @${id}…`)
+      api.compact(id)
+        .then((r) => pushNotice(`@${id} compacted: ${r.tokensBefore} tokens before → summary generated.`))
+        .catch((err) => pushNotice(String(err.message ?? err), "error"))
+    },
+    [pushNotice],
+  )
+
   const setChaining = useCallback(
     (value: boolean) => {
       api.setChaining(value).then((s) => setChainingState(s.chaining)).catch((err) =>
@@ -295,6 +315,7 @@ export function useRoom() {
     notices,
     connected,
     turnActive,
+    paused,
     chaining,
     defaultAgent,
     conversations,
@@ -303,6 +324,7 @@ export function useRoom() {
     setActive,
     setParallel,
     kick,
+    compactAgent,
     createParticipant,
     updateParticipant,
     reorderParticipants,

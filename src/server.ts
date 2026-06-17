@@ -4,7 +4,9 @@
 // instances (one per participant) sharing a workspace, routes @mentions to
 // them via a serial queue, and streams everything to the UI over SSE.
 
-import { mkdir } from "node:fs/promises"
+import { createHash } from "node:crypto"
+import { access, mkdir, writeFile } from "node:fs/promises"
+import { extname, join } from "node:path"
 import cors from "cors"
 import rateLimit from "express-rate-limit"
 import express from "express"
@@ -19,11 +21,43 @@ import { ConversationStore } from "./store.js"
 import type { Persona } from "./types.js"
 import { parsePersona, VALID_TOOLS } from "./validation.js"
 
+/** Directory for saved user images (relative to workspace). */
+function mediaDir(): string {
+  return join(config.workspaceDir, "media")
+}
 
+/** Resolve a base64 data URI to a saved file path, returning the workspace-relative path. */
+async function saveImage(uri: string): Promise<string> {
+  // Parse "data:image/png;base64,ABCD" → { ext: "png", data: "ABCD" }
+  const match = uri.match(/^data:image\/(png|jpeg|webp|gif);base64,([A-Za-z0-9+\/=]+)$/)
+  if (!match) throw new Error(`unsupported image format: ${uri.slice(0, 30)}...`);
+  const [, ext, b64] = match
+  const hash = createHash("md5").update(b64).digest("hex").slice(0, 12)
+  const fileName = `${hash}.${ext}`
+  const filePath = join(mediaDir(), fileName)
+  await writeFile(filePath, Buffer.from(b64, "base64"))
+  return `media/${fileName}`
+}
+
+async function saveIncomingImages(images: unknown): Promise<string[]> {
+  if (!Array.isArray(images)) return []
+  const results: string[] = []
+  for (const uri of images) {
+    if (typeof uri !== "string") continue
+    try {
+      results.push(await saveImage(uri))
+    } catch (err) {
+      // Skip images that fail to save; the message still goes through.
+      console.warn(`[server] image save failed: ${err instanceof Error ? err.message : String(err)}`)
+    }
+  }
+  return results
+}
 
 
 async function main(): Promise<void> {
   await mkdir(config.workspaceDir, { recursive: true })
+  await mkdir(mediaDir(), { recursive: true })
 
   const resolved = await resolveModel()
   const hub = new SseHub()
@@ -37,10 +71,28 @@ async function main(): Promise<void> {
 
   const app = express()
   app.use(cors({ origin: ["http://localhost:5310", "http://localhost:5300"] }))
-  app.use(express.json({ limit: "1mb" }))
+  app.use(express.json({ limit: "5mb" }))
 
   app.get("/api/health", (_req, res) => {
     res.json({ ok: true, workspace: config.workspaceDir, clients: hub.clientCount })
+  })
+
+  // Serve saved images from the media directory.
+  app.get("/api/media/:filename", async (req, res) => {
+    const filename = req.params.filename
+    const ext = extname(filename).toLowerCase()
+    const allowed = new Set([".png", ".jpg", ".jpeg", ".webp", ".gif"])
+    if (!allowed.has(ext)) {
+      res.status(400).json({ error: "unsupported file type" })
+      return
+    }
+    const filePath = join(mediaDir(), filename)
+    try {
+      await access(filePath)
+      res.sendFile(filePath)
+    } catch {
+      res.status(404).json({ error: "image not found" })
+    }
   })
 
   // SSE stream of all room events.
@@ -243,14 +295,36 @@ async function main(): Promise<void> {
 
   // Post a message to the room. Returns immediately; results stream over SSE.
   // Rate limited to prevent agent loops from flooding the queue.
-  app.post("/api/messages", rateLimit({ windowMs: 60_000, max: 60, standardHeaders: true, legacyHeaders: false }), (req, res) => {
+  app.post("/api/messages", rateLimit({ windowMs: 60_000, max: 60, standardHeaders: true, legacyHeaders: false }), async (req, res) => {
     const text = String(req.body?.text ?? "").trim()
     if (!text) {
       res.status(400).json({ error: "`text` is required" })
       return
     }
-    room.submit(text)
+    // Save images and resolve to workspace-relative paths.
+    const images = await saveIncomingImages(req.body?.images)
+    room.submit(text, images.length > 0 ? images : undefined)
     res.status(202).json({ accepted: true })
+  })
+
+  // Compact a specific agent's session context.
+  app.post("/api/participants/:id/compact", async (req, res) => {
+    const { id } = req.params
+    const p = registry.get(id)
+    if (!p) {
+      res.status(404).json({ error: `unknown participant "${id}"` })
+      return
+    }
+    if (room.isBusy()) {
+      res.status(409).json({ error: "a turn is running — press Stop before compacting" })
+      return
+    }
+    try {
+      const result = await p.compact()
+      res.json(result)
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : String(err) })
+    }
   })
 
   app.post("/api/abort", async (_req, res) => {

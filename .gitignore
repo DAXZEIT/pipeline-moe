@@ -8,9 +8,18 @@ web/dist/
 # Local config & secrets — never commit (.env.example is the template)
 .env
 
-# Runtime data (private: conversations + agent workspace)
+# Runtime data (private: conversations + fetched content)
 sessions/
-workspace/
+fetches/
+agent_memory/
+media/
+
+# Migrated Python tools (predate pipeline, not part of it)
+mdstrip/
+temp_convert/
+
+# Pi pipeline state
+.pi/
 
 # Logs / OS cruft
 *.log

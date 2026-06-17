@@ -12,7 +12,7 @@ export type SseEventName =
   | "status" // a participant status change
   | "receipt" // a work receipt (filesystem diff)
   | "notice" // an informational/error notice
-  | "turn" // a routing turn lifecycle marker
+  | "turn" // a routing turn lifecycle marker (phases: start, end, chain, parallel, pause, resume)
   | "workspace" // live workspace file listing
   | "settings" // room settings change (e.g. chaining toggle)
   | "transcript" // full transcript replacement (on conversation switch)

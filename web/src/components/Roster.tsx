@@ -13,6 +13,7 @@ interface Props {
   onSetParallel: (id: string, parallel: boolean) => void
   onSetDefault: (id: string | null) => void
   onKick: (id: string) => void
+  onCompact: (id: string) => void
   onCreate: (body: Parameters<typeof api.create>[0]) => Promise<unknown>
   onReorder: (order: string[]) => void
 }
@@ -35,6 +36,7 @@ const STATUS_LABEL: Record<RosterItem["status"], string> = {
   active: "active",
   thinking: "thinking",
   working: "working",
+  compacting: "compacting…",
 }
 
 export function Roster({
@@ -46,6 +48,7 @@ export function Roster({
   onSetParallel,
   onSetDefault,
   onKick,
+  onCompact,
   onCreate,
   onReorder,
 }: Props) {
@@ -162,6 +165,14 @@ export function Roster({
                   onClick={() => onSetParallel(r.id, !r.parallel)}
                 >
                   ∥
+                </button>
+                <button
+                  className="mini"
+                  disabled={turnActive || r.status === "compacting"}
+                  title={r.status === "compacting" ? "Compacting…" : turnActive ? "Stop the turn first" : "Compact context (free tokens)"}
+                  onClick={() => onCompact(r.id)}
+                >
+                  ⟳
                 </button>
                 <button
                   className="mini"

@@ -6,7 +6,7 @@ import { resolve } from "node:path"
 
 export const config = {
   port: Number(process.env.PORT ?? 5300),
-  workspaceDir: resolve(process.env.WORKSPACE_DIR ?? resolve(process.cwd(), "workspace")),
+  workspaceDir: process.env.WORKSPACE_DIR ?? process.cwd(),
   /** Where group conversations are persisted as JSON (one file per discussion). */
   sessionsDir: resolve(process.env.SESSIONS_DIR ?? resolve(process.cwd(), "sessions")),
   /** "provider/id" override; empty means use pi's default model resolution. */

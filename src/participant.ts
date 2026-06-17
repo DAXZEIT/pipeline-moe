@@ -7,9 +7,12 @@ import {
   DefaultResourceLoader,
   getAgentDir,
   SessionManager,
+  SettingsManager,
   type AgentSession,
   type AgentSessionEvent,
 } from "@earendil-works/pi-coding-agent"
+import { readFileSync } from "node:fs"
+import { join } from "node:path"
 import { config } from "./config.js"
 import { buildConfinedTools } from "./sandbox-tools.js"
 import { resolveModelRef, type ResolvedModel } from "./model.js"
@@ -39,7 +42,12 @@ const ROOM_NOTE =
   "@<id> in lowercase (e.g. @scout, @builder, @auditor, @scribe, @tester). To hand work " +
   "to another agent, write @<id> EXPLICITLY in your reply — a plain sentence like " +
   "'over to the builder' does NOT trigger anything. Only @-mention an agent when you " +
-  "genuinely need it. Do not @-mention yourself, and do not use @all (that is for the human)."
+  "genuinely need it. Do not @-mention yourself, and do not use @all (that is for the human).\n" +
+  "You can refer to other agents by name in discussion (e.g. 'the builder said...') without " +
+  "triggering a handoff — only the @prefix routes work.\n" +
+  "If you need information only the user can provide (preferences, credentials, context), " +
+  "use the ask_user tool — it will pause the pipeline and wait for their response. Do NOT " +
+  "use it for rhetorical questions or self-clarification."
 
 export type Emit = (event: "token" | "status" | "activity" | "reasoning", data: unknown) => void
 
@@ -47,6 +55,10 @@ export type Emit = (event: "token" | "status" | "activity" | "reasoning", data: 
 export interface TurnResult {
   text: string
   activity: ToolActivity[]
+  /** Reasoning trace accumulated during the turn. */
+  reasoning?: string
+  /** If the agent called ask_user, the question text. */
+  question?: string
 }
 
 export class Participant {
@@ -63,6 +75,8 @@ export class Participant {
   private buffer = ""
   /** Tool calls made during the current turn, keyed for start/end matching. */
   private activity = new Map<string, ToolActivity>()
+  /** Reasoning accumulated during the current turn. */
+  private reasoningBuffer = ""
   private readonly emit: Emit
 
   private constructor(persona: Persona, emit: Emit) {
@@ -89,6 +103,12 @@ export class Participant {
     // Each persona may pin its own model ("provider/id"); undefined → default.
     const model = resolveModelRef(resolved, persona.model)
 
+    // Auto-compaction: trigger when context exceeds 90K tokens.
+    // reserveTokens = contextWindow - threshold. For 128K ctx: 128000 - 90000 = 38000.
+    const settings = SettingsManager.inMemory({
+      compaction: { enabled: true, reserveTokens: 38000 },
+    })
+
     const { session } = await createAgentSession({
       cwd: config.workspaceDir,
       // Disable built-in file tools and supply workspace-confined replacements,
@@ -98,10 +118,14 @@ export class Participant {
       thinkingLevel: config.thinkingLevel,
       resourceLoader: loader,
       sessionManager: SessionManager.inMemory(config.workspaceDir),
+      settingsManager: settings,
       authStorage: resolved.authStorage,
       modelRegistry: resolved.modelRegistry,
       ...(model ? { model } : {}),
     })
+    // Enable auto-compaction on the session (triggers compact() automatically
+    // when context tokens exceed the threshold after each turn).
+    session.setAutoCompactionEnabled(true)
     p.session = session
     p.unsubscribe = session.subscribe((ev) => p.onEvent(ev))
     return p
@@ -119,7 +143,7 @@ export class Participant {
         this.buffer += me.delta
         this.emit("token", { id: this.persona.id, delta: me.delta })
       } else if (me.type === "thinking_delta") {
-        // Reasoning is streamed live for the activity panel but not persisted.
+        this.reasoningBuffer += me.delta
         this.emit("reasoning", { id: this.persona.id, delta: me.delta })
       }
     } else if (ev.type === "tool_execution_start") {
@@ -133,6 +157,10 @@ export class Participant {
       this.activity.set(ev.toolCallId, item)
       this.setStatus("working")
       this.emit("activity", { id: this.persona.id, item })
+    } else if (ev.type === "compaction_start") {
+      this.emit("status", { id: this.persona.id, status: "compacting", reason: ev.reason })
+    } else if (ev.type === "compaction_end") {
+      this.emit("status", { id: this.persona.id, status: "idle", compactionResult: ev.result ? { summary: ev.result.summary.slice(0, 200), tokensBefore: ev.result.tokensBefore } : undefined })
     } else if (ev.type === "tool_execution_end") {
       const item = this.activity.get(ev.toolCallId) ?? {
         toolCallId: ev.toolCallId,
@@ -148,21 +176,74 @@ export class Participant {
     }
   }
 
-  /** Run one turn with the given prompt text. Returns the reply and tool calls. */
-  async run(promptText: string): Promise<TurnResult> {
+  /** Run one turn with the given prompt text. Optionally pass image paths
+   *  (workspace-relative, e.g. "media/abc.png") for vision support. */
+  async run(promptText: string, imagePaths?: string[]): Promise<TurnResult> {
     this.buffer = ""
+    this.reasoningBuffer = ""
     this.activity.clear()
     this.setStatus("active")
     try {
-      await this.session.prompt(promptText)
-      return { text: this.buffer.trim(), activity: [...this.activity.values()] }
+      const images = await this.resolveImages(imagePaths)
+      await this.session.prompt(promptText, images.length > 0 ? { images } : undefined)
+      const result: TurnResult = {
+        text: this.buffer.trim(),
+        activity: [...this.activity.values()],
+      }
+      if (this.reasoningBuffer.trim()) {
+        result.reasoning = this.reasoningBuffer.trim()
+      }
+      // Check if the agent called ask_user — extract the question from the tool args.
+      for (const act of result.activity) {
+        if (act.toolName === "ask_user" && act.status === "ok") {
+          const args = act.args as Record<string, unknown> | undefined
+          const q = typeof args?.question === "string" ? args.question : undefined
+          if (q) {
+            result.question = q
+            break
+          }
+        }
+      }
+      return result
     } finally {
       this.setStatus("idle")
     }
   }
 
+  /** Resolve workspace-relative image paths to ImageContent objects for the LLM. */
+  private async resolveImages(paths?: string[]): Promise<
+    Array<{ type: "image"; data: string; mimeType: string }>
+  > {
+    if (!paths) return []
+    const images: Array<{ type: "image"; data: string; mimeType: string }> = []
+    for (const relPath of paths) {
+      try {
+        const fullPath = join(config.workspaceDir, relPath)
+        const buf = readFileSync(fullPath)
+        const ext = relPath.split(".").pop()?.toLowerCase()
+        const mimeType = ext === "png" ? "image/png" : ext === "gif" ? "image/gif" : ext === "webp" ? "image/webp" : "image/jpeg"
+        images.push({ type: "image", data: buf.toString("base64"), mimeType })
+      } catch (err) {
+        // Skip images that fail to read.
+        console.warn(`[participant] image read failed: ${relPath} — ${err instanceof Error ? err.message : String(err)}`)
+      }
+    }
+    return images
+  }
+
   async abort(): Promise<void> {
     await this.session.abort()
+  }
+
+  /** Compact the agent's session context (summarize old turns to free tokens). */
+  async compact(): Promise<{ summary: string; tokensBefore: number }> {
+    const result = await this.session.compact()
+    return { summary: result.summary, tokensBefore: result.tokensBefore }
+  }
+
+  /** Whether the agent is currently compacting. */
+  get isCompacting(): boolean {
+    return this.session.isCompacting
   }
 
   dispose(): void {

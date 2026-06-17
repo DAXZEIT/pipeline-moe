@@ -5,7 +5,7 @@ export interface RosterItem {
   icon: string
   tools: string[]
   active: boolean
-  status: "idle" | "active" | "thinking" | "working"
+  status: "idle" | "active" | "thinking" | "working" | "compacting"
   /** Per-agent model "provider/id", or undefined when on the default. */
   model?: string
   /** May run concurrently with adjacent parallel-flagged agents. */
@@ -37,6 +37,12 @@ export interface Message {
   text: string
   ts: number
   activity?: ToolActivity[]
+  /** Reasoning trace (agent messages only, persisted after turn completion). */
+  reasoning?: string
+  /** Image paths (workspace-relative, e.g. "media/abc.png"). */
+  images?: string[]
+  /** If this message is a question posed to the user via ask_user. */
+  question?: string
 }
 
 /** Full persona, as returned by GET /api/participants/:id (for the edit form). */

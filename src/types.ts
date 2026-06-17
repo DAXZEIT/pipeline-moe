@@ -19,7 +19,7 @@ export interface Persona {
   model?: string
 }
 
-export type ParticipantStatus = "idle" | "active" | "thinking" | "working"
+export type ParticipantStatus = "idle" | "active" | "thinking" | "working" | "compacting"
 
 /** One tool call an agent made during a turn — what it did, not just the result. */
 export interface ToolActivity {
@@ -47,6 +47,12 @@ export interface TranscriptEntry {
   ts: number
   /** Tool calls made while producing this message (agent messages only). */
   activity?: ToolActivity[]
+  /** Reasoning trace, if any (agent messages only). */
+  reasoning?: string
+  /** Paths to saved images (relative to workspace), e.g. "media/abc123.png". */
+  images?: string[]
+  /** If this message is a question posed to the user via ask_user, the question text. */
+  question?: string
 }
 
 /** A file-change receipt produced by diffing the workspace around an agent turn. */

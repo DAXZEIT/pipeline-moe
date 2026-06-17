@@ -19,6 +19,7 @@ export default function App() {
         onSetParallel={room.setParallel}
         onSetDefault={room.setDefaultAgent}
         onKick={room.kick}
+        onCompact={room.compactAgent}
         onCreate={room.createParticipant}
         onReorder={room.reorderParticipants}
       />
