@@ -64,7 +64,7 @@ async function main(): Promise<void> {
   console.log(`[room] roster: ${registry.roster().length} participants`)
 
   const app = express()
-  app.use(cors())
+  app.use(cors({ origin: ["http://localhost:5310", "http://localhost:5300"] }))
   app.use(express.json({ limit: "1mb" }))
 
   app.get("/api/health", (_req, res) => {
@@ -285,7 +285,7 @@ async function main(): Promise<void> {
     res.json({ aborted })
   })
 
-  const server = app.listen(config.port, () => {
+  const server = app.listen(config.port, "127.0.0.1", () => {
     console.log(`[server] Pipeline-MoE listening on http://localhost:${config.port}`)
     console.log(`[server] workspace: ${config.workspaceDir}`)
   })
