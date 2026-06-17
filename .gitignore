@@ -1,0 +1,17 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+web/dist/
+
+# Local config & secrets — never commit (.env.example is the template)
+.env
+
+# Runtime data (private: conversations + agent workspace)
+sessions/
+workspace/
+
+# Logs / OS cruft
+*.log
+.DS_Store

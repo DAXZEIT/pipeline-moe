@@ -1,0 +1,306 @@
+// Pipeline-MoE backend entry point.
+//
+// REST + SSE over Express. Manages a roster of stateful pi AgentSession
+// instances (one per participant) sharing a workspace, routes @mentions to
+// them via a serial queue, and streams everything to the UI over SSE.
+
+import { mkdir } from "node:fs/promises"
+import cors from "cors"
+import express from "express"
+import { config } from "./config.js"
+import { isAllowedModel, listModels, resolveModel } from "./model.js"
+import { listWorkspace } from "./receipts.js"
+import { SEED_PERSONAS } from "./personas.js"
+import { Registry } from "./registry.js"
+import { Room } from "./room.js"
+import { SseHub } from "./sse.js"
+import { ConversationStore } from "./store.js"
+import type { Persona } from "./types.js"
+
+const VALID_TOOLS = new Set(["read", "bash", "edit", "write", "grep", "find", "ls"])
+
+function slug(s: string): string {
+  return s
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+}
+
+function parsePersona(body: Record<string, unknown>): Persona {
+  const name = String(body.name ?? "").trim()
+  if (!name) throw new Error("`name` is required")
+  const id = slug(String(body.id ?? name))
+  if (!id) throw new Error("could not derive a valid id from name")
+
+  const tools = Array.isArray(body.tools)
+    ? body.tools.map(String).filter((t) => VALID_TOOLS.has(t))
+    : ["read", "grep", "find", "ls"]
+
+  const systemPrompt = String(body.systemPrompt ?? "").trim()
+  if (!systemPrompt) throw new Error("`systemPrompt` is required")
+
+  return {
+    id,
+    name,
+    color: String(body.color ?? "#888888"),
+    icon: String(body.icon ?? "🤖"),
+    tools,
+    systemPrompt,
+  }
+}
+
+async function main(): Promise<void> {
+  await mkdir(config.workspaceDir, { recursive: true })
+
+  const resolved = await resolveModel()
+  const hub = new SseHub()
+  const registry = new Registry(resolved, hub)
+  const store = new ConversationStore()
+  const room = new Room(registry, hub, store, SEED_PERSONAS)
+
+  // Load the most recent saved discussion, or seed a fresh one.
+  await room.init()
+  console.log(`[room] roster: ${registry.roster().length} participants`)
+
+  const app = express()
+  app.use(cors())
+  app.use(express.json({ limit: "1mb" }))
+
+  app.get("/api/health", (_req, res) => {
+    res.json({ ok: true, workspace: config.workspaceDir, clients: hub.clientCount })
+  })
+
+  // SSE stream of all room events.
+  app.get("/api/events", (_req, res) => {
+    hub.addClient(res)
+    // Send the current roster immediately so a fresh client can render.
+    hub.broadcast("roster", registry.roster())
+  })
+
+  app.get("/api/participants", (_req, res) => {
+    res.json(registry.roster())
+  })
+
+  // Models offered for per-agent selection (local-only unless PIPELINE_ALLOW_CLOUD).
+  app.get("/api/models", (_req, res) => {
+    res.json({ models: listModels(resolved), allowCloud: config.allowCloud })
+  })
+
+  app.post("/api/participants", async (req, res) => {
+    try {
+      const persona = parsePersona(req.body ?? {})
+      if (registry.has(persona.id)) {
+        res.status(409).json({ error: `participant "${persona.id}" already exists` })
+        return
+      }
+      await registry.create(persona)
+      res.status(201).json(registry.roster().find((r) => r.id === persona.id))
+    } catch (err) {
+      res.status(400).json({ error: err instanceof Error ? err.message : String(err) })
+    }
+  })
+
+  // Reorder the roster (first-turn / @all execution order). Registered before
+  // the "/:id" routes so "reorder" is never parsed as an id.
+  app.post("/api/participants/reorder", (req, res) => {
+    const order = req.body?.order
+    if (!Array.isArray(order) || !order.every((x: unknown) => typeof x === "string")) {
+      res.status(400).json({ error: "`order` must be an array of participant ids" })
+      return
+    }
+    registry.reorder(order as string[])
+    res.json(registry.roster())
+  })
+
+  // Full persona (incl. systemPrompt) for the edit form.
+  app.get("/api/participants/:id", (req, res) => {
+    const p = registry.get(req.params.id)
+    if (!p) {
+      res.status(404).json({ error: `unknown participant "${req.params.id}"` })
+      return
+    }
+    res.json(p.persona)
+  })
+
+  // Activate / deactivate AND edit persona (name, prompt, tools, color, icon).
+  app.patch("/api/participants/:id", async (req, res) => {
+    const { id } = req.params
+    if (!registry.has(id)) {
+      res.status(404).json({ error: `unknown participant "${id}"` })
+      return
+    }
+    const body = req.body ?? {}
+
+    // Build a persona patch from any editable fields present in the body.
+    const patch: Record<string, unknown> = {}
+    if (typeof body.name === "string" && body.name.trim()) patch.name = body.name.trim()
+    if (typeof body.systemPrompt === "string" && body.systemPrompt.trim())
+      patch.systemPrompt = body.systemPrompt.trim()
+    if (typeof body.color === "string") patch.color = body.color
+    if (typeof body.icon === "string") patch.icon = body.icon
+    if (Array.isArray(body.tools))
+      patch.tools = body.tools.map(String).filter((t: string) => VALID_TOOLS.has(t))
+    if ("model" in body) {
+      const mv = body.model
+      if (mv === null || mv === "") {
+        patch.model = undefined // reset to the process default model
+      } else if (typeof mv === "string" && isAllowedModel(resolved, mv)) {
+        patch.model = mv
+      } else {
+        res.status(400).json({
+          error: config.allowCloud
+            ? `unknown model "${String(mv)}"`
+            : `model "${String(mv)}" unavailable — cloud is disabled (set PIPELINE_ALLOW_CLOUD=1 to enable)`,
+        })
+        return
+      }
+    }
+
+    try {
+      if (typeof body.active === "boolean") registry.setActive(id, body.active)
+      if (typeof body.parallel === "boolean") registry.setParallel(id, body.parallel)
+      if (Object.keys(patch).length > 0) {
+        // Recreating a live session mid-turn would yank it out from under the
+        // running loop — make the caller stop first.
+        if (room.isBusy()) {
+          res.status(409).json({ error: "a turn is running — press Stop before editing an agent" })
+          return
+        }
+        await registry.update(id, patch)
+      }
+      res.json(registry.roster().find((r) => r.id === id))
+    } catch (err) {
+      res.status(400).json({ error: err instanceof Error ? err.message : String(err) })
+    }
+  })
+
+  app.delete("/api/participants/:id", (req, res) => {
+    const { id } = req.params
+    if (!registry.has(id)) {
+      res.status(404).json({ error: `unknown participant "${id}"` })
+      return
+    }
+    registry.kick(id)
+    res.status(204).end()
+  })
+
+  app.get("/api/transcript", (_req, res) => {
+    res.json(room.getTranscript())
+  })
+
+  app.get("/api/workspace", async (_req, res) => {
+    res.json(await listWorkspace(config.workspaceDir))
+  })
+
+  // ── Conversations (saved group discussions) ───────────────────────────────
+  app.get("/api/conversations", async (_req, res) => {
+    res.json(await room.getConversations())
+  })
+
+  app.post("/api/conversations", async (req, res) => {
+    try {
+      const title = req.body?.title ? String(req.body.title) : undefined
+      res.status(201).json(await room.newConversation(title))
+    } catch (err) {
+      res.status(409).json({ error: err instanceof Error ? err.message : String(err) })
+    }
+  })
+
+  app.post("/api/conversations/:id/load", async (req, res) => {
+    try {
+      await room.switchConversation(req.params.id)
+      res.json({ ok: true })
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      res.status(msg.includes("unknown") ? 404 : 409).json({ error: msg })
+    }
+  })
+
+  app.patch("/api/conversations/:id", async (req, res) => {
+    const title = String(req.body?.title ?? "").trim()
+    if (!title) {
+      res.status(400).json({ error: "`title` is required" })
+      return
+    }
+    try {
+      await room.renameConversation(req.params.id, title)
+      res.json({ ok: true })
+    } catch (err) {
+      res.status(404).json({ error: err instanceof Error ? err.message : String(err) })
+    }
+  })
+
+  app.delete("/api/conversations/:id", async (req, res) => {
+    try {
+      await room.deleteConversation(req.params.id)
+      res.status(204).end()
+    } catch (err) {
+      res.status(409).json({ error: err instanceof Error ? err.message : String(err) })
+    }
+  })
+
+  app.get("/api/settings", (_req, res) => {
+    res.json({ chaining: room.getChaining(), defaultAgent: room.getDefaultAgent() })
+  })
+
+  app.patch("/api/settings", (req, res) => {
+    const body = req.body ?? {}
+    if ("chaining" in body) {
+      if (typeof body.chaining !== "boolean") {
+        res.status(400).json({ error: "`chaining` must be a boolean" })
+        return
+      }
+      room.setChaining(body.chaining)
+    }
+    if ("defaultAgent" in body) {
+      const da = body.defaultAgent
+      if (da !== null && typeof da !== "string") {
+        res.status(400).json({ error: "`defaultAgent` must be a string id or null" })
+        return
+      }
+      try {
+        room.setDefaultAgent(da)
+      } catch (err) {
+        res.status(404).json({ error: err instanceof Error ? err.message : String(err) })
+        return
+      }
+    }
+    res.json({ chaining: room.getChaining(), defaultAgent: room.getDefaultAgent() })
+  })
+
+  // Post a message to the room. Returns immediately; results stream over SSE.
+  app.post("/api/messages", (req, res) => {
+    const text = String(req.body?.text ?? "").trim()
+    if (!text) {
+      res.status(400).json({ error: "`text` is required" })
+      return
+    }
+    room.submit(text)
+    res.status(202).json({ accepted: true })
+  })
+
+  app.post("/api/abort", async (_req, res) => {
+    const aborted = await room.abortCurrent()
+    res.json({ aborted })
+  })
+
+  const server = app.listen(config.port, () => {
+    console.log(`[server] Pipeline-MoE listening on http://localhost:${config.port}`)
+    console.log(`[server] workspace: ${config.workspaceDir}`)
+  })
+
+  const shutdown = () => {
+    console.log("\n[server] shutting down…")
+    registry.disposeAll()
+    server.close(() => process.exit(0))
+    setTimeout(() => process.exit(0), 2000).unref()
+  }
+  process.on("SIGINT", shutdown)
+  process.on("SIGTERM", shutdown)
+}
+
+main().catch((err) => {
+  console.error("[fatal]", err)
+  process.exit(1)
+})
