@@ -2,7 +2,7 @@
 
 import type { Persona } from "./types.js"
 
-export const VALID_TOOLS = new Set(["read", "bash", "edit", "write", "grep", "find", "ls"])
+export const VALID_TOOLS = new Set(["read", "bash", "edit", "write", "grep", "find", "ls", "web_search"])
 
 function slug(s: string): string {
   return s

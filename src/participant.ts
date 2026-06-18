@@ -15,6 +15,7 @@ import { existsSync, readFileSync } from "node:fs"
 import { join } from "node:path"
 import { config } from "./config.js"
 import { buildConfinedTools } from "./sandbox-tools.js"
+import { buildCustomTools } from "./custom-tools/index.js"
 import { resolveModelRef, type ResolvedModel } from "./model.js"
 import type { Persona, ParticipantStatus, ToolActivity } from "./types.js"
 
@@ -129,7 +130,10 @@ export class Participant {
       // Disable built-in file tools and supply workspace-confined replacements,
       // gated to this persona's allowlist. Keeps all file work inside the workspace.
       noTools: "builtin",
-      customTools: buildConfinedTools(config.workspaceDir, persona.tools),
+      customTools: [
+        ...buildConfinedTools(config.workspaceDir, persona.tools),
+        ...buildCustomTools(persona.tools),
+      ],
       thinkingLevel: persona.thinkingLevel ?? config.thinkingLevel,
       resourceLoader: loader,
       sessionManager: SessionManager.inMemory(config.workspaceDir),

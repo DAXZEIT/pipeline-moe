@@ -2,7 +2,7 @@ import { useEffect, useState } from "react"
 import { api } from "../api"
 import type { ModelInfo, RosterItem } from "../types"
 
-const ALL_TOOLS = ["read", "bash", "edit", "write", "grep", "find", "ls"]
+const ALL_TOOLS = ["read", "bash", "edit", "write", "grep", "find", "ls", "web_search"]
 
 interface Props {
   agent: RosterItem
