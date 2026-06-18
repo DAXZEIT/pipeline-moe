@@ -266,6 +266,17 @@ export class Participant {
     return this.session.getContextUsage()
   }
 
+  /** Set thinking level in-place — no session recreation needed. */
+  async setThinkingLevel(level: "off" | "minimal" | "low" | "medium" | "high" | "xhigh"): Promise<void> {
+    await this.session.setThinkingLevel(level)
+    this.persona.thinkingLevel = level
+  }
+
+  /** Get the thinking levels supported by the current model. */
+  getAvailableThinkingLevels(): string[] {
+    return this.session.getAvailableThinkingLevels() ?? []
+  }
+
   dispose(): void {
     this.unsubscribe?.()
     this.unsubscribe = null

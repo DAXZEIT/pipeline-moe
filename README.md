@@ -135,9 +135,17 @@ per-agent override and reverts to the global default.
 **Data flow:** `Persona.thinkingLevel ?? config.thinkingLevel` →
 `createAgentSession({ thinkingLevel })` → session uses it for reasoning effort.
 
-Changing thinkingLevel requires a session recreation (dispose + recreate), same
-as changing the per-agent model. The PATCH endpoint validates values against the
-allowlist — invalid values return 400.
+**Fast path:** If `thinkingLevel` is the *only* field in the PATCH payload, the
+backend calls `session.setThinkingLevel()` in-place — no session recreation, no
+cursor reset, no "room is busy" block. Takes effect on the next turn. Combined
+patches (e.g. thinkingLevel + name) still take the heavy dispose+recreate path.
+
+**Available levels filter:** `GET /api/participants/:id` returns
+`availableThinkingLevels` from `session.getAvailableThinkingLevels()`. The
+EditAgent selector only shows levels the model actually supports — falls back to
+all 6 if the session returns nothing.
+
+The PATCH endpoint validates values against the allowlist — invalid values return 400.
 
 ### Context Usage per Agent
 

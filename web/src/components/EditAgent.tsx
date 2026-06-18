@@ -20,6 +20,7 @@ export function EditAgent({ agent, onCancel, onSaved }: Props) {
   const [icon, setIcon] = useState(agent.icon)
   const [model, setModel] = useState(agent.model ?? "")
   const [thinkingLevel, setThinkingLevel] = useState(agent.thinkingLevel ?? "")
+  const [availableThinkingLevels, setAvailableThinkingLevels] = useState<string[]>([])
   const [models, setModels] = useState<ModelInfo[]>([])
   const [allowCloud, setAllowCloud] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -39,6 +40,7 @@ export function EditAgent({ agent, onCancel, onSaved }: Props) {
         setIcon(p.icon)
         setModel(p.model ?? "")
         setThinkingLevel(p.thinkingLevel ?? "")
+        setAvailableThinkingLevels(p.availableThinkingLevels ?? [])
         setLoaded(true)
       })
       .catch(() => setLoaded(true))
@@ -127,12 +129,9 @@ export function EditAgent({ agent, onCancel, onSaved }: Props) {
         thinking level
         <select className="ca-input ca-model" value={thinkingLevel} onChange={(e) => setThinkingLevel(e.target.value)}>
           <option value="">default (inherit from PIPELINE_THINKING)</option>
-          <option value="off">off</option>
-          <option value="minimal">minimal</option>
-          <option value="low">low</option>
-          <option value="medium">medium</option>
-          <option value="high">high</option>
-          <option value="xhigh">xhigh</option>
+          {(availableThinkingLevels.length > 0 ? availableThinkingLevels : ["off", "minimal", "low", "medium", "high", "xhigh"]).map((level) => (
+            <option key={level} value={level}>{level}</option>
+          ))}
         </select>
       </label>
       <div className="ca-actions">

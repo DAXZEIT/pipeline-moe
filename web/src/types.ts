@@ -60,6 +60,8 @@ export interface PersonaDetail {
   model?: string
   /** Per-agent thinking level, or undefined when inheriting from global config. */
   thinkingLevel?: "off" | "minimal" | "low" | "medium" | "high" | "xhigh"
+  /** Thinking levels supported by the current model (from pi session). */
+  availableThinkingLevels?: string[]
 }
 
 export interface Receipt {

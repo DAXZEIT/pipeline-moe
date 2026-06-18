@@ -144,7 +144,7 @@ async function main(): Promise<void> {
       res.status(404).json({ error: `unknown participant "${req.params.id}"` })
       return
     }
-    res.json(p.persona)
+    res.json({ ...p.persona, availableThinkingLevels: p.getAvailableThinkingLevels() })
   })
 
   // Activate / deactivate AND edit persona (name, prompt, tools, color, icon).
@@ -197,13 +197,18 @@ async function main(): Promise<void> {
       if (typeof body.active === "boolean") registry.setActive(id, body.active)
       if (typeof body.parallel === "boolean") registry.setParallel(id, body.parallel)
       if (Object.keys(patch).length > 0) {
-        // Recreating a live session mid-turn would yank it out from under the
-        // running loop — make the caller stop first.
-        if (room.isBusy()) {
-          res.status(409).json({ error: "a turn is running — press Stop before editing an agent" })
-          return
+        // Fast path: thinkingLevel-only change → in-place, no session recreation.
+        if (Object.keys(patch).length === 1 && "thinkingLevel" in patch && patch.thinkingLevel !== undefined) {
+          const level = patch.thinkingLevel as "off" | "minimal" | "low" | "medium" | "high" | "xhigh"
+          await registry.setThinkingLevel(id, level)
+        } else {
+          // Heavy path: dispose + recreate session.
+          if (room.isBusy()) {
+            res.status(409).json({ error: "a turn is running — press Stop before editing an agent" })
+            return
+          }
+          await registry.update(id, patch)
         }
-        await registry.update(id, patch)
       }
       res.json(registry.roster().find((r) => r.id === id))
     } catch (err) {

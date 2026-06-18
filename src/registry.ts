@@ -168,6 +168,19 @@ export class Registry {
     return p
   }
 
+  /** In-place thinking level change — no session recreation. Takes effect next turn. */
+  async setThinkingLevel(
+    id: string,
+    level: "off" | "minimal" | "low" | "medium" | "high" | "xhigh",
+  ): Promise<Participant> {
+    const p = this.participants.get(id)
+    if (!p) throw new Error(`unknown participant "${id}"`)
+    await p.setThinkingLevel(level)
+    this.broadcastRoster()
+    this.onChange?.()
+    return p
+  }
+
   kick(id: string): void {
     const p = this.participants.get(id)
     if (!p) throw new Error(`unknown participant "${id}"`)
