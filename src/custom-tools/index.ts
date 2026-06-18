@@ -5,6 +5,10 @@
 
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent"
 import { createWebSearchToolDefinition } from "./web-search.js"
+import { createWebReadToolDefinition } from "./web-read.js"
+import { createYoutubeTranscriptToolDefinition } from "./youtube-transcript.js"
+import { createArxivSearchToolDefinition } from "./arxiv-search.js"
+import { createYoucomSearchToolDefinition } from "./youcom-search.js"
 
 // Registry of tool name → factory function.
 // Add new tools here — each tool is a self-contained module.
@@ -12,6 +16,10 @@ import { createWebSearchToolDefinition } from "./web-search.js"
 // generics — the actual type safety is enforced in each tool's definition.
 const TOOLS: Array<{ name: string; factory: () => unknown }> = [
   { name: "web_search", factory: createWebSearchToolDefinition },
+  { name: "web_read", factory: createWebReadToolDefinition },
+  { name: "youtube_transcript", factory: createYoutubeTranscriptToolDefinition },
+  { name: "arxiv_search", factory: createArxivSearchToolDefinition },
+  { name: "youcom_search", factory: createYoucomSearchToolDefinition },
 ]
 
 /** Build custom tool definitions for the given tool name allowlist.

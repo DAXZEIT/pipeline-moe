@@ -335,7 +335,7 @@ export const SEED_PERSONAS: Persona[] = [
     name: "Scout",
     color: "#5DCAA5",
     icon: "🔍",
-    tools: ["read", "grep", "find", "ls", "web_search"],
+    tools: ["read", "grep", "find", "ls", "web_search", "web_read", "youtube_transcript", "arxiv_search", "youcom_search"],
     systemPrompt: buildPrompt(SCOUT_OVERLAY),
   },
   {
@@ -375,7 +375,7 @@ export const SEED_PERSONAS: Persona[] = [
     name: "Fetcher",
     color: "#5DADE2",
     icon: "🌐",
-    tools: ["read", "bash", "write", "grep", "find", "ls"],
+    tools: ["read", "bash", "write", "grep", "find", "ls", "web_read"],
     systemPrompt: buildPrompt(FETCHER_OVERLAY),
   },
 ]

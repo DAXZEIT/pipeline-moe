@@ -18,7 +18,8 @@
     "cors": "^2.8.5",
     "express": "^4.19.2",
     "express-rate-limit": "^8.5.2",
-    "typebox": "^1.2.16"
+    "typebox": "^1.2.16",
+    "youtube-transcript-plus": "^2.0.0"
   },
   "devDependencies": {
     "@types/cors": "^2.8.17",

@@ -268,15 +268,39 @@ next thing the agent processes — no Room routing, no context rebuild from tran
 `Participant.followUp(text, images)` → `session.followUp(text, images)` → agent
 processes the answer directly from its session memory.
 
+## Custom Tools (Extension System)
+
+The `src/custom-tools/` directory is a drop-a-file registry for agent tools.
+Each tool is a `ToolDefinition` — same type used by Pi's extension system.
+Adding a new tool is: create the `.ts` file, register it in `index.ts`, add the
+name to `VALID_TOOLS` and `ALL_TOOLS`.
+
+**How it works:**
+1. `buildCustomTools(allowlist)` — checks the agent's `tools` allowlist against
+   registered tools, returns only the tools that agent is permitted to use
+2. Custom tools are merged into `customTools` in the session config alongside
+   confined tools (sandbox-tools)
+3. Opt-in via `persona.tools` allowlist — scout gets `web_search` by default,
+   other agents need it added manually
+
+**First tool: `web_search`** — SearXNG via HTTP GET to
+`https://searxng.example.org/search?q=...&format=json`. No external dependencies,
+pure Node `fetch()`. Parameters: `query` (required), `limit` (1-20, default 5),
+`categories` (optional). Returns formatted results (title, URL, snippet —
+truncated at 200 chars). 15s timeout on fetch. Graceful error handling (network
+error, HTTP error, abort, empty results).
+
 ## Tools per Persona
 
 pi built-in tool names: `read, bash, edit, write, grep, find, ls`. Gating is a
 plain allowlist passed to `createAgentSession({ tools })` — no permission shim.
-The `ask_user` tool is available to **all** agents.
+The `ask_user` tool is available to **all** agents. Custom tools are opt-in via
+the `tools` allowlist — `web_search` is available but only scout gets it by
+default.
 
 | Persona | Tools |
 |---|---|
-| scout | read, grep, find, ls, ask_user |
+| scout | read, grep, find, ls, web_search, ask_user |
 | builder | read, write, edit, bash, grep, find, ls, ask_user |
 | auditor | read, grep, find, ls, ask_user |
 | scribe | read, write, edit, grep, find, ls, ask_user |
