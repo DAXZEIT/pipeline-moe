@@ -145,6 +145,10 @@ body {
   color: var(--muted);
   text-transform: lowercase;
 }
+.retry-info {
+  color: #f59e0b;
+  font-size: 10px;
+}
 .roster-model {
   display: inline-block;
   padding: 1px 4px;
@@ -188,6 +192,11 @@ body {
   flex-shrink: 0;
   font-size: 10px;
   color: var(--muted);
+}
+.session-stats {
+  font-size: 10px;
+  color: var(--muted);
+  opacity: 0.8;
 }
 .ctx-warning .ctx-fill {
   animation: ctx-pulse 1.5s ease-in-out infinite;
@@ -620,6 +629,25 @@ body {
   color: #fff;
 }
 
+.steer-flash {
+  position: absolute;
+  bottom: 100%;
+  left: 0;
+  right: 0;
+  padding: 4px 16px;
+  background: #d97706;
+  color: #1c0f00;
+  font-size: 11px;
+  text-align: center;
+  animation: steerFadeIn 0.2s ease-out;
+  pointer-events: none;
+}
+
+@keyframes steerFadeIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
 .mention-pop {
   position: absolute;
   bottom: 100%;
@@ -665,6 +693,10 @@ body {
 .btn-stop {
   background: var(--danger);
   color: #2a0a08;
+}
+.btn-steer {
+  background: #d97706;
+  color: #1c0f00;
 }
 .btn-ghost {
   background: transparent;

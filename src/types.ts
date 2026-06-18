@@ -21,7 +21,7 @@ export interface Persona {
   thinkingLevel?: "off" | "minimal" | "low" | "medium" | "high" | "xhigh"
 }
 
-export type ParticipantStatus = "idle" | "active" | "thinking" | "working" | "compacting"
+export type ParticipantStatus = "idle" | "active" | "thinking" | "working" | "compacting" | "retrying"
 
 /** One tool call an agent made during a turn — what it did, not just the result. */
 export interface ToolActivity {

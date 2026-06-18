@@ -5,7 +5,9 @@ export interface RosterItem {
   icon: string
   tools: string[]
   active: boolean
-  status: "idle" | "active" | "thinking" | "working" | "compacting"
+  status: "idle" | "active" | "thinking" | "working" | "compacting" | "retrying"
+  /** Retry metadata, present when status is "retrying". */
+  retry?: { attempt: number; maxAttempts: number; delayMs: number; errorMessage: string }
   /** Per-agent model "provider/id", or undefined when on the default. */
   model?: string
   /** Per-agent thinking level, or undefined when inheriting from global config. */
@@ -14,6 +16,15 @@ export interface RosterItem {
   parallel: boolean
   /** Context token usage — populated after each turn via SSE status event. */
   contextUsage?: { tokens: number | null; contextWindow: number; percent: number | null }
+  /** Session stats — populated after each turn via SSE status event. */
+  sessionStats?: {
+    userMessages: number
+    assistantMessages: number
+    toolCalls: number
+    totalMessages: number
+    tokens: { input: number; output: number; cacheRead: number; cacheWrite: number; total: number }
+    cost: number
+  }
 }
 
 /** A model offered for per-agent selection (GET /api/models). */

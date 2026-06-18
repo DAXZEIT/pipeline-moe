@@ -103,10 +103,20 @@ export const api = {
 
   abort: () => fetch(`${API_BASE}/api/abort`, { method: "POST" }).then((r) => json(r)),
 
+  steerMessage: (text: string, target: string) =>
+    fetch(`${API_BASE}/api/messages/steer`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text, target }),
+    }).then((r) => json<{ ok: boolean; target: string; text: string }>(r)),
+
   compact: (id: string) =>
     fetch(`${API_BASE}/api/participants/${id}/compact`, { method: "POST" }).then((r) =>
       json<{ summary: string; tokensBefore: number }>(r),
     ),
+
+  exportAgent: (id: string) =>
+    fetch(`${API_BASE}/api/participants/${id}/export`).then((r) => r.blob()),
 
   settings: () =>
     fetch(`${API_BASE}/api/settings`).then((r) =>

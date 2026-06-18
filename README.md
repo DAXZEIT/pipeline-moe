@@ -55,6 +55,8 @@ provider in `~/.pi/agent/models.json`). Override via `.env` (see `.env.example`)
 | PATCH | `/api/conversations/:id` | `{name: string}` | rename a conversation |
 | DELETE | `/api/conversations/:id` | — | delete a conversation |
 | POST | `/api/messages` | `{text, images?: string[]}` | post to the room (returns 202; results stream over SSE) |
+| POST | `/api/messages/steer` | `{text, target}` | steer a running agent mid-turn (409 if not running) |
+| GET | `/api/participants/:id/export` | — | download session as HTML (attachment) |
 | POST | `/api/abort` | — | abort the currently running agent |
 | GET | `/api/media/:filename` | — | serve a saved image |
 | GET | `/api/workspace` | — | list workspace files |
@@ -70,7 +72,7 @@ provider in `~/.pi/agent/models.json`). Override via `.env` (see `.env.example`)
 | `token` | `{id, delta}` | streaming text delta from an agent |
 | `activity` | `ActivityEvent` | tool-call start/end (live process visibility) |
 | `reasoning` | `{id, delta}` | streaming thinking delta (ephemeral) |
-| `status` | `{id, status, contextUsage?}` | participant status (`idle`, `active`, `thinking`, `working`, `compacting`). After each turn, `contextUsage` includes `{ tokens, contextWindow, percent }` for the agent that just ran.
+| `status` | `{id, status, contextUsage?, sessionStats?, retry?}` | participant status (`idle`, `active`, `thinking`, `working`, `compacting`, `retrying`). After each turn, `contextUsage` and `sessionStats` included when available. During retries, `retry` metadata is included.
 | `receipt` | `{participantId, created[], modified[], deleted[]}` | work receipt (filesystem diff) |
 | `notice` | `{msg, level}` | informational/error notice |
 | `turn` | `{phase, targets?, askerId?, question?}` | routing turn lifecycle |
@@ -207,6 +209,64 @@ displayed in the UI.
 | `/deactivate @x` | Deactivate a participant |
 | `/compact @x` | Compact an agent's context |
 | `/cancel` | Cancel a paused question and drain the held queue |
+
+### Session Stats per Agent
+
+After each agent turn, the UI shows a compact stats line in the Roster with token
+breakdown and cache efficiency (e.g. "42Ki · 1.2Ko · cache 93% · 3 tools"). Full
+numbers in a tooltip.
+
+**Data flow:** `AgentSession.getSessionStats()` → `Participant.getSessionStats()` →
+`Room.runAgent()` / `followUpAgent()` broadcasts via SSE `status` event alongside
+`contextUsage`.
+
+**Cache percentage** is the most operationally useful number — it shows KV cache
+hit ratio. A low percentage means the agent is repaying prefill on every turn.
+
+### Mid-Turn Steering
+
+When an agent is running, the operator can send a redirection message via `steer()`
+instead of aborting. The Composer shows "↪ Steer @id" (amber button) alongside
+"■ Stop" when `turnActive` is true.
+
+**Data flow:** `POST /api/messages/steer` with `{ text, target }` →
+`Room.steer(targetId, text)` → posts `↳ steered @id: text` to the transcript →
+`Participant.steer(text)` → `session.steer(text)` queues the message.
+
+The agent sees the steer between tool calls — it doesn't interrupt current tool
+execution. A "steer sent" flash appears for 2 seconds, then clears.
+
+**Error handling:** 409 if the agent is not running (idle), 404 if not found.
+
+### HTML Export
+
+Export an agent's session as a self-contained HTML file via
+`GET /api/participants/:id/export`. The download button (⬇) in the Roster actions
+row triggers the download.
+
+**Data flow:** `session.exportToHtml()` → writes HTML file to disk → server reads
+and returns with `Content-Disposition: attachment`.
+
+Filename format: `{id}-{timestamp}.html` (colons and dots sanitized).
+
+### Retry Awareness
+
+When pi auto-retries after transient errors (e.g., rate limits on remote models),
+the UI shows a `(attempt/maxAttempts — errorMessage)` indicator in amber in the
+Roster. The agent's status changes to `retrying` during the retry delay.
+
+**Data flow:** `auto_retry_start` event → `Participant.onEvent()` emits `retrying`
+status with metadata → SSE `status` event → Roster renders retry indicator.
+
+### followUp() — Self-Chaining
+
+When an agent asks a question via `ask_user` and the user responds, the answer is
+delivered via `followUp()` instead of `prompt()`. This guarantees the answer is the
+next thing the agent processes — no Room routing, no context rebuild from transcript.
+
+**Data flow:** User answer → `Room.followUpAgent(asker, { text, images })` →
+`Participant.followUp(text, images)` → `session.followUp(text, images)` → agent
+processes the answer directly from its session memory.
 
 ## Tools per Persona
 

@@ -25,6 +25,7 @@ export function useRoom() {
   const [notices, setNotices] = useState<Notice[]>([])
   const [connected, setConnected] = useState(false)
   const [turnActive, setTurnActive] = useState(false)
+  const [runningAgentId, setRunningAgentId] = useState<string | null>(null)
   const [paused, setPaused] = useState(false)
   const [chaining, setChainingState] = useState(true)
   const [defaultAgent, setDefaultAgentState] = useState<string | null>(null)
@@ -69,11 +70,16 @@ export function useRoom() {
       const data = JSON.parse((e as MessageEvent).data)
       setRoster((r) => r.map((p) => {
         if (p.id !== data.id) return p
+        const base: RosterItem = { ...p, status: data.status }
         // Only update contextUsage when the payload explicitly carries it.
         // Mid-turn status events (e.g. "working") don't include it — preserving
         // the last known value prevents the progress bar from briefly clearing.
-        if (data.contextUsage !== undefined) return { ...p, status: data.status, contextUsage: data.contextUsage }
-        return { ...p, status: data.status }
+        if (data.contextUsage !== undefined) base.contextUsage = data.contextUsage
+        // Forward sessionStats when present.
+        if (data.sessionStats !== undefined) base.sessionStats = data.sessionStats
+        // Forward retry metadata when present.
+        if (data.retry !== undefined) base.retry = data.retry
+        return base
       }))
     })
 
@@ -138,11 +144,13 @@ export function useRoom() {
       const data = JSON.parse((e as MessageEvent).data)
       if (data.phase === "start") {
         setTurnActive(true)
+        setRunningAgentId(data.agentId ?? null)
         setStreaming({})
         setLiveActivity({})
         setLiveReasoning({})
       } else if (data.phase === "end") {
         setTurnActive(false)
+        setRunningAgentId(null)
         setPaused(false)
       } else if (data.phase === "pause") {
         setTurnActive(false)
@@ -252,6 +260,20 @@ export function useRoom() {
     api.abort().catch(() => {})
   }, [])
 
+  const steer = useCallback(
+    (text: string, target: string) => {
+      api.steerMessage(text, target).catch((err) => {
+        const msg = String(err.message ?? err)
+        if (msg.includes("not running") || msg.includes("cannot steer")) {
+          pushNotice(`@${target} is not running — cannot steer`, "error")
+        } else {
+          pushNotice(msg, "error")
+        }
+      })
+    },
+    [pushNotice],
+  )
+
   const compactAgent = useCallback(
     (id: string) => {
       pushNotice(`Compacting @${id}…`)
@@ -322,6 +344,7 @@ export function useRoom() {
     notices,
     connected,
     turnActive,
+    runningAgentId,
     paused,
     chaining,
     defaultAgent,
@@ -336,6 +359,7 @@ export function useRoom() {
     updateParticipant,
     reorderParticipants,
     abort,
+    steer,
     setChaining,
     setDefaultAgent,
     newConversation,

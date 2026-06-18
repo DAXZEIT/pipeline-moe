@@ -33,6 +33,11 @@ class MockParticipant {
     return { text: result.text, activity: result.activity, question: result.question }
   }
 
+  async followUp(_text: string): Promise<{ text: string; activity: Array<{ toolCallId: string; toolName: string; args: Record<string, string>; status: "ok" | "error"; ts: number }>; question?: string }> {
+    const result = this._nextResult ?? { text: "ok", activity: [] }
+    return { text: result.text, activity: result.activity, question: result.question }
+  }
+
   async abort() {}
   dispose() {}
 }

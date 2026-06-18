@@ -56,8 +56,10 @@ export default function App() {
         <Composer
           roster={room.roster}
           turnActive={room.turnActive}
+          runningAgentId={room.runningAgentId}
           onSend={room.send}
           onAbort={room.abort}
+          onSteer={room.steer}
         />
       </main>
 

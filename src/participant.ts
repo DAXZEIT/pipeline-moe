@@ -188,6 +188,27 @@ export class Participant {
       this.activity.set(ev.toolCallId, item)
       this.setStatus("active")
       this.emit("activity", { id: this.persona.id, item })
+    } else if (ev.type === "auto_retry_start") {
+      this.emit("status", {
+        id: this.persona.id,
+        status: "retrying",
+        retry: {
+          attempt: ev.attempt,
+          maxAttempts: ev.maxAttempts,
+          delayMs: ev.delayMs,
+          errorMessage: ev.errorMessage,
+        },
+      })
+    } else if (ev.type === "auto_retry_end") {
+      this.emit("status", {
+        id: this.persona.id,
+        status: ev.success ? "active" : "idle",
+        retryResult: {
+          success: ev.success,
+          attempt: ev.attempt,
+          finalError: ev.finalError,
+        },
+      })
     }
   }
 
@@ -275,6 +296,60 @@ export class Participant {
   /** Get the thinking levels supported by the current model. */
   getAvailableThinkingLevels(): string[] {
     return this.session.getAvailableThinkingLevels() ?? []
+  }
+
+  /** Get session stats — token counts, cache split, turn counts. */
+  getSessionStats(): ReturnType<AgentSession["getSessionStats"]> | undefined {
+    return this.session.getSessionStats()
+  }
+
+  /** Export the agent's session to a self-contained HTML file. Returns the file path. */
+  async exportToHtml(): Promise<string> {
+    return await this.session.exportToHtml()
+  }
+
+  /** Queue a steering message while the agent is running.
+   *  Throws if the session is not currently streaming — can't steer an idle agent. */
+  async steer(text: string): Promise<void> {
+    if (!this.session.isStreaming) {
+      throw new Error(`participant "${this.persona.id}" is not running — cannot steer`)
+    }
+    await this.session.steer(text)
+  }
+
+  /** Queue a follow-up message — guaranteed to be the next thing the agent
+   *  processes. Used for self-chaining (e.g., delivering an ask_user answer
+   *  directly to the agent that asked it). */
+  async followUp(text: string, imagePaths?: string[]): Promise<TurnResult> {
+    this.buffer = ""
+    this.reasoningBuffer = ""
+    this.activity.clear()
+    this.setStatus("active")
+    try {
+      const images = await this.resolveImages(imagePaths)
+      await this.session.followUp(text, images.length > 0 ? images : undefined)
+      const result: TurnResult = {
+        text: this.buffer.trim(),
+        activity: [...this.activity.values()],
+      }
+      if (this.reasoningBuffer.trim()) {
+        result.reasoning = this.reasoningBuffer.trim()
+      }
+      // Check for ask_user in the follow-up result too.
+      for (const act of result.activity) {
+        if (act.toolName === "ask_user" && act.status === "ok") {
+          const args = act.args as Record<string, unknown> | undefined
+          const q = typeof args?.question === "string" ? args.question : undefined
+          if (q) {
+            result.question = q
+            break
+          }
+        }
+      }
+      return result
+    } finally {
+      this.setStatus("idle")
+    }
   }
 
   dispose(): void {

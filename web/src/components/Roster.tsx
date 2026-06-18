@@ -1,8 +1,8 @@
 import { useState } from "react"
+import { api } from "../api"
 import type { RosterItem } from "../types"
 import { CreateAgent } from "./CreateAgent"
 import { EditAgent } from "./EditAgent"
-import type { api } from "../api"
 
 interface Props {
   roster: RosterItem[]
@@ -37,6 +37,7 @@ const STATUS_LABEL: Record<RosterItem["status"], string> = {
   thinking: "thinking",
   working: "working",
   compacting: "compacting…",
+  retrying: "retrying…",
 }
 
 /** Color threshold: green <50, yellow 50-75, orange 75-90, red >90 (inclusive boundaries) */
@@ -53,6 +54,19 @@ function ctxLabel(usage: { tokens: number | null; contextWindow: number; percent
   const t = usage.tokens != null ? `${Math.round(usage.tokens / 1000)}K` : "—"
   const w = `${Math.round(usage.contextWindow / 1000)}K`
   return `${t} / ${w}`
+}
+
+/** Compact number format: 42000 → "42K", 1200 → "1.2K" */
+function fmt(n: number): string {
+  if (n >= 1000) return `${(n / 1000).toFixed(n >= 10000 ? 0 : 1)}K`
+  return String(n)
+}
+
+/** Session stats label: "in 38K · out 1.2K · cache 92%" */
+function statsLabel(s: { tokens: { input: number; output: number; cacheRead: number; cacheWrite: number; total: number }; toolCalls: number }): string {
+  const { input, output, cacheRead, total } = s.tokens
+  const cachePct = total > 0 ? Math.round((cacheRead / total) * 100) : 0
+  return `${fmt(input)}i · ${fmt(output)}o · cache ${cachePct}% · ${s.toolCalls} tools`
 }
 
 export function Roster({
@@ -137,6 +151,11 @@ export function Roster({
                 </div>
                 <div className={`roster-status status-${r.status}`}>
                   {STATUS_LABEL[r.status]}
+                  {r.status === "retrying" && r.retry && (
+                    <span className="retry-info">
+                      ({r.retry.attempt}/{r.retry.maxAttempts} — {r.retry.errorMessage})
+                    </span>
+                  )}
                 </div>
                 {r.model && (
                   <span
@@ -158,6 +177,11 @@ export function Roster({
                     <span className="ctx-label">
                       {ctxLabel(r.contextUsage)}
                     </span>
+                  </div>
+                )}
+                {r.sessionStats && (
+                  <div className="session-stats" title={`Input: ${r.sessionStats.tokens.input} · Output: ${r.sessionStats.tokens.output} · Cache read: ${r.sessionStats.tokens.cacheRead} · Cache write: ${r.sessionStats.tokens.cacheWrite}`}>
+                    {statsLabel(r.sessionStats)}
                   </div>
                 )}
                 <div className="roster-actions">
@@ -208,6 +232,21 @@ export function Roster({
                     onClick={() => onSetActive(r.id, !r.active)}
                   >
                     {r.active ? "◐" : "○"}
+                  </button>
+                  <button
+                    className="mini"
+                    title="Export session as HTML"
+                    onClick={async () => {
+                      const blob = await api.exportAgent(r.id)
+                      const url = URL.createObjectURL(blob)
+                      const a = document.createElement("a")
+                      a.href = url
+                      a.download = `${r.id}.html`
+                      a.click()
+                      URL.revokeObjectURL(url)
+                    }}
+                  >
+                    ⬇
                   </button>
                   <button className="mini danger" title="Kick" onClick={() => onKick(r.id)}>
                     ×

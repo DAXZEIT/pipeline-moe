@@ -46,6 +46,8 @@ export class Room {
   private chain: Promise<void> = Promise.resolve()
   /** Agents currently mid-turn. >1 when a parallel wave is running. */
   private running = new Set<Participant>()
+  /** Id of the first agent that started the current turn. Used for UI targeting (steer). */
+  private runningAgentId: string | null = null
   /** Pending agents to run in the current routing pass. Mutated as agents chain. */
   private queue: Participant[] = []
   private aborted = false
@@ -300,6 +302,23 @@ export class Room {
     this.hub.broadcast("notice", { msg, level })
   }
 
+  /** End the current turn — clears runningAgentId and broadcasts turn end. */
+  private async endTurn(): Promise<void> {
+    this.runningAgentId = null
+    this.hub.broadcast("turn", { phase: "end" })
+    this.hub.broadcast("workspace", await listWorkspace(config.workspaceDir))
+  }
+
+  /** Steer a running agent mid-turn. Posts a (steered) notice to the transcript
+   *  for visibility, then queues the message via the agent's session. */
+  async steer(targetId: string, text: string): Promise<void> {
+    const p = this.registry.get(targetId)
+    if (!p) throw new Error(`unknown participant "${targetId}"`)
+    // Post a visible record to the transcript.
+    this.post("user", "You", `↳ steered @${targetId}: ${text}`)
+    await p.steer(text)
+  }
+
   /** Parse @mentions and resolve to the ordered list of participants to run. */
   private resolveTargets(text: string): Participant[] {
     const mentioned = new Set<string>()
@@ -399,8 +418,7 @@ export class Room {
         return
       }
       this.queue = []
-      this.hub.broadcast("turn", { phase: "end" })
-      this.hub.broadcast("workspace", await listWorkspace(config.workspaceDir))
+      await this.endTurn()
       await this.saveCurrent()
       return
     }
@@ -428,13 +446,16 @@ export class Room {
           return
         }
         this.queue = []
-        this.hub.broadcast("turn", { phase: "end" })
-        this.hub.broadcast("workspace", await listWorkspace(config.workspaceDir))
+        await this.endTurn()
         await this.saveCurrent()
         return
       }
 
-      const result = await this.runAgent(asker, this.buildContext(asker))
+      // Use followUp() instead of runAgent() — the user's answer is delivered
+      // directly to the agent that asked the question. The agent already has the
+      // conversation context in its session memory; followUp() guarantees it's
+      // the next thing the agent processes.
+      const result = await this.followUpAgent(asker, { text: trimmed, images })
       if (result && !this.aborted) {
         // Post with question field if the asker asked another question.
         this.post(asker.persona.id, asker.persona.name, result.reply || "(no response)", result.activity, result.reasoning, undefined, result.question)
@@ -469,8 +490,7 @@ export class Room {
         return
       }
       this.queue = []
-      this.hub.broadcast("turn", { phase: "end" })
-      this.hub.broadcast("workspace", await listWorkspace(config.workspaceDir))
+      await this.endTurn()
       await this.saveCurrent()
       return
     }
@@ -486,7 +506,8 @@ export class Room {
 
     this.queue = [...initial]
     this.aborted = false
-    this.hub.broadcast("turn", { phase: "start", targets: initial.map((t) => t.persona.id) })
+    this.runningAgentId = initial[0]?.persona.id ?? null
+    this.hub.broadcast("turn", { phase: "start", targets: initial.map((t) => t.persona.id), agentId: this.runningAgentId })
 
     // Drain the queue — shared method handles questions, chaining, and parallel waves.
     const paused = await this.drainQueue()
@@ -497,8 +518,7 @@ export class Room {
     }
 
     this.queue = []
-    this.hub.broadcast("turn", { phase: "end" })
-    this.hub.broadcast("workspace", await listWorkspace(config.workspaceDir))
+    await this.endTurn()
     await this.saveCurrent()
   }
 
@@ -559,16 +579,60 @@ export class Room {
       if (this.aborted) return null
       const after = await snapshot(config.workspaceDir)
 
-      // Broadcast context usage after the turn — piggyback on status event.
+      // Broadcast context usage and session stats after the turn — piggyback on status event.
       // The idle status already fires from Participant.run() finally block;
-      // this second broadcast adds contextUsage to the payload.
+      // this second broadcast adds contextUsage and sessionStats to the payload.
       const usage = target.getContextUsage?.()
-      if (usage) {
-        this.hub.broadcast("status", {
-          id: target.persona.id,
-          status: "idle",
-          contextUsage: usage,
-        })
+      const stats = target.getSessionStats?.()
+      if (usage || stats) {
+        const payload: Record<string, unknown> = { id: target.persona.id, status: "idle" }
+        if (usage) payload.contextUsage = usage
+        if (stats) payload.sessionStats = stats
+        this.hub.broadcast("status", payload)
+      }
+
+      return {
+        target,
+        reply: result.text,
+        activity: result.activity,
+        reasoning: result.reasoning,
+        question: result.question,
+        receipt: diffSnapshots(before, after, target.persona.id),
+      }
+    } catch (err) {
+      this.notice(
+        `@${target.persona.id} failed: ${err instanceof Error ? err.message : String(err)}`,
+        "error",
+      )
+      target.cursor = this.transcript.length
+      return null
+    } finally {
+      this.running.delete(target)
+    }
+  }
+
+  /** Follow-up one agent end to end: snapshot, followUp, snapshot, diff.
+   *  Same structure as runAgent but uses session.followUp() — guaranteed to be
+   *  the next thing the agent processes. Used for self-chaining (ask_user resume).
+   *  Does NOT post — the caller posts results. */
+  private async followUpAgent(
+    target: Participant,
+    context: { text: string; images?: string[] },
+  ): Promise<RunOutput | null> {
+    const before = await snapshot(config.workspaceDir)
+    this.running.add(target)
+    try {
+      const result = await target.followUp(context.text, context.images)
+      if (this.aborted) return null
+      const after = await snapshot(config.workspaceDir)
+
+      const usage = target.getContextUsage?.()
+      const stats = target.getSessionStats?.()
+      if (usage || stats) {
+        const payload: Record<string, unknown> = { id: target.persona.id, status: "idle" }
+        if (usage) payload.contextUsage = usage
+        if (stats) payload.sessionStats = stats
+        this.hub.broadcast("status", payload)
       }
 
       return {

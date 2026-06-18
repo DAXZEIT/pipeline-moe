@@ -1,12 +1,14 @@
-import { useCallback, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import type { ClipboardEvent } from "react"
 import type { RosterItem } from "../types"
 
 interface Props {
   roster: RosterItem[]
   turnActive: boolean
+  runningAgentId: string | null
   onSend: (text: string, images?: string[]) => void
   onAbort: () => void
+  onSteer: (text: string, target: string) => void
 }
 
 /** Acceptable image mime types for paste/drag-drop. */
@@ -22,13 +24,22 @@ function fileToDataUri(file: File): Promise<string> {
   })
 }
 
-export function Composer({ roster, turnActive, onSend, onAbort }: Props) {
+export function Composer({ roster, turnActive, runningAgentId, onSend, onAbort, onSteer }: Props) {
   const [value, setValue] = useState("")
   const [partial, setPartial] = useState<string | null>(null)
   const [highlight, setHighlight] = useState(0)
   const [pendingImages, setPendingImages] = useState<string[]>([])
   const [, setDragOver] = useState(false)
+  const [steerSent, setSteerSent] = useState(false)
   const ref = useRef<HTMLTextAreaElement>(null)
+
+  // Clear steer-sent flash after a short delay.
+  useEffect(() => {
+    if (steerSent) {
+      const t = setTimeout(() => setSteerSent(false), 2000)
+      return () => clearTimeout(t)
+    }
+  }, [steerSent])
 
   const handles = useMemo(() => ["all", ...roster.map((r) => r.id)], [roster])
   const suggestions = useMemo(() => {
@@ -106,7 +117,16 @@ export function Composer({ roster, turnActive, onSend, onAbort }: Props) {
   function submit() {
     const text = value.trim()
     if (!text && pendingImages.length === 0) return
-    onSend(text || "(image shared)", pendingImages.length > 0 ? pendingImages : undefined)
+
+    if (turnActive && runningAgentId) {
+      // Steer mode: redirect the running agent.
+      onSteer(text, runningAgentId)
+      setSteerSent(true)
+    } else {
+      // Normal mode: send a message to the room.
+      onSend(text || "(image shared)", pendingImages.length > 0 ? pendingImages : undefined)
+    }
+
     setValue("")
     setPartial(null)
     setPendingImages([])
@@ -208,15 +228,29 @@ export function Composer({ roster, turnActive, onSend, onAbort }: Props) {
           }}
         />
         {turnActive ? (
-          <button className="btn btn-stop" onClick={onAbort} title="Abort current agent">
-            ■ Stop
-          </button>
+          <>
+            <button
+              className="btn btn-steer"
+              onClick={submit}
+              title={`Steer @${runningAgentId ?? "agent"}`}
+            >
+              ↪ Steer{runningAgentId ? ` @${runningAgentId}` : ""}
+            </button>
+            <button className="btn btn-stop" onClick={onAbort} title="Abort current agent">
+              ■ Stop
+            </button>
+          </>
         ) : (
           <button className="btn btn-send" onClick={submit}>
             Send
           </button>
         )}
       </div>
+
+      {/* Steer sent flash */}
+      {steerSent && (
+        <div className="steer-flash">↪ steer sent — clearing on next response</div>
+      )}
     </div>
   )
 }

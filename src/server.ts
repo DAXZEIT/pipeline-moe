@@ -6,6 +6,7 @@
 
 import { createHash } from "node:crypto"
 import { access, mkdir, writeFile } from "node:fs/promises"
+import { readFileSync } from "node:fs"
 import { extname, join } from "node:path"
 import cors from "cors"
 import rateLimit from "express-rate-limit"
@@ -344,9 +345,52 @@ async function main(): Promise<void> {
     }
   })
 
+  // Export agent's session as self-contained HTML.
+  app.get("/api/participants/:id/export", async (req, res) => {
+    const { id } = req.params
+    const p = registry.get(id)
+    if (!p) {
+      res.status(404).json({ error: `unknown participant "${id}"` })
+      return
+    }
+    try {
+      const filePath = await p.exportToHtml()
+      const html = readFileSync(filePath, "utf-8")
+      const timestamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, -5)
+      const filename = `${id}-${timestamp}.html`
+      res.setHeader("Content-Type", "text/html; charset=utf-8")
+      res.setHeader("Content-Disposition", `attachment; filename="${filename}"`)
+      res.send(html)
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : String(err) })
+    }
+  })
+
   app.post("/api/abort", async (_req, res) => {
     const aborted = await room.abortCurrent()
     res.json({ aborted })
+  })
+
+  // Steer a running agent mid-turn.
+  app.post("/api/messages/steer", async (req, res) => {
+    const { text, target } = req.body
+    if (!text || !target) {
+      res.status(400).json({ error: "`text` and `target` are required" })
+      return
+    }
+    try {
+      await room.steer(target, String(text).trim())
+      res.json({ ok: true, target, text: String(text).trim() })
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      if (msg.includes("not running") || msg.includes("cannot steer")) {
+        res.status(409).json({ error: msg })
+      } else if (msg.includes("unknown participant")) {
+        res.status(404).json({ error: msg })
+      } else {
+        res.status(500).json({ error: msg })
+      }
+    }
   })
 
   const server = app.listen(config.port, "127.0.0.1", () => {
