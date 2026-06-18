@@ -70,7 +70,7 @@ provider in `~/.pi/agent/models.json`). Override via `.env` (see `.env.example`)
 | `token` | `{id, delta}` | streaming text delta from an agent |
 | `activity` | `ActivityEvent` | tool-call start/end (live process visibility) |
 | `reasoning` | `{id, delta}` | streaming thinking delta (ephemeral) |
-| `status` | `{id, status}` | participant status (`idle`, `active`, `thinking`, `working`, `compacting`) |
+| `status` | `{id, status, contextUsage?}` | participant status (`idle`, `active`, `thinking`, `working`, `compacting`). After each turn, `contextUsage` includes `{ tokens, contextWindow, percent }` for the agent that just ran.
 | `receipt` | `{participantId, created[], modified[], deleted[]}` | work receipt (filesystem diff) |
 | `notice` | `{msg, level}` | informational/error notice |
 | `turn` | `{phase, targets?, askerId?, question?}` | routing turn lifecycle |
@@ -119,6 +119,53 @@ compaction. The agent's status changes to `compacting` during the operation.
 When an agent's context approaches its limit (90K tokens for a 128K window),
 pi automatically compacts the session. The UI receives a `status: "compacting"`
 event during the operation.
+
+### Per-Agent Thinking Level
+
+Each agent can override the global thinking level (set by `PIPELINE_THINKING` env
+var, defaults to `"medium"`). Set via the persona editor or `PATCH /api/participants/:id`
+with `{thinkingLevel: "high"}`.
+
+**Available levels:** `off`, `minimal`, `low`, `medium`, `high`, `xhigh`
+
+**Fallback:** When a persona has no `thinkingLevel` set, it inherits the global
+config value. Setting `thinkingLevel` to `null` or `""` via PATCH resets the
+per-agent override and reverts to the global default.
+
+**Data flow:** `Persona.thinkingLevel ?? config.thinkingLevel` →
+`createAgentSession({ thinkingLevel })` → session uses it for reasoning effort.
+
+Changing thinkingLevel requires a session recreation (dispose + recreate), same
+as changing the per-agent model. The PATCH endpoint validates values against the
+allowlist — invalid values return 400.
+
+### Context Usage per Agent
+
+After each agent turn, the UI shows a progress bar in the Roster with the agent's
+current context token usage (e.g. "42K / 128K"), color-coded by threshold.
+
+**Data flow:** `AgentSession.getContextUsage()` → `Participant.getContextUsage()` →
+`Room.runAgent()` broadcasts via SSE `status` event (piggyback, no new event type).
+
+**Color thresholds** (inclusive boundaries):
+- Green: < 50%
+- Yellow: 50–75%
+- Orange: 75–90%
+- Red: > 90%
+
+**Warning:** When usage exceeds 80%, the bar pulses (CSS animation `ctx-pulse`)
+to alert the operator that compaction may be needed before the loop completes.
+
+**Visibility:** Bars appear after the agent's first completed turn (SSE event
+must carry `contextUsage`). Mid-turn status events (e.g. `working`, `compacting`)
+don't include `contextUsage` — the last known value persists through the turn.
+Bars are hidden when `contextUsage` is `undefined` (fresh load before any turn).
+
+**Why piggyback on `status` and not a new event?**
+The `idle` status already fires at the end of every turn. Adding a new SSE event
+type would require a new listener in the frontend. Extending the existing `status`
+event's payload is simpler — the frontend already processes status events and
+updates roster items.
 
 ### Vision — Image Support
 

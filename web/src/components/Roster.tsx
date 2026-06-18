@@ -39,6 +39,22 @@ const STATUS_LABEL: Record<RosterItem["status"], string> = {
   compacting: "compacting…",
 }
 
+/** Color threshold: green <50, yellow 50-75, orange 75-90, red >90 (inclusive boundaries) */
+function ctxColor(pct: number | null): string {
+  if (pct == null) return "ctx-green"
+  if (pct >= 90) return "ctx-red"
+  if (pct >= 75) return "ctx-orange"
+  if (pct >= 50) return "ctx-yellow"
+  return "ctx-green"
+}
+
+/** Compact label: "42K / 128K" or "— / 128K" when tokens unknown */
+function ctxLabel(usage: { tokens: number | null; contextWindow: number; percent: number | null }): string {
+  const t = usage.tokens != null ? `${Math.round(usage.tokens / 1000)}K` : "—"
+  const w = `${Math.round(usage.contextWindow / 1000)}K`
+  return `${t} / ${w}`
+}
+
 export function Roster({
   roster,
   connected,
@@ -121,69 +137,82 @@ export function Roster({
                 </div>
                 <div className={`roster-status status-${r.status}`}>
                   {STATUS_LABEL[r.status]}
-                  {r.model && (
-                    <span
-                      className={`roster-model ${r.model.startsWith("local/") ? "" : "cloud"}`}
-                      title={r.model}
-                    >
-                      {r.model.startsWith("local/") ? "🖥 " : "☁ "}
-                      {r.model.split("/").pop()?.replace(/\.gguf$/, "")}
-                    </span>
-                  )}
                 </div>
-              </div>
-              <div className="roster-actions">
-                <button
-                  className={`mini ${r.id === effective ? "star-on" : ""}`}
-                  disabled={!r.active}
-                  title={
-                    r.id === explicit
-                      ? "Default for un-mentioned messages (click to clear)"
-                      : r.id === effective
-                        ? "Default (fallback: first active agent)"
-                        : "Make default for un-mentioned messages"
-                  }
-                  onClick={() => onSetDefault(r.id === explicit ? null : r.id)}
-                >
-                  {r.id === effective ? "★" : "☆"}
-                </button>
-                <button
-                  className={`mini ${editingId === r.id ? "star-on" : ""}`}
-                  disabled={turnActive}
-                  title={turnActive ? "Stop the turn to edit" : "Edit persona / system prompt"}
-                  onClick={() => setEditingId((cur) => (cur === r.id ? null : r.id))}
-                >
-                  {"{}"}
-                </button>
-                <button
-                  className={`mini ${r.parallel ? "par-on" : ""}`}
-                  title={
-                    r.parallel
-                      ? "Runs in parallel with adjacent parallel agents (click to make serial)"
-                      : "Run in parallel (local agents still serialize on the GPU)"
-                  }
-                  onClick={() => onSetParallel(r.id, !r.parallel)}
-                >
-                  ∥
-                </button>
-                <button
-                  className="mini"
-                  disabled={turnActive || r.status === "compacting"}
-                  title={r.status === "compacting" ? "Compacting…" : turnActive ? "Stop the turn first" : "Compact context (free tokens)"}
-                  onClick={() => onCompact(r.id)}
-                >
-                  ⟳
-                </button>
-                <button
-                  className="mini"
-                  title={r.active ? "Deactivate" : "Activate"}
-                  onClick={() => onSetActive(r.id, !r.active)}
-                >
-                  {r.active ? "◐" : "○"}
-                </button>
-                <button className="mini danger" title="Kick" onClick={() => onKick(r.id)}>
-                  ×
-                </button>
+                {r.model && (
+                  <span
+                    className={`roster-model ${r.model.startsWith("local/") ? "" : "cloud"}`}
+                    title={r.model}
+                  >
+                    {r.model.startsWith("local/") ? "🖥 " : "☁ "}
+                    {r.model.split("/").pop()?.replace(/\.gguf$/, "")}
+                  </span>
+                )}
+                {r.contextUsage && (
+                  <div className={`ctx-bar ${r.contextUsage.percent !== null && r.contextUsage.percent > 80 ? "ctx-warning" : ""}`}>
+                    <div className="ctx-fill-wrap">
+                      <div
+                        className={`ctx-fill ${ctxColor(r.contextUsage.percent)}`}
+                        style={{ width: `${r.contextUsage.percent !== null ? r.contextUsage.percent : 0}%` }}
+                      />
+                    </div>
+                    <span className="ctx-label">
+                      {ctxLabel(r.contextUsage)}
+                    </span>
+                  </div>
+                )}
+                <div className="roster-actions">
+                  <button
+                    className={`mini ${r.id === effective ? "star-on" : ""}`}
+                    disabled={!r.active}
+                    title={
+                      r.id === explicit
+                        ? "Default for un-mentioned messages (click to clear)"
+                        : r.id === effective
+                          ? "Default (fallback: first active agent)"
+                          : "Make default for un-mentioned messages"
+                    }
+                    onClick={() => onSetDefault(r.id === explicit ? null : r.id)}
+                  >
+                    {r.id === effective ? "★" : "☆"}
+                  </button>
+                  <button
+                    className={`mini ${editingId === r.id ? "star-on" : ""}`}
+                    disabled={turnActive}
+                    title={turnActive ? "Stop the turn to edit" : "Edit persona / system prompt"}
+                    onClick={() => setEditingId((cur) => (cur === r.id ? null : r.id))}
+                  >
+                    {"{}"}
+                  </button>
+                  <button
+                    className={`mini ${r.parallel ? "par-on" : ""}`}
+                    title={
+                      r.parallel
+                        ? "Runs in parallel with adjacent parallel agents (click to make serial)"
+                        : "Run in parallel (local agents still serialize on the GPU)"
+                    }
+                    onClick={() => onSetParallel(r.id, !r.parallel)}
+                  >
+                    ∥
+                  </button>
+                  <button
+                    className="mini"
+                    disabled={turnActive || r.status === "compacting"}
+                    title={r.status === "compacting" ? "Compacting…" : turnActive ? "Stop the turn first" : "Compact context (free tokens)"}
+                    onClick={() => onCompact(r.id)}
+                  >
+                    ⟳
+                  </button>
+                  <button
+                    className="mini"
+                    title={r.active ? "Deactivate" : "Activate"}
+                    onClick={() => onSetActive(r.id, !r.active)}
+                  >
+                    {r.active ? "◐" : "○"}
+                  </button>
+                  <button className="mini danger" title="Kick" onClick={() => onKick(r.id)}>
+                    ×
+                  </button>
+                </div>
               </div>
             </div>
             {editingId === r.id && (

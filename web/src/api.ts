@@ -71,6 +71,7 @@ export const api = {
       color?: string
       icon?: string
       model?: string | null
+      thinkingLevel?: string | null
     },
   ) =>
     fetch(`${API_BASE}/api/participants/${id}`, {

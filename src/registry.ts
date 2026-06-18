@@ -16,6 +16,8 @@ export interface RosterItem {
   status: string
   /** Per-agent model "provider/id", or undefined when on the default. */
   model?: string
+  /** Per-agent thinking level, or undefined when inheriting from global config. */
+  thinkingLevel?: "off" | "minimal" | "low" | "medium" | "high" | "xhigh"
   /** May run concurrently with adjacent parallel-flagged agents. */
   parallel: boolean
 }
@@ -62,6 +64,7 @@ export class Registry {
       active: p.active,
       status: p.status,
       model: p.persona.model,
+      thinkingLevel: p.persona.thinkingLevel,
       parallel: p.parallel,
     }))
   }
@@ -90,7 +93,7 @@ export class Registry {
   /** Editable persona fields (id is immutable — it is the @mention handle). */
   async update(
     id: string,
-    patch: Partial<Pick<Persona, "name" | "color" | "icon" | "tools" | "systemPrompt" | "model">>,
+    patch: Partial<Pick<Persona, "name" | "color" | "icon" | "tools" | "systemPrompt" | "model" | "thinkingLevel">>,
   ): Promise<Participant> {
     const existing = this.participants.get(id)
     if (!existing) throw new Error(`unknown participant "${id}"`)

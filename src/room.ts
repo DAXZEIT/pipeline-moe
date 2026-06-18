@@ -558,6 +558,19 @@ export class Room {
       const result = await target.run(context.text, context.images)
       if (this.aborted) return null
       const after = await snapshot(config.workspaceDir)
+
+      // Broadcast context usage after the turn — piggyback on status event.
+      // The idle status already fires from Participant.run() finally block;
+      // this second broadcast adds contextUsage to the payload.
+      const usage = target.getContextUsage?.()
+      if (usage) {
+        this.hub.broadcast("status", {
+          id: target.persona.id,
+          status: "idle",
+          contextUsage: usage,
+        })
+      }
+
       return {
         target,
         reply: result.text,

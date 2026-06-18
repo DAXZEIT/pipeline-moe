@@ -27,7 +27,7 @@ export function Composer({ roster, turnActive, onSend, onAbort }: Props) {
   const [partial, setPartial] = useState<string | null>(null)
   const [highlight, setHighlight] = useState(0)
   const [pendingImages, setPendingImages] = useState<string[]>([])
-  const [dragOver, setDragOver] = useState(false)
+  const [, setDragOver] = useState(false)
   const ref = useRef<HTMLTextAreaElement>(null)
 
   const handles = useMemo(() => ["all", ...roster.map((r) => r.id)], [roster])

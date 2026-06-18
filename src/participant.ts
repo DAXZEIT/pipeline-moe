@@ -11,7 +11,7 @@ import {
   type AgentSession,
   type AgentSessionEvent,
 } from "@earendil-works/pi-coding-agent"
-import { readFileSync } from "node:fs"
+import { existsSync, readFileSync } from "node:fs"
 import { join } from "node:path"
 import { config } from "./config.js"
 import { buildConfinedTools } from "./sandbox-tools.js"
@@ -47,7 +47,10 @@ const ROOM_NOTE =
   "triggering a handoff — only the @prefix routes work.\n" +
   "If you need information only the user can provide (preferences, credentials, context), " +
   "use the ask_user tool — it will pause the pipeline and wait for their response. Do NOT " +
-  "use it for rhetorical questions or self-clarification."
+  "use it for rhetorical questions or self-clarification.\n" +
+  "Your personal memory lives at agent_memory/<your_id>.md (e.g. agent_memory/builder.md). " +
+  "Read it at the start of a task to recall prior context. The scribe updates these files. " +
+  "After a compaction, your memory is refreshed automatically."
 
 export type Emit = (event: "token" | "status" | "activity" | "reasoning", data: unknown) => void
 
@@ -87,6 +90,17 @@ export class Participant {
   static async create(persona: Persona, resolved: ResolvedModel, emit: Emit): Promise<Participant> {
     const p = new Participant(persona, emit)
 
+    // Read agent memory (if it exists) — injected after the persona prompt.
+    // Capped at 4KB to avoid consuming excessive context tokens.
+    const memoryPath = join(config.workspaceDir, "agent_memory", `${persona.id}.md`)
+    let memoryNote = ""
+    if (existsSync(memoryPath)) {
+      const raw = readFileSync(memoryPath, "utf-8")
+      const content = raw.length > 4096 ? raw.slice(0, 4096) + "… (truncated)" : raw
+      memoryNote = `\nYOUR MEMORY (agent_memory/${persona.id}.md):\n${content}\n` +
+        "---\n(End of memory — updated by the scribe. After compaction, this is refreshed.)\n"
+    }
+
     const loader = new DefaultResourceLoader({
       cwd: config.workspaceDir,
       agentDir: getAgentDir(),
@@ -96,6 +110,7 @@ export class Participant {
         persona.systemPrompt,
         WORKSPACE_NOTE,
         ROOM_NOTE,
+        ...(memoryNote ? [memoryNote] : []),
       ],
     })
     await loader.reload()
@@ -115,7 +130,7 @@ export class Participant {
       // gated to this persona's allowlist. Keeps all file work inside the workspace.
       noTools: "builtin",
       customTools: buildConfinedTools(config.workspaceDir, persona.tools),
-      thinkingLevel: config.thinkingLevel,
+      thinkingLevel: persona.thinkingLevel ?? config.thinkingLevel,
       resourceLoader: loader,
       sessionManager: SessionManager.inMemory(config.workspaceDir),
       settingsManager: settings,
@@ -244,6 +259,11 @@ export class Participant {
   /** Whether the agent is currently compacting. */
   get isCompacting(): boolean {
     return this.session.isCompacting
+  }
+
+  /** Get the agent's current context usage. Undefined if the session has no usage info yet. */
+  getContextUsage(): ReturnType<AgentSession["getContextUsage"]> {
+    return this.session.getContextUsage()
   }
 
   dispose(): void {

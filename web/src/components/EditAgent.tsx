@@ -19,6 +19,7 @@ export function EditAgent({ agent, onCancel, onSaved }: Props) {
   const [color, setColor] = useState(agent.color)
   const [icon, setIcon] = useState(agent.icon)
   const [model, setModel] = useState(agent.model ?? "")
+  const [thinkingLevel, setThinkingLevel] = useState(agent.thinkingLevel ?? "")
   const [models, setModels] = useState<ModelInfo[]>([])
   const [allowCloud, setAllowCloud] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -37,6 +38,7 @@ export function EditAgent({ agent, onCancel, onSaved }: Props) {
         setColor(p.color)
         setIcon(p.icon)
         setModel(p.model ?? "")
+        setThinkingLevel(p.thinkingLevel ?? "")
         setLoaded(true)
       })
       .catch(() => setLoaded(true))
@@ -121,6 +123,18 @@ export function EditAgent({ agent, onCancel, onSaved }: Props) {
       {!allowCloud && (
         <div className="ca-model-hint">local-only — cloud models hidden (PIPELINE_ALLOW_CLOUD)</div>
       )}
+      <label className="ca-model-label">
+        thinking level
+        <select className="ca-input ca-model" value={thinkingLevel} onChange={(e) => setThinkingLevel(e.target.value)}>
+          <option value="">default (inherit from PIPELINE_THINKING)</option>
+          <option value="off">off</option>
+          <option value="minimal">minimal</option>
+          <option value="low">low</option>
+          <option value="medium">medium</option>
+          <option value="high">high</option>
+          <option value="xhigh">xhigh</option>
+        </select>
+      </label>
       <div className="ca-actions">
         <button className="btn btn-ghost" onClick={onCancel} disabled={busy}>
           Cancel
@@ -138,6 +152,7 @@ export function EditAgent({ agent, onCancel, onSaved }: Props) {
                 color,
                 icon,
                 model: model || null, // "" → null clears back to the default
+                thinkingLevel: thinkingLevel || null,
               })
               onSaved()
             } catch {

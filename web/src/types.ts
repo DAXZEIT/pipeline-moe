@@ -8,8 +8,12 @@ export interface RosterItem {
   status: "idle" | "active" | "thinking" | "working" | "compacting"
   /** Per-agent model "provider/id", or undefined when on the default. */
   model?: string
+  /** Per-agent thinking level, or undefined when inheriting from global config. */
+  thinkingLevel?: "off" | "minimal" | "low" | "medium" | "high" | "xhigh"
   /** May run concurrently with adjacent parallel-flagged agents. */
   parallel: boolean
+  /** Context token usage — populated after each turn via SSE status event. */
+  contextUsage?: { tokens: number | null; contextWindow: number; percent: number | null }
 }
 
 /** A model offered for per-agent selection (GET /api/models). */
@@ -54,6 +58,8 @@ export interface PersonaDetail {
   tools: string[]
   systemPrompt: string
   model?: string
+  /** Per-agent thinking level, or undefined when inheriting from global config. */
+  thinkingLevel?: "off" | "minimal" | "low" | "medium" | "high" | "xhigh"
 }
 
 export interface Receipt {

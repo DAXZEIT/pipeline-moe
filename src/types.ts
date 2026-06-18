@@ -17,6 +17,8 @@ export interface Persona {
   /** Optional per-agent model as "provider/id". Undefined → the process default
    *  (PIPELINE_MODEL / first local). Lets each role run on its own architecture. */
   model?: string
+  /** Per-agent thinking/effort level. Undefined → inherit from global PIPELINE_THINKING. */
+  thinkingLevel?: "off" | "minimal" | "low" | "medium" | "high" | "xhigh"
 }
 
 export type ParticipantStatus = "idle" | "active" | "thinking" | "working" | "compacting"

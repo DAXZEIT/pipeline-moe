@@ -66,8 +66,15 @@ export function useRoom() {
     es.addEventListener("roster", (e) => setRoster(JSON.parse((e as MessageEvent).data)))
 
     es.addEventListener("status", (e) => {
-      const { id, status } = JSON.parse((e as MessageEvent).data)
-      setRoster((r) => r.map((p) => (p.id === id ? { ...p, status } : p)))
+      const data = JSON.parse((e as MessageEvent).data)
+      setRoster((r) => r.map((p) => {
+        if (p.id !== data.id) return p
+        // Only update contextUsage when the payload explicitly carries it.
+        // Mid-turn status events (e.g. "working") don't include it — preserving
+        // the last known value prevents the progress bar from briefly clearing.
+        if (data.contextUsage !== undefined) return { ...p, status: data.status, contextUsage: data.contextUsage }
+        return { ...p, status: data.status }
+      }))
     })
 
     es.addEventListener("token", (e) => {

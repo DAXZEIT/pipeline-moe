@@ -165,6 +165,18 @@ async function main(): Promise<void> {
     if (typeof body.icon === "string") patch.icon = body.icon
     if (Array.isArray(body.tools))
       patch.tools = body.tools.map(String).filter((t: string) => VALID_TOOLS.has(t))
+    const VALID_THINKING = new Set(["off", "minimal", "low", "medium", "high", "xhigh"])
+    if ("thinkingLevel" in body) {
+      const tv = body.thinkingLevel
+      if (tv === null || tv === "") {
+        patch.thinkingLevel = undefined // reset to the global default
+      } else if (typeof tv === "string" && VALID_THINKING.has(tv)) {
+        patch.thinkingLevel = tv
+      } else {
+        res.status(400).json({ error: `invalid thinkingLevel "${String(tv)}" — must be one of: off, minimal, low, medium, high, xhigh` })
+        return
+      }
+    }
     if ("model" in body) {
       const mv = body.model
       if (mv === null || mv === "") {
