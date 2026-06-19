@@ -1,6 +1,7 @@
 // The participant registry: the live roster of agents. Create / activate /
 // deactivate / kick all happen here. Emits a "roster" SSE event on any change.
 
+import { isAllowedModel as isAllowedModel_ } from "./model.js"
 import { Participant } from "./participant.js"
 import type { ResolvedModel } from "./model.js"
 import type { SseHub } from "./sse.js"
@@ -211,5 +212,10 @@ export class Registry {
   disposeAll(): void {
     for (const p of this.participants.values()) p.dispose()
     this.participants.clear()
+  }
+
+  /** True if a "provider/id" ref is a model the UI is allowed to assign. */
+  isAllowedModel(ref: string): boolean {
+    return isAllowedModel_(this.resolved, ref)
   }
 }

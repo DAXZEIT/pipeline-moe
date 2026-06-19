@@ -667,10 +667,11 @@ export class Room {
     return this.executeAgent(target, context, "followUp")
   }
 
-  /** Handle `/kick @x`, `/activate @x`, `/deactivate @x`. Returns true if handled. */
+  /** Handle slash commands. Returns true if handled. */
   private async handleSlashCommand(text: string): Promise<boolean> {
     if (!text.startsWith("/")) return false
-    const [cmd, rawTarget] = text.split(/\s+/, 2)
+    const [cmd, ...args] = text.split(/\s+/)
+    const rawTarget = args[0]
     const id = rawTarget?.replace(/^@/, "").toLowerCase()
 
     switch (cmd) {
@@ -712,6 +713,145 @@ export class Room {
           this.notice(`@${id} compacted: ${result.tokensBefore} tokens before → summary generated.`)
         } catch (err) {
           this.notice(`/compact @${id} failed: ${err instanceof Error ? err.message : String(err)}`, "error")
+        }
+        return true
+      }
+      case "/help":
+        this.notice(
+          "Commands: /help, /kick @agent, /activate @agent, /deactivate @agent, " +
+          "/compact @agent, /model @agent provider/id, /thinking [level|@agent level], " +
+          "/stats [@agent], /chaining on|off, /default @agent|none"
+        )
+        return true
+      case "/model": {
+        const agentId = args[0]?.replace(/^@/, "").toLowerCase()
+        const modelRef = args[1]
+        if (!agentId || !modelRef) {
+          this.notice("/model: usage — /model @agent provider/id", "error")
+          return true
+        }
+        if (!this.registry.has(agentId)) {
+          this.notice(`/model: unknown participant "@${agentId}".`, "error")
+          return true
+        }
+        if (!this.registry.isAllowedModel(modelRef)) {
+          this.notice(`/model: "${modelRef}" is not available. Use GET /api/models to list.`, "error")
+          return true
+        }
+        try {
+          await this.registry.update(agentId, { model: modelRef })
+          this.notice(`@${agentId} model → ${modelRef}`)
+        } catch (err) {
+          this.notice(`/model @${agentId} failed: ${err instanceof Error ? err.message : String(err)}`, "error")
+        }
+        return true
+      }
+      case "/thinking": {
+        const LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh"] as const
+        if (args[0]?.startsWith("@")) {
+          // Per-agent: /thinking @agent level
+          const agentId = args[0].replace(/^@/, "").toLowerCase()
+          const level = args[1]
+          if (!level || !(LEVELS as readonly string[]).includes(level)) {
+            this.notice(`/thinking: usage — /thinking @agent ${LEVELS.join("|")}`, "error")
+            return true
+          }
+          const p = this.registry.get(agentId)
+          if (!p) {
+            this.notice(`/thinking: unknown participant "@${agentId}".`, "error")
+            return true
+          }
+          const available = p.getAvailableThinkingLevels?.()
+          if (available && available.length > 0 && !available.includes(level)) {
+            this.notice(`/thinking: "${level}" not available for @${agentId}. Available: ${available.join(", ")}`, "error")
+            return true
+          }
+          try {
+            await this.registry.setThinkingLevel(agentId, level as typeof LEVELS[number])
+            this.notice(`@${agentId} thinking → ${level}`)
+          } catch (err) {
+            this.notice(`/thinking @${agentId} failed: ${err instanceof Error ? err.message : String(err)}`, "error")
+          }
+        } else {
+          // Global: /thinking level
+          const level = args[0]
+          if (!level || !(LEVELS as readonly string[]).includes(level)) {
+            this.notice(`/thinking: usage — /thinking ${LEVELS.join("|")}`, "error")
+            return true
+          }
+          config.thinkingLevel = level as typeof LEVELS[number]
+          this.notice(`Global thinking → ${level}`)
+        }
+        return true
+      }
+      case "/stats": {
+        if (id) {
+          // Per-agent stats
+          const p = this.registry.get(id)
+          if (!p) {
+            this.notice(`/stats: unknown participant "@${id}".`, "error")
+            return true
+          }
+          const stats = p.getSessionStats?.()
+          const ctx = p.getContextUsage?.()
+          const parts: string[] = [`@${id}:`]
+          if (stats) {
+            const { input, output, cacheRead, total } = stats.tokens
+            const cachePct = total > 0 ? Math.round((cacheRead / total) * 100) : 0
+            parts.push(`${input}i / ${output}o · cache ${cachePct}% · ${stats.toolCalls} tools · ${stats.userMessages + stats.assistantMessages} msgs`)
+          }
+          if (ctx) {
+            parts.push(`context: ${ctx.tokens ?? "?"}/${ctx.contextWindow} (${ctx.percent ?? "?"}%)`)
+          }
+          if (!stats && !ctx) parts.push("no stats yet")
+          this.notice(parts.join(" · "))
+        } else {
+          // All agents summary
+          for (const item of this.registry.roster()) {
+            const p = this.registry.get(item.id)
+            if (!p) continue
+            const stats = p.getSessionStats?.()
+            const ctx = p.getContextUsage?.()
+            const parts: string[] = [`@${item.id}`]
+            if (stats) {
+              const { input, output, cacheRead, total } = stats.tokens
+              const cachePct = total > 0 ? Math.round((cacheRead / total) * 100) : 0
+              parts.push(`${input}i / ${output}o · cache ${cachePct}% · ${stats.toolCalls} tools`)
+            }
+            if (ctx) {
+              parts.push(`ctx ${ctx.percent ?? "?"}%`)
+            }
+            if (!stats && !ctx) parts.push("no stats yet")
+            this.notice(parts.join(" · "))
+          }
+        }
+        return true
+      }
+      case "/chaining": {
+        const val = args[0]?.toLowerCase()
+        if (val === "on") {
+          this.setChaining(true)
+          this.notice("Chaining → on")
+        } else if (val === "off") {
+          this.setChaining(false)
+          this.notice("Chaining → off")
+        } else {
+          this.notice("/chaining: usage — /chaining on|off", "error")
+        }
+        return true
+      }
+      case "/default": {
+        if (!rawTarget || rawTarget.toLowerCase() === "none") {
+          this.setDefaultAgent(null)
+          this.notice("Default agent → none (first active)")
+        } else {
+          const agentId = rawTarget.replace(/^@/, "").toLowerCase()
+          try {
+            this.setDefaultAgent(agentId)
+            this.notice(`Default agent → @${agentId}`)
+          } catch (err) {
+            this.notice(`/default: ${err instanceof Error ? err.message : String(err)}`, "error")
+          }
         }
         return true
       }
