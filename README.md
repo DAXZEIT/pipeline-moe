@@ -57,6 +57,7 @@ provider in `~/.pi/agent/models.json`). Override via `.env` (see `.env.example`)
 | POST | `/api/messages` | `{text, images?: string[]}` | post to the room (returns 202; results stream over SSE) |
 | POST | `/api/messages/steer` | `{text, target}` | steer a running agent mid-turn (409 if not running) |
 | GET | `/api/participants/:id/export` | — | download session as HTML (attachment) |
+| GET | `/api/participants/:id/export-jsonl` | — | download session as JSONL (attachment) |
 | POST | `/api/abort` | — | abort the currently running agent |
 | GET | `/api/media/:filename` | — | serve a saved image |
 | GET | `/api/workspace` | — | list workspace files |
@@ -92,6 +93,17 @@ in order. An agent can hand work to another by writing `@<id>` explicitly in its
 reply — only the `@` prefix triggers a handoff. Agents can refer to each other by
 name (e.g. "the builder") in discussion without triggering routing.
 
+**Last-paragraph parsing:** Only the last paragraph of an agent's reply is scanned
+for `@mentions`. Mid-text references like "as @builder mentioned" don't trigger
+chains — only the final paragraph is treated as a routing signal. This prevents
+accidental chaining when an agent references another agent in its reasoning.
+
+**Chain budget:** Each turn has a chain hop budget of 8 (configurable as
+`MAX_CHAIN_HOPS` in `Room`). If the budget is exhausted during chaining, further
+chains stop and a notice is emitted. This prevents infinite loops from agents
+that hallucinate `@mentions` in their replies. The budget resets at the start of
+each turn.
+
 ### Parallel Agents
 
 A participant can be toggled as "parallel" — when routed alongside other agents,
@@ -121,6 +133,28 @@ compaction. The agent's status changes to `compacting` during the operation.
 When an agent's context approaches its limit (90K tokens for a 128K window),
 pi automatically compacts the session. The UI receives a `status: "compacting"`
 event during the operation.
+
+**Role-aware compaction:** Each persona can define `compactionInstructions` —
+a short directive (max 500 chars) telling the compaction what to preserve vs
+discard. The 7 seed personas come with tailored instructions:
+
+| Persona | Instruction |
+|---|---|
+| scout | Preserve file paths, structural observations, anomalies. Discard dead-ends. |
+| builder | Preserve code changes, bugs, architectural decisions. Discard failed attempts. |
+| auditor | Preserve findings, severity assessments, verification status. Discard clean reads. |
+| scribe | Preserve documentation written, memory updates, knowledge distilled. Discard context reads. |
+| planner | Preserve plans, steps, architectural decisions. Discard source reads for verification. |
+| tester | Preserve test results, pass/fail counts, bugs found. Discard superseded runs. |
+| fetcher | Preserve URLs and key findings. Discard failed fetches and retry traces. |
+
+Set via the persona editor (textarea below system prompt) or `PATCH /api/participants/:id`
+with `{compactionInstructions: "..."}`. Null or empty string clears the override.
+
+**SDK limitation:** Custom instructions only apply to *manual* compaction via
+`session.compact(customInstructions)`. Auto-compaction uses default instructions —
+the SDK's `session_before_compact` event doesn't expose `customInstructions`
+(known pi SDK limitation, requires SDK update to fix).
 
 ### Per-Agent Thinking Level
 
@@ -238,9 +272,28 @@ execution. A "steer sent" flash appears for 2 seconds, then clears.
 
 **Error handling:** 409 if the agent is not running (idle), 404 if not found.
 
-### HTML Export
+### Work Receipts (Context Injection)
 
-Export an agent's session as a self-contained HTML file via
+In addition to workspace diff receipts (filesystem changes broadcast via SSE),
+the room injects structured work receipts into downstream agents' context using
+`session.sendCustomMessage()`. After an agent turn produces file changes, the
+next agent in the queue receives a compact `work_receipt` custom message
+(`display: false`) summarizing what changed — e.g. "Builder created: foo.ts,
+bar.ts; modified: baz.ts".
+
+This gives downstream agents filesystem awareness without requiring them to
+re-discover changes from the transcript. The receipt is injected in `drainQueue()`
+after the result is posted.
+
+**Caveat:** `sendCustomMessage({ display: false })` messages still consume context
+tokens. In a chain of 8 agents, up to 7 receipts can accumulate per turn.
+Keep receipts compact. Receipts are invisible to the operator (not shown in the
+transcript) but occupy space in the agent's context — monitor token growth on
+downstream agents in long chains.
+
+### Session Export
+
+**HTML:** Export an agent's session as a self-contained HTML file via
 `GET /api/participants/:id/export`. The download button (⬇) in the Roster actions
 row triggers the download.
 
@@ -248,6 +301,12 @@ row triggers the download.
 and returns with `Content-Disposition: attachment`.
 
 Filename format: `{id}-{timestamp}.html` (colons and dots sanitized).
+
+**JSONL:** Export an agent's session as JSONL (one JSON object per line) via
+`GET /api/participants/:id/export-jsonl`. Useful for post-mortem analysis,
+dataset extraction, and replay. The Roster has a secondary export button for
+JSONL format. Returns the file as `Content-Disposition: attachment` with
+`application/x-ndjson` content type.
 
 ### Retry Awareness
 
@@ -267,6 +326,11 @@ next thing the agent processes — no Room routing, no context rebuild from tran
 **Data flow:** User answer → `Room.followUpAgent(asker, { text, images })` →
 `Participant.followUp(text, images)` → `session.followUp(text, images)` → agent
 processes the answer directly from its session memory.
+
+**Implementation note:** `runAgent()` and `followUpAgent()` are thin wrappers around
+a shared `executeAgent(target, context, mode)` method — only the call to
+`target.run()` vs `target.followUp()` differs. The common path (snapshot →
+execute → stats → receipt) lives in one place.
 
 ## Custom Tools (Extension System)
 
@@ -304,4 +368,6 @@ default.
 | builder | read, write, edit, bash, grep, find, ls, ask_user |
 | auditor | read, grep, find, ls, ask_user |
 | scribe | read, write, edit, grep, find, ls, ask_user |
+| planner | read, grep, find, ls, ask_user |
 | tester | read, bash, grep, find, ls, ask_user |
+| fetcher | read, bash, write, grep, find, ls, web_read, ask_user |
