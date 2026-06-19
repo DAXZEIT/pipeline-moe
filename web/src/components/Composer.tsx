@@ -14,6 +14,20 @@ interface Props {
 /** Acceptable image mime types for paste/drag-drop. */
 const IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/webp", "image/gif"])
 
+/** Slash commands with syntax and description. */
+const SLASH_COMMANDS = [
+  { cmd: "help", syntax: "/help", desc: "List all available commands" },
+  { cmd: "kick", syntax: "/kick @agent", desc: "Remove agent from room" },
+  { cmd: "activate", syntax: "/activate @agent", desc: "Enable a deactivated agent" },
+  { cmd: "deactivate", syntax: "/deactivate @agent", desc: "Disable an active agent" },
+  { cmd: "compact", syntax: "/compact @agent", desc: "Compact agent context" },
+  { cmd: "model", syntax: "/model @agent provider/id", desc: "Change agent model" },
+  { cmd: "thinking", syntax: "/thinking [level|@agent level]", desc: "Set thinking level" },
+  { cmd: "stats", syntax: "/stats [@agent]", desc: "Show token & context stats" },
+  { cmd: "chaining", syntax: "/chaining on|off", desc: "Toggle followUp self-chaining" },
+  { cmd: "default", syntax: "/default @agent|none", desc: "Set/clear default agent" },
+]
+
 /** Read a File as a base64 data URI. */
 function fileToDataUri(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -26,6 +40,7 @@ function fileToDataUri(file: File): Promise<string> {
 
 export function Composer({ roster, turnActive, runningAgentId, onSend, onAbort, onSteer }: Props) {
   const [value, setValue] = useState("")
+  const [trigger, setTrigger] = useState<"@" | "/" | null>(null)
   const [partial, setPartial] = useState<string | null>(null)
   const [highlight, setHighlight] = useState(0)
   const [pendingImages, setPendingImages] = useState<string[]>([])
@@ -43,9 +58,12 @@ export function Composer({ roster, turnActive, runningAgentId, onSend, onAbort, 
 
   const handles = useMemo(() => ["all", ...roster.map((r) => r.id)], [roster])
   const suggestions = useMemo(() => {
-    if (partial === null) return []
-    return handles.filter((h) => h.startsWith(partial.toLowerCase()))
-  }, [partial, handles])
+    if (partial === null || trigger === null) return []
+    if (trigger === "@") {
+      return handles.filter((h) => h.startsWith(partial.toLowerCase()))
+    }
+    return SLASH_COMMANDS.filter((c) => c.cmd.startsWith(partial.toLowerCase()))
+  }, [partial, trigger, handles])
 
   // ── Image handling ────────────────────────────────────────────────────────
 
@@ -93,21 +111,44 @@ export function Composer({ roster, turnActive, runningAgentId, onSend, onAbort, 
     [addImages],
   )
 
-  // ── Mention handling ──────────────────────────────────────────────────────
+  // ── Mention & slash handling ──────────────────────────────────────────────
 
-  function recomputeMention(text: string, caret: number) {
+  function recomputePartial(text: string, caret: number) {
     const before = text.slice(0, caret)
-    const m = before.match(/@(\w*)$/)
-    setPartial(m ? m[1] : null)
-    setHighlight(0)
+    const m = before.match(/(@|\/)(\w*)$/)
+    if (m) {
+      const marker = m[1]
+      // For "/" — only trigger at start of line (like Discord/Slack)
+      if (marker === "/") {
+        const pos = before.lastIndexOf(m[0])
+        const atLineStart = pos === 0 || before[pos - 1] === "\n"
+        if (!atLineStart) {
+          setTrigger(null)
+          setPartial(null)
+          return
+        }
+      }
+      setTrigger(marker as "@" | "/")
+      setPartial(m[2])
+      setHighlight(0)
+    } else {
+      setTrigger(null)
+      setPartial(null)
+    }
   }
 
-  function accept(handle: string) {
+  function acceptSuggestion(item: string) {
     const el = ref.current
     const caret = el?.selectionStart ?? value.length
-    const before = value.slice(0, caret).replace(/@(\w*)$/, `@${handle} `)
+    let before: string
+    if (trigger === "@") {
+      before = value.slice(0, caret).replace(/@(\w*)$/, `@${item} `)
+    } else {
+      before = value.slice(0, caret).replace(/\/(\w*)$/, `/${item} `)
+    }
     const next = before + value.slice(caret)
     setValue(next)
+    setTrigger(null)
     setPartial(null)
     queueMicrotask(() => el?.focus())
   }
@@ -128,6 +169,7 @@ export function Composer({ roster, turnActive, runningAgentId, onSend, onAbort, 
     }
 
     setValue("")
+    setTrigger(null)
     setPartial(null)
     setPendingImages([])
   }
@@ -144,25 +186,42 @@ export function Composer({ roster, turnActive, runningAgentId, onSend, onAbort, 
     <div className="composer">
       {suggestions.length > 0 && (
         <div className="mention-pop">
-          {suggestions.map((h, i) => {
-            const r = roster.find((x) => x.id === h)
-            return (
+          {trigger === "/" ? (
+            suggestions.map((c, i) => (
               <div
-                key={h}
+                key={c.cmd}
                 className={`mention-item ${i === highlight ? "active" : ""}`}
                 onMouseDown={(e) => {
                   e.preventDefault()
-                  accept(h)
+                  acceptSuggestion(c.cmd)
                 }}
               >
-                <span className="mention-icon" style={{ color: r?.color ?? "#9aa" }}>
-                  {r?.icon ?? "👥"}
-                </span>
-                <span>@{h}</span>
-                {h === "all" && <span className="mention-hint">everyone active</span>}
+                <span className="mention-icon">⌘</span>
+                <span>{c.syntax}</span>
+                <span className="mention-hint">{c.desc}</span>
               </div>
-            )
-          })}
+            ))
+          ) : (
+            suggestions.map((h, i) => {
+              const r = roster.find((x) => x.id === h)
+              return (
+                <div
+                  key={h}
+                  className={`mention-item ${i === highlight ? "active" : ""}`}
+                  onMouseDown={(e) => {
+                    e.preventDefault()
+                    acceptSuggestion(h)
+                  }}
+                >
+                  <span className="mention-icon" style={{ color: r?.color ?? "#9aa" }}>
+                    {r?.icon ?? "👥"}
+                  </span>
+                  <span>@{h}</span>
+                  {h === "all" && <span className="mention-hint">everyone active</span>}
+                </div>
+              )
+            })
+          )}
         </div>
       )}
 
@@ -190,14 +249,14 @@ export function Composer({ roster, turnActive, runningAgentId, onSend, onAbort, 
           className="composer-input"
           rows={3}
           value={value}
-          placeholder="Message the room — @ summons an agent, paste or drop images"
+          placeholder="Message the room — @ mentions, / commands, paste or drop images"
           onPaste={handlePaste}
           onDragOver={handleDragOver}
           onDragLeave={handleDragLeave}
           onDrop={handleDrop}
           onChange={(e) => {
             setValue(e.target.value)
-            recomputeMention(e.target.value, e.target.selectionStart ?? e.target.value.length)
+            recomputePartial(e.target.value, e.target.selectionStart ?? e.target.value.length)
           }}
           onKeyDown={(e) => {
             if (suggestions.length > 0) {
@@ -213,10 +272,15 @@ export function Composer({ roster, turnActive, runningAgentId, onSend, onAbort, 
               }
               if (e.key === "Enter" || e.key === "Tab") {
                 e.preventDefault()
-                accept(suggestions[highlight])
+                if (trigger === "/") {
+                  acceptSuggestion((suggestions[highlight] as { cmd: string }).cmd)
+                } else {
+                  acceptSuggestion(suggestions[highlight] as string)
+                }
                 return
               }
               if (e.key === "Escape") {
+                setTrigger(null)
                 setPartial(null)
                 return
               }
