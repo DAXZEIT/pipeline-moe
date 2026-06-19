@@ -10,6 +10,7 @@
     "dev:backend": "tsx watch src/server.ts",
     "dev:frontend": "npm -C web run dev",
     "start": "tsx src/server.ts",
+    "start:full": "bash start.sh",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },
