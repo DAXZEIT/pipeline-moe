@@ -73,6 +73,7 @@ export const api = {
       icon?: string
       model?: string | null
       thinkingLevel?: string | null
+      compactionInstructions?: string | null
     },
   ) =>
     fetch(`${API_BASE}/api/participants/${id}`, {
@@ -118,6 +119,9 @@ export const api = {
 
   exportAgent: (id: string) =>
     fetch(`${API_BASE}/api/participants/${id}/export`).then((r) => r.blob()),
+
+  exportAgentJsonl: (id: string) =>
+    fetch(`${API_BASE}/api/participants/${id}/export-jsonl`).then((r) => r.blob()),
 
   settings: () =>
     fetch(`${API_BASE}/api/settings`).then((r) =>

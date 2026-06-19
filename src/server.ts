@@ -442,6 +442,20 @@ async function main(): Promise<void> {
         return
       }
     }
+    if ("compactionInstructions" in body) {
+      const ci = body.compactionInstructions
+      if (ci === null || ci === "") {
+        patch.compactionInstructions = undefined
+      } else if (typeof ci === "string" && ci.length <= 500) {
+        patch.compactionInstructions = ci
+      } else if (typeof ci === "string") {
+        res.status(400).json({ error: `compactionInstructions too long (${ci.length} chars, max 500)` })
+        return
+      } else {
+        res.status(400).json({ error: "compactionInstructions must be a string" })
+        return
+      }
+    }
 
     try {
       if (typeof body.active === "boolean") registry.setActive(id, body.active)
@@ -610,6 +624,27 @@ async function main(): Promise<void> {
       res.setHeader("Content-Type", "text/html; charset=utf-8")
       res.setHeader("Content-Disposition", `attachment; filename="${filename}"`)
       res.send(html)
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : String(err) })
+    }
+  })
+
+  // Export agent's session as JSONL (one JSON object per line).
+  app.get("/api/participants/:id/export-jsonl", (req, res) => {
+    const { id } = req.params
+    const p = registry.get(id)
+    if (!p) {
+      res.status(404).json({ error: `unknown participant "${id}"` })
+      return
+    }
+    try {
+      const filePath = p.exportToJsonl()
+      const jsonl = readFileSync(filePath, "utf-8")
+      const timestamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, -5)
+      const filename = `${id}-${timestamp}.jsonl`
+      res.setHeader("Content-Type", "application/x-ndjson; charset=utf-8")
+      res.setHeader("Content-Disposition", `attachment; filename="${filename}"`)
+      res.send(jsonl)
     } catch (err) {
       res.status(500).json({ error: err instanceof Error ? err.message : String(err) })
     }

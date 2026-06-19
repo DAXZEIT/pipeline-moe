@@ -20,6 +20,7 @@ export function EditAgent({ agent, onCancel, onSaved }: Props) {
   const [icon, setIcon] = useState(agent.icon)
   const [model, setModel] = useState(agent.model ?? "")
   const [thinkingLevel, setThinkingLevel] = useState(agent.thinkingLevel ?? "")
+  const [compactionInstructions, setCompactionInstructions] = useState("")
   const [availableThinkingLevels, setAvailableThinkingLevels] = useState<string[]>([])
   const [models, setModels] = useState<ModelInfo[]>([])
   const [allowCloud, setAllowCloud] = useState(false)
@@ -40,6 +41,7 @@ export function EditAgent({ agent, onCancel, onSaved }: Props) {
         setIcon(p.icon)
         setModel(p.model ?? "")
         setThinkingLevel(p.thinkingLevel ?? "")
+        setCompactionInstructions(p.compactionInstructions ?? "")
         setAvailableThinkingLevels(p.availableThinkingLevels ?? [])
         setLoaded(true)
       })
@@ -107,6 +109,14 @@ export function EditAgent({ agent, onCancel, onSaved }: Props) {
           </label>
         ))}
       </div>
+      <textarea
+        className="ca-input"
+        rows={3}
+        placeholder="Compaction instructions (what to preserve vs discard — optional, max 500 chars)"
+        value={compactionInstructions}
+        onChange={(e) => setCompactionInstructions(e.target.value)}
+        maxLength={500}
+      />
       <label className="ca-model-label">
         model
         <select className="ca-input ca-model" value={model} onChange={(e) => setModel(e.target.value)}>
@@ -152,6 +162,7 @@ export function EditAgent({ agent, onCancel, onSaved }: Props) {
                 icon,
                 model: model || null, // "" → null clears back to the default
                 thinkingLevel: thinkingLevel || null,
+                compactionInstructions: compactionInstructions || null,
               })
               onSaved()
             } catch {

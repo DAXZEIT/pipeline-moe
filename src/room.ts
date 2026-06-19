@@ -18,6 +18,15 @@ import type {
   WorkReceipt,
 } from "./types.js"
 
+/** Produce a compact one-line summary of a work receipt for injection into the next agent's context. */
+function formatReceipt(r: WorkReceipt): string {
+  const parts: string[] = []
+  if (r.created.length > 0) parts.push(`created: ${r.created.join(", ")}`)
+  if (r.modified.length > 0) parts.push(`modified: ${r.modified.join(", ")}`)
+  if (r.deleted.length > 0) parts.push(`deleted: ${r.deleted.join(", ")}`)
+  return `📋 Work receipt from @${r.participantId}: ${parts.join("; ")}`
+}
+
 /** State when the pipeline is paused waiting for a user response to an ask_user. */
 interface PendingQuestion {
   askerId: string
@@ -760,6 +769,15 @@ export class Room {
               this.notice(`Chain budget exhausted (${this.MAX_CHAIN_HOPS} hops) — stopping.`, "info")
             }
           }
+        }
+
+        // Inject work receipt into the next agent in queue (if there is one and there are changes).
+        if (receiptHasChanges(out.receipt) && this.queue.length > 0) {
+          const nextTarget = this.queue[0]
+          await nextTarget.sendCustomMessage(
+            { customType: "work_receipt", content: formatReceipt(out.receipt), display: false },
+            { deliverAs: "nextTurn" },
+          )
         }
       }
 

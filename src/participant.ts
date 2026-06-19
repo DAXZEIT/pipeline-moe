@@ -154,6 +154,8 @@ export class Participant {
     // Enable auto-compaction on the session (triggers compact() automatically
     // when context tokens exceed the threshold after each turn).
     session.setAutoCompactionEnabled(true)
+    // Name the session after the persona for debug visibility.
+    session.setSessionName(persona.id)
     p.session = session
     p.unsubscribe = session.subscribe((ev) => p.onEvent(ev))
     return p
@@ -286,7 +288,7 @@ export class Participant {
 
   /** Compact the agent's session context (summarize old turns to free tokens). */
   async compact(): Promise<{ summary: string; tokensBefore: number }> {
-    const result = await this.session.compact()
+    const result = await this.session.compact(this.persona.compactionInstructions)
     return { summary: result.summary, tokensBefore: result.tokensBefore }
   }
 
@@ -316,9 +318,19 @@ export class Participant {
     return this.session.getSessionStats()
   }
 
+  /** Get the last assistant response text (convenience method). */
+  getLastAssistantText(): string | undefined {
+    return this.session.getLastAssistantText()
+  }
+
   /** Export the agent's session to a self-contained HTML file. Returns the file path. */
   async exportToHtml(): Promise<string> {
     return await this.session.exportToHtml()
+  }
+
+  /** Export the agent's session as JSONL (one JSON object per line). Returns the file path. */
+  exportToJsonl(): string {
+    return this.session.exportToJsonl()
   }
 
   /** Queue a steering message while the agent is running.
@@ -363,6 +375,16 @@ export class Participant {
     } finally {
       this.setStatus("idle")
     }
+  }
+
+  /** Inject a custom message into the agent's context (invisible in the transcript).
+   *  Used for structured signals like work receipts between agents. */
+  async sendCustomMessage(message: {
+    customType: string
+    content: string
+    display: boolean
+  }, options?: { triggerTurn?: boolean; deliverAs?: "steer" | "followUp" | "nextTurn" }): Promise<void> {
+    await this.session.sendCustomMessage(message, options)
   }
 
   dispose(): void {

@@ -368,6 +368,7 @@ export const SEED_PERSONAS: Persona[] = [
     icon: "🔍",
     tools: ["read", "grep", "find", "ls", "web_search", "web_read", "youtube_transcript", "arxiv_search", "youcom_search"],
     systemPrompt: buildPrompt(SCOUT_OVERLAY),
+    compactionInstructions: "Preserve all discovered file paths, structural observations, and anomalies found. Discard exploratory dead-ends and paths that led nowhere.",
   },
   {
     id: "builder",
@@ -376,6 +377,7 @@ export const SEED_PERSONAS: Persona[] = [
     icon: "🔨",
     tools: ["read", "bash", "edit", "write", "grep", "find", "ls"],
     systemPrompt: buildPrompt(BUILDER_OVERLAY),
+    compactionInstructions: "Preserve all code changes made, bugs encountered, and architectural decisions. Discard intermediate failed attempts and tool calls that were superseded.",
   },
   {
     id: "auditor",
@@ -384,6 +386,7 @@ export const SEED_PERSONAS: Persona[] = [
     icon: "🛡️",
     tools: ["read", "grep", "find", "ls"],
     systemPrompt: buildPrompt(AUDITOR_OVERLAY),
+    compactionInstructions: "Preserve all findings (open and resolved), severity assessments, and verification status. Discard read-only exploration that found no issues.",
   },
   {
     id: "scribe",
@@ -392,6 +395,7 @@ export const SEED_PERSONAS: Persona[] = [
     icon: "✏️",
     tools: ["read", "write", "edit", "grep", "find", "ls"],
     systemPrompt: buildPrompt(SCRIBE_OVERLAY),
+    compactionInstructions: "Preserve all documentation written, memory updates, and knowledge distilled. Discard read-only exploration used only to gather context.",
   },
   {
     id: "planner",
@@ -400,6 +404,7 @@ export const SEED_PERSONAS: Persona[] = [
     icon: "📋",
     tools: ["read", "grep", "find", "ls"],
     systemPrompt: buildPrompt(PLANNER_OVERLAY),
+    compactionInstructions: "Preserve all plans created, their steps and status, and architectural decisions. Discard source code reads done only for verification.",
   },
   {
     id: "tester",
@@ -408,6 +413,7 @@ export const SEED_PERSONAS: Persona[] = [
     icon: "🧪",
     tools: ["read", "bash", "grep", "find", "ls"],
     systemPrompt: buildPrompt(TESTER_OVERLAY),
+    compactionInstructions: "Preserve all test results, pass/fail counts, and bugs found. Discard intermediate test runs that were superseded by later runs.",
   },
   {
     id: "fetcher",
@@ -416,6 +422,7 @@ export const SEED_PERSONAS: Persona[] = [
     icon: "🌐",
     tools: ["read", "bash", "write", "grep", "find", "ls", "web_read"],
     systemPrompt: buildPrompt(FETCHER_OVERLAY),
+    compactionInstructions: "Preserve all URLs fetched and their key findings. Discard failed fetch attempts and retry traces.",
   },
 ]
 

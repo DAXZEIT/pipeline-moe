@@ -19,6 +19,8 @@ export interface Persona {
   model?: string
   /** Per-agent thinking/effort level. Undefined → inherit from global PIPELINE_THINKING. */
   thinkingLevel?: "off" | "minimal" | "low" | "medium" | "high" | "xhigh"
+  /** Custom instructions for context compaction — tells the summarizer what to preserve vs discard for this role. */
+  compactionInstructions?: string
 }
 
 export type ParticipantStatus = "idle" | "active" | "thinking" | "working" | "compacting" | "retrying"

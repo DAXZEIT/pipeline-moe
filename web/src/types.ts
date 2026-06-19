@@ -73,6 +73,8 @@ export interface PersonaDetail {
   thinkingLevel?: "off" | "minimal" | "low" | "medium" | "high" | "xhigh"
   /** Thinking levels supported by the current model (from pi session). */
   availableThinkingLevels?: string[]
+  /** Custom instructions for context compaction. */
+  compactionInstructions?: string
 }
 
 export interface Receipt {

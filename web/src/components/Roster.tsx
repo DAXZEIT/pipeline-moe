@@ -248,6 +248,21 @@ export function Roster({
                   >
                     ⬇
                   </button>
+                  <button
+                    className="mini"
+                    title="Export session as JSONL"
+                    onClick={async () => {
+                      const blob = await api.exportAgentJsonl(r.id)
+                      const url = URL.createObjectURL(blob)
+                      const a = document.createElement("a")
+                      a.href = url
+                      a.download = `${r.id}.jsonl`
+                      a.click()
+                      URL.revokeObjectURL(url)
+                    }}
+                  >
+                    {`{`}
+                  </button>
                   <button className="mini danger" title="Kick" onClick={() => onKick(r.id)}>
                     ×
                   </button>
