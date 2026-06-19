@@ -69,6 +69,8 @@ export class Room {
   private pendingQuestion: PendingQuestion | null = null
   /** Agent that handles messages with no @mention. null = first active. */
   private defaultAgentId: string | null = null
+  /** Agent that receives routing fallback when no agent is @-mentioned in a reply. null = disabled. */
+  private fallbackAgentId: string | null = "planner"
 
   // ── Current conversation identity ──────────────────────────────────────────
   private convId = newConvId()
@@ -109,8 +111,20 @@ export class Room {
     void this.saveCurrent()
   }
 
+  getFallbackAgent(): string | null {
+    return this.fallbackAgentId
+  }
+
+  /** Set the agent that receives routing fallback. null = disabled. */
+  setFallbackAgent(id: string | null): void {
+    if (id !== null && !this.registry.has(id)) throw new Error(`unknown participant "${id}"`)
+    this.fallbackAgentId = id
+    this.broadcastSettings()
+    void this.saveCurrent()
+  }
+
   private broadcastSettings(): void {
-    this.hub.broadcast("settings", { chaining: this.chaining, defaultAgent: this.defaultAgentId })
+    this.hub.broadcast("settings", { chaining: this.chaining, defaultAgent: this.defaultAgentId, fallbackAgent: this.fallbackAgentId })
   }
 
   // ── Conversation lifecycle ──────────────────────────────────────────────────
@@ -140,6 +154,7 @@ export class Room {
       updatedAt: Date.now(),
       chaining: this.chaining,
       defaultAgent: this.defaultAgentId,
+      fallbackAgent: this.fallbackAgentId,
       personas: this.registry.personaStates(),
       transcript: this.transcript,
     }
@@ -207,6 +222,7 @@ export class Room {
     this.convCreatedAt = conv.createdAt
     this.chaining = conv.chaining
     this.defaultAgentId = conv.defaultAgent ?? null
+    this.fallbackAgentId = conv.fallbackAgent ?? "planner"
 
     // Guard against a corrupt save with an empty roster (e.g. a botched
     // out-of-band edit / mid-turn restart). An empty roster would brick the UI
@@ -511,6 +527,26 @@ export class Room {
             } else {
               this.notice(`Chain budget exhausted (${this.MAX_CHAIN_HOPS} hops) — stopping.`, "info")
             }
+          } else if (
+            this.fallbackAgentId &&
+            asker.persona.id !== this.fallbackAgentId &&
+            this.chainBudget < this.MAX_CHAIN_HOPS
+          ) {
+            const fb = this.registry.get(this.fallbackAgentId)
+            if (fb && fb.active) {
+              this.chainBudget += 1
+              this.queue.push(fb)
+              this.notice(`No handoff detected — routing to @${this.fallbackAgentId}`, "info")
+              this.hub.broadcast("turn", { phase: "chain", from: asker.persona.id, targets: [this.fallbackAgentId] })
+              await fb.sendCustomMessage(
+                {
+                  customType: "routing_fallback",
+                  content: `(Routing fallback: @${asker.persona.id} finished without handing off. Based on the conversation state, decide who should go next — @-mention them in your last paragraph. If the work is complete, say so without mentioning anyone.)`,
+                  display: false,
+                },
+                { deliverAs: "nextTurn" },
+              )
+            }
           }
         }
       }
@@ -720,7 +756,7 @@ export class Room {
         this.notice(
           "Commands: /help, /kick @agent, /activate @agent, /deactivate @agent, " +
           "/compact @agent, /model @agent provider/id, /thinking [level|@agent level], " +
-          "/stats [@agent], /chaining on|off, /default @agent|none"
+          "/stats [@agent], /chaining on|off, /default @agent|none, /fallback @agent|none"
         )
         return true
       case "/model": {
@@ -855,6 +891,21 @@ export class Room {
         }
         return true
       }
+      case "/fallback": {
+        if (!rawTarget || rawTarget.toLowerCase() === "none") {
+          this.setFallbackAgent(null)
+          this.notice("Fallback routing → disabled")
+        } else {
+          const agentId = rawTarget.replace(/^@/, "").toLowerCase()
+          try {
+            this.setFallbackAgent(agentId)
+            this.notice(`Fallback routing → @${agentId}`)
+          } catch (err) {
+            this.notice(`/fallback: ${err instanceof Error ? err.message : String(err)}`, "error")
+          }
+        }
+        return true
+      }
       default:
         this.notice(`Unknown command "${cmd}".`, "error")
         return true
@@ -907,6 +958,28 @@ export class Room {
               this.hub.broadcast("turn", { phase: "chain", from: out.target.persona.id, targets: next.map((t) => t.persona.id) })
             } else {
               this.notice(`Chain budget exhausted (${this.MAX_CHAIN_HOPS} hops) — stopping.`, "info")
+            }
+          } else if (
+            this.fallbackAgentId &&
+            out.target.persona.id !== this.fallbackAgentId &&
+            this.chainBudget < this.MAX_CHAIN_HOPS
+          ) {
+            // No @mention found — route to fallback agent for routing decision.
+            const fb = this.registry.get(this.fallbackAgentId)
+            if (fb && fb.active) {
+              this.chainBudget += 1
+              this.queue.push(fb)
+              this.notice(`No handoff detected — routing to @${this.fallbackAgentId}`, "info")
+              this.hub.broadcast("turn", { phase: "chain", from: out.target.persona.id, targets: [this.fallbackAgentId] })
+              // Inject routing context so the fallback agent knows why it's being called.
+              await fb.sendCustomMessage(
+                {
+                  customType: "routing_fallback",
+                  content: `(Routing fallback: @${out.target.persona.id} finished without handing off. Based on the conversation state, decide who should go next — @-mention them in your last paragraph. If the work is complete, say so without mentioning anyone.)`,
+                  display: false,
+                },
+                { deliverAs: "nextTurn" },
+              )
             }
           }
         }

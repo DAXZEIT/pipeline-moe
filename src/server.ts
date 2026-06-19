@@ -546,7 +546,7 @@ async function main(): Promise<void> {
   })
 
   app.get("/api/settings", (_req, res) => {
-    res.json({ chaining: room.getChaining(), defaultAgent: room.getDefaultAgent() })
+    res.json({ chaining: room.getChaining(), defaultAgent: room.getDefaultAgent(), fallbackAgent: room.getFallbackAgent() })
   })
 
   app.patch("/api/settings", (req, res) => {
@@ -571,7 +571,20 @@ async function main(): Promise<void> {
         return
       }
     }
-    res.json({ chaining: room.getChaining(), defaultAgent: room.getDefaultAgent() })
+    if ("fallbackAgent" in body) {
+      const fa = body.fallbackAgent
+      if (fa !== null && typeof fa !== "string") {
+        res.status(400).json({ error: "`fallbackAgent` must be a string id or null" })
+        return
+      }
+      try {
+        room.setFallbackAgent(fa)
+      } catch (err) {
+        res.status(404).json({ error: err instanceof Error ? err.message : String(err) })
+        return
+      }
+    }
+    res.json({ chaining: room.getChaining(), defaultAgent: room.getDefaultAgent(), fallbackAgent: room.getFallbackAgent() })
   })
 
   // Post a message to the room. Returns immediately; results stream over SSE.

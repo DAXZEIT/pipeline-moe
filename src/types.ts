@@ -86,6 +86,8 @@ export interface Conversation {
   chaining: boolean
   /** Agent that receives messages with no @mention. null = first active. */
   defaultAgent: string | null
+  /** Agent that receives routing fallback when no @mention is found in an agent's reply. null = disabled. */
+  fallbackAgent?: string | null
   /** The roster (personas + active flags) this discussion ran with. */
   personas: PersonaState[]
   transcript: TranscriptEntry[]

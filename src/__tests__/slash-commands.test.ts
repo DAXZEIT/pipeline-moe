@@ -76,6 +76,7 @@ class MockParticipant {
     return this
   }
 
+  async sendCustomMessage(_msg: any, _opts?: any) {}
   async abort() {}
   dispose() {}
 }
@@ -213,6 +214,7 @@ describe("slash commands", () => {
       expect(notice!.msg).toContain("/stats")
       expect(notice!.msg).toContain("/chaining")
       expect(notice!.msg).toContain("/default")
+      expect(notice!.msg).toContain("/fallback")
     })
   })
 
@@ -450,6 +452,38 @@ describe("slash commands", () => {
 
     test("errors on unknown agent", async () => {
       room.submit("/default @ghost")
+      await new Promise((r) => setTimeout(r, 100))
+
+      const notice = events.notices.find((n) => n.level === "error")
+      expect(notice).toBeDefined()
+    })
+  })
+
+  describe("/fallback", () => {
+    test("sets fallback agent", async () => {
+      const agent = new MockParticipant(makePersona("planner"))
+      registry.addParticipant(agent)
+
+      room.submit("/fallback @planner")
+      await new Promise((r) => setTimeout(r, 100))
+
+      const notice = events.notices.find((n) => n.msg.includes("Fallback routing"))
+      expect(notice).toBeDefined()
+      expect(notice!.msg).toContain("@planner")
+      expect(room.getFallbackAgent()).toBe("planner")
+    })
+
+    test("disables fallback with 'none'", async () => {
+      room.submit("/fallback none")
+      await new Promise((r) => setTimeout(r, 100))
+
+      const notice = events.notices.find((n) => n.msg.includes("disabled"))
+      expect(notice).toBeDefined()
+      expect(room.getFallbackAgent()).toBeNull()
+    })
+
+    test("errors on unknown agent", async () => {
+      room.submit("/fallback @ghost")
       await new Promise((r) => setTimeout(r, 100))
 
       const notice = events.notices.find((n) => n.level === "error")
