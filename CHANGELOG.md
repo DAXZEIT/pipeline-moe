@@ -39,6 +39,10 @@
 
 ### Changed
 
+- **`start.sh` — single-command launcher** — starts llama-server → backend → frontend
+  with health gates between each stage. Ctrl+C kills all three. Added
+  `npm run start:full` to `package.json` for discoverability.
+
 - **Dedup `runAgent()`/`followUpAgent()` → `executeAgent()`** — extracted shared logic
   (snapshot → execute → stats → receipt) into `executeAgent(target, context, mode)`.
   Original methods are 2-line thin wrappers. Maintains one place to modify the common path.

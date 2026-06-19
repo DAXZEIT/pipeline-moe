@@ -28,9 +28,20 @@ receipt**.
 ```bash
 cd /home/dax/pipeline-moe
 npm install
-# pass env via --env-file (Node 20.6+/26 supports it):
-node --env-file=.env node_modules/.bin/tsx src/server.ts
-# or just: npm run dev   (uses defaults from src/config.ts)
+```
+
+**Full launch (llama-server + backend + frontend):**
+```bash
+bash start.sh
+# or: npm run start:full
+```
+Starts llama-server first, waits for health, then launches backend and frontend
+with proper health gates. Ctrl+C kills all three cleanly.
+
+**Backend + frontend only (llama-server assumed running):**
+```bash
+npm run dev
+# or: node --env-file=.env node_modules/.bin/tsx src/server.ts
 ```
 
 Defaults: port `5300`, workspace `./workspace`, model = pi's default (your local
