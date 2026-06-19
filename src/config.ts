@@ -21,4 +21,8 @@ export const config = {
     | "medium"
     | "high"
     | "xhigh",
+  /** Allowed CORS origins, comma-separated. Defaults to local dev servers. */
+  corsOrigins: process.env.PIPELINE_CORS_ORIGINS
+    ? process.env.PIPELINE_CORS_ORIGINS.split(",").map((s) => s.trim())
+    : ["http://localhost:5310", "http://localhost:5300"],
 }

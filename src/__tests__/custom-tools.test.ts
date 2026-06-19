@@ -80,19 +80,19 @@ describe("web_search tool", () => {
       { title: "Result 2", url: "https://example.com/2", content: "Second result snippet" },
     ])
 
-    const result = await tool.execute("tc1", { query: "test query", limit: 2 })
+    const result = await tool.execute("tc1", { query: "test query", limit: 2 }, undefined, undefined, {} as any)
     expect(result.content).toHaveLength(1)
     expect(result.content[0].type).toBe("text")
-    expect(result.content[0].text).toContain("Result 1")
-    expect(result.content[0].text).toContain("Result 2")
-    expect(result.content[0].text).toContain("https://example.com/1")
-    expect(result.content[0].text).toContain("https://example.com/2")
+    expect((result.content[0] as { text: string }).text).toContain("Result 1")
+    expect((result.content[0] as { text: string }).text).toContain("Result 2")
+    expect((result.content[0] as { text: string }).text).toContain("https://example.com/1")
+    expect((result.content[0] as { text: string }).text).toContain("https://example.com/2")
   })
 
   test("uses default limit of 5", async () => {
     mockSuccessResponse([])
 
-    await tool.execute("tc1", { query: "test" })
+    await tool.execute("tc1", { query: "test" }, undefined, undefined, {} as any)
 
     const callArgs = mockFetch.mock.calls[0][0]
     expect(callArgs).toContain("limit=5")
@@ -101,7 +101,7 @@ describe("web_search tool", () => {
   test("respects custom limit", async () => {
     mockSuccessResponse([])
 
-    await tool.execute("tc1", { query: "test", limit: 10 })
+    await tool.execute("tc1", { query: "test", limit: 10 }, undefined, undefined, {} as any)
 
     const callArgs = mockFetch.mock.calls[0][0]
     expect(callArgs).toContain("limit=10")
@@ -110,7 +110,7 @@ describe("web_search tool", () => {
   test("caps limit at 20", async () => {
     mockSuccessResponse([])
 
-    await tool.execute("tc1", { query: "test", limit: 50 })
+    await tool.execute("tc1", { query: "test", limit: 50 }, undefined, undefined, {} as any)
 
     const callArgs = mockFetch.mock.calls[0][0]
     expect(callArgs).toContain("limit=20")
@@ -119,7 +119,7 @@ describe("web_search tool", () => {
   test("includes categories in request", async () => {
     mockSuccessResponse([])
 
-    await tool.execute("tc1", { query: "test", categories: ["science", "it"] })
+    await tool.execute("tc1", { query: "test", categories: ["science", "it"] }, undefined, undefined, {} as any)
 
     const callArgs = mockFetch.mock.calls[0][0]
     expect(callArgs).toContain("categories=science%2Cit")
@@ -128,33 +128,33 @@ describe("web_search tool", () => {
   test("returns error message on network failure", async () => {
     mockFetch.mockRejectedValueOnce(new Error("WireGuard is down"))
 
-    const result = await tool.execute("tc1", { query: "test" })
-    expect(result.content[0].text).toContain("web_search error")
-    expect(result.content[0].text).toContain("WireGuard is down")
+    const result = await tool.execute("tc1", { query: "test" }, undefined, undefined, {} as any)
+    expect((result.content[0] as { text: string }).text).toContain("web_search error")
+    expect((result.content[0] as { text: string }).text).toContain("WireGuard is down")
   })
 
   test("returns error message on HTTP error", async () => {
     mockErrorResponse(500, "Internal Server Error")
 
-    const result = await tool.execute("tc1", { query: "test" })
-    expect(result.content[0].text).toContain("web_search error")
-    expect(result.content[0].text).toContain("500")
+    const result = await tool.execute("tc1", { query: "test" }, undefined, undefined, {} as any)
+    expect((result.content[0] as { text: string }).text).toContain("web_search error")
+    expect((result.content[0] as { text: string }).text).toContain("500")
   })
 
   test("returns no results message when query returns empty", async () => {
     mockSuccessResponse([])
 
-    const result = await tool.execute("tc1", { query: "test" })
-    expect(result.content[0].text).toContain("No results found")
-    expect(result.content[0].text).toContain("test")
+    const result = await tool.execute("tc1", { query: "test" }, undefined, undefined, {} as any)
+    expect((result.content[0] as { text: string }).text).toContain("No results found")
+    expect((result.content[0] as { text: string }).text).toContain("test")
   })
 
   test("truncates long snippets", async () => {
     const longContent = "A".repeat(300)
     mockSuccessResponse([{ title: "Long", url: "https://example.com", content: longContent }])
 
-    const result = await tool.execute("tc1", { query: "test" })
-    const snippet = result.content[0].text.split("\n")[3] // The snippet line
+    const result = await tool.execute("tc1", { query: "test" }, undefined, undefined, {} as any)
+    const snippet = (result.content[0] as { text: string }).text.split("\n")[3] // The snippet line
     expect(snippet!.length).toBeLessThan(250) // Well under 300 chars
   })
 
@@ -162,22 +162,22 @@ describe("web_search tool", () => {
     // Simulate an abort error (what happens when fetch times out).
     mockFetch.mockRejectedValueOnce(new DOMException("The operation was aborted", "AbortError"))
 
-    const result = await tool.execute("tc1", { query: "test" })
-    expect(result.content[0].text).toContain("web_search error")
-    expect(result.content[0].text).toContain("aborted")
+    const result = await tool.execute("tc1", { query: "test" }, undefined, undefined, {} as any)
+    expect((result.content[0] as { text: string }).text).toContain("web_search error")
+    expect((result.content[0] as { text: string }).text).toContain("aborted")
   })
 
   test("does not include terminate flag", async () => {
     mockSuccessResponse([])
 
-    const result = await tool.execute("tc1", { query: "test" })
+    const result = await tool.execute("tc1", { query: "test" }, undefined, undefined, {} as any)
     expect(result.terminate).toBeUndefined()
   })
 
   test("calls SearXNG at the correct URL", async () => {
     mockSuccessResponse([])
 
-    await tool.execute("tc1", { query: "hello world" })
+    await tool.execute("tc1", { query: "hello world" }, undefined, undefined, {} as any)
 
     const url = mockFetch.mock.calls[0][0]
     expect(url).toContain("https://searxng.example.org")

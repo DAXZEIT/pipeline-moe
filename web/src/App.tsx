@@ -1,5 +1,6 @@
 import { Composer } from "./components/Composer"
 import { ConversationBar } from "./components/ConversationBar"
+import { PresetMenu } from "./components/PresetMenu"
 import { Roster } from "./components/Roster"
 import { Transcript } from "./components/Transcript"
 import { WorkspacePanel } from "./components/WorkspacePanel"
@@ -36,6 +37,7 @@ export default function App() {
             onRename={room.renameConversation}
             onDelete={room.deleteConversation}
           />
+          <PresetMenu turnActive={room.turnActive} />
           <span className="topbar-sub">{room.turnActive ? "agents running…" : "ready"}</span>
           <button
             className={`chain-toggle ${room.chaining ? "on" : ""}`}

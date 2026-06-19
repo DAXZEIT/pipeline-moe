@@ -82,12 +82,12 @@ describe("web_read tool", () => {
       }),
     })
 
-    const result = await tool.execute("tc1", { url: "https://example.com/article" })
+    const result = await tool.execute("tc1", { url: "https://example.com/article" }, undefined, undefined, {} as any)
     expect(result.content).toHaveLength(1)
     expect(result.content[0].type).toBe("text")
-    expect(result.content[0].text).toContain("# Test Article")
-    expect(result.content[0].text).toContain("Source: https://example.com/article")
-    expect(result.content[0].text).toContain("This is the article content")
+    expect((result.content[0] as { text: string }).text).toContain("# Test Article")
+    expect((result.content[0] as { text: string }).text).toContain("Source: https://example.com/article")
+    expect((result.content[0] as { text: string }).text).toContain("This is the article content")
   })
 
   test("truncates content over 8000 chars with length note", async () => {
@@ -101,8 +101,8 @@ describe("web_read tool", () => {
       }),
     })
 
-    const result = await tool.execute("tc1", { url: "https://example.com" })
-    const text = result.content[0].text
+    const result = await tool.execute("tc1", { url: "https://example.com" }, undefined, undefined, {} as any)
+    const text = (result.content[0] as { text: string }).text
     expect(text).toContain("content truncated")
     expect(text).toContain("10000 chars total")
   })
@@ -117,8 +117,8 @@ describe("web_read tool", () => {
       }),
     })
 
-    const result = await tool.execute("tc1", { url: "https://example.com" })
-    expect(result.content[0].text).not.toContain("truncated")
+    const result = await tool.execute("tc1", { url: "https://example.com" }, undefined, undefined, {} as any)
+    expect((result.content[0] as { text: string }).text).not.toContain("truncated")
   })
 
   test("calls Jina Reader at https://r.jina.ai/{url}", async () => {
@@ -127,7 +127,7 @@ describe("web_read tool", () => {
       json: async () => ({ code: 200, status: 200, data: { title: "T", content: "C", url: "https://example.com" } }),
     })
 
-    await tool.execute("tc1", { url: "https://example.com" })
+    await tool.execute("tc1", { url: "https://example.com" }, undefined, undefined, {} as any)
 
     const url = mockFetch.mock.calls[0][0]
     expect(url).toBe("https://r.jina.ai/https://example.com")
@@ -139,7 +139,7 @@ describe("web_read tool", () => {
       json: async () => ({ code: 200, status: 200, data: { title: "T", content: "C", url: "https://example.com" } }),
     })
 
-    await tool.execute("tc1", { url: "https://example.com" })
+    await tool.execute("tc1", { url: "https://example.com" }, undefined, undefined, {} as any)
 
     const headers = mockFetch.mock.calls[0][1]?.headers
     expect(headers).toEqual({ Accept: "application/json" })
@@ -151,32 +151,32 @@ describe("web_read tool", () => {
       json: async () => ({ code: 200, status: 200, data: undefined }),
     })
 
-    const result = await tool.execute("tc1", { url: "https://example.com" })
-    expect(result.content[0].text).toContain("web_read error")
-    expect(result.content[0].text).toContain("No content")
+    const result = await tool.execute("tc1", { url: "https://example.com" }, undefined, undefined, {} as any)
+    expect((result.content[0] as { text: string }).text).toContain("web_read error")
+    expect((result.content[0] as { text: string }).text).toContain("No content")
   })
 
   test("returns error on HTTP failure", async () => {
     mockFetch.mockResolvedValueOnce({ ok: false, status: 429, statusText: "Too Many Requests" })
 
-    const result = await tool.execute("tc1", { url: "https://example.com" })
-    expect(result.content[0].text).toContain("429")
-    expect(result.content[0].text).toContain("Too Many Requests")
+    const result = await tool.execute("tc1", { url: "https://example.com" }, undefined, undefined, {} as any)
+    expect((result.content[0] as { text: string }).text).toContain("429")
+    expect((result.content[0] as { text: string }).text).toContain("Too Many Requests")
   })
 
   test("returns error on network failure", async () => {
     mockFetch.mockRejectedValueOnce(new Error("fetch failed"))
 
-    const result = await tool.execute("tc1", { url: "https://example.com" })
-    expect(result.content[0].text).toContain("web_read error")
-    expect(result.content[0].text).toContain("fetch failed")
+    const result = await tool.execute("tc1", { url: "https://example.com" }, undefined, undefined, {} as any)
+    expect((result.content[0] as { text: string }).text).toContain("web_read error")
+    expect((result.content[0] as { text: string }).text).toContain("fetch failed")
   })
 
   test("error message includes Jina URL for debugging", async () => {
     mockFetch.mockRejectedValueOnce(new Error("DNS failure"))
 
-    const result = await tool.execute("tc1", { url: "https://example.com" })
-    expect(result.content[0].text).toContain("r.jina.ai")
+    const result = await tool.execute("tc1", { url: "https://example.com" }, undefined, undefined, {} as any)
+    expect((result.content[0] as { text: string }).text).toContain("r.jina.ai")
   })
 
   test("TypeBox schema requires url parameter", () => {

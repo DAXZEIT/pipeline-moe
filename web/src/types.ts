@@ -100,3 +100,22 @@ export interface ConversationMeta {
   updatedAt: number
   messageCount: number
 }
+
+/** A saved room preset. */
+export interface PresetPersona {
+  id: string
+  name: string
+  color: string
+  icon: string
+  tools: string[]
+  systemPrompt?: string
+  model?: string
+  thinkingLevel?: string
+  active: boolean
+  parallel?: boolean
+}
+
+export interface PresetFile {
+  name: string
+  personas: PresetPersona[]
+}

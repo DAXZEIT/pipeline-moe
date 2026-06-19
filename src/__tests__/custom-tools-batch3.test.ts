@@ -89,8 +89,10 @@ describe("arxiv_search tool definition", () => {
 
   test("max_results has min/max constraints", () => {
     const props = tool.parameters.properties
-    expect(props.max_results.minimum).toBe(1)
-    expect(props.max_results.maximum).toBe(50)
+    // TOptional resolves to the inner type at runtime (minimum/maximum are directly on the object)
+    const maxResults = props.max_results as { minimum?: number; maximum?: number }
+    expect(maxResults.minimum).toBe(1)
+    expect(maxResults.maximum).toBe(50)
   })
 
   test("sort_by has correct enum values", () => {
@@ -159,7 +161,7 @@ describe("arxiv_search — XML parsing", () => {
     const idRe = /arxiv\.org\/abs\/(.+)$/
     const idMatch = id.match(idRe)
     expect(idMatch?.[1]).toBe("2301.00001")
-    const pdfUrl = `https://arxiv.org/pdf/${idMatch[1]}`
+    const pdfUrl = `https://arxiv.org/pdf/${idMatch![1]}`
     expect(pdfUrl).toBe("https://arxiv.org/pdf/2301.00001")
   })
 
@@ -303,7 +305,7 @@ describe("youcom_search — search mode", () => {
   test("X-API-Key header is used (not Authorization)", () => {
     const headers = { "X-API-Key": "ydc-sk-test" }
     expect(headers["X-API-Key"]).toBe("ydc-sk-test")
-    expect(headers["Authorization"]).toBeUndefined()
+    expect((headers as Record<string, string>)["Authorization"]).toBeUndefined()
   })
 
   test("result formatting includes numbered results", () => {

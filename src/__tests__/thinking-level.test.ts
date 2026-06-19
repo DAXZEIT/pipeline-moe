@@ -40,7 +40,7 @@ describe("Participant.create thinkingLevel fallback", () => {
   })
 
   test("undefined persona.thinkingLevel falls back to config", () => {
-    const persona = { id: "auditor", name: "Auditor", systemPrompt: "Go.", tools: [], color: "#000", icon: "🔍" }
+    const persona = { id: "auditor", name: "Auditor", systemPrompt: "Go.", tools: [], color: "#000", icon: "🔍", thinkingLevel: undefined as string | undefined }
     const result = persona.thinkingLevel ?? configThinkingLevel
     expect(result).toBe("medium")
   })
@@ -124,7 +124,7 @@ describe("Registry RosterItem includes thinkingLevel", () => {
   })
 
   test("rosterItem with undefined thinkingLevel is valid", () => {
-    const persona = { id: "scout", name: "Scout" }
+    const persona = { id: "scout", name: "Scout", thinkingLevel: undefined as string | undefined }
     const rosterItem = {
       id: persona.id,
       name: persona.name,
@@ -167,7 +167,7 @@ describe("EditAgent thinkingLevel selector", () => {
 describe("end-to-end thinkingLevel flow", () => {
   test("agent inherits global config when no per-agent override", () => {
     const configLevel = "medium"
-    const persona = { id: "a", name: "A", systemPrompt: "Go.", tools: [] }
+    const persona = { id: "a", name: "A", systemPrompt: "Go.", tools: [], thinkingLevel: undefined as string | undefined }
     const effectiveLevel = persona.thinkingLevel ?? configLevel
     expect(effectiveLevel).toBe("medium")
   })

@@ -33,12 +33,12 @@ describe("youtube_transcript tool", () => {
       { text: "Goodbye", offset: 7, duration: 2, lang: "en" },
     ])
 
-    const result = await tool.execute("tc1", { video: "dQw4w9WgXcQ" })
+    const result = await tool.execute("tc1", { video: "dQw4w9WgXcQ" }, undefined, undefined, {} as any)
     expect(result.content).toHaveLength(1)
     expect(result.content[0].type).toBe("text")
-    expect(result.content[0].text).toContain("[0:00] Hello world")
-    expect(result.content[0].text).toContain("[0:03] This is a test")
-    expect(result.content[0].text).toContain("[0:07] Goodbye")
+    expect((result.content[0] as { text: string }).text).toContain("[0:00] Hello world")
+    expect((result.content[0] as { text: string }).text).toContain("[0:03] This is a test")
+    expect((result.content[0] as { text: string }).text).toContain("[0:07] Goodbye")
   })
 
   test("handles bare 11-char video ID", async () => {
@@ -46,8 +46,8 @@ describe("youtube_transcript tool", () => {
       { text: "Content", offset: 0, duration: 1, lang: "en" },
     ])
 
-    const result = await tool.execute("tc1", { video: "dQw4w9WgXcQ" })
-    expect(result.content[0].text).toContain("Content")
+    const result = await tool.execute("tc1", { video: "dQw4w9WgXcQ" }, undefined, undefined, {} as any)
+    expect((result.content[0] as { text: string }).text).toContain("Content")
     expect(mockFetchTranscript).toHaveBeenCalledWith("dQw4w9WgXcQ")
   })
 
@@ -56,8 +56,8 @@ describe("youtube_transcript tool", () => {
       { text: "Content", offset: 0, duration: 1, lang: "en" },
     ])
 
-    const result = await tool.execute("tc1", { video: "https://www.youtube.com/watch?v=dQw4w9WgXcQ" })
-    expect(result.content[0].text).toContain("Content")
+    const result = await tool.execute("tc1", { video: "https://www.youtube.com/watch?v=dQw4w9WgXcQ" }, undefined, undefined, {} as any)
+    expect((result.content[0] as { text: string }).text).toContain("Content")
     expect(mockFetchTranscript).toHaveBeenCalledWith("dQw4w9WgXcQ")
   })
 
@@ -66,8 +66,8 @@ describe("youtube_transcript tool", () => {
       { text: "Content", offset: 0, duration: 1, lang: "en" },
     ])
 
-    const result = await tool.execute("tc1", { video: "https://youtu.be/dQw4w9WgXcQ" })
-    expect(result.content[0].text).toContain("Content")
+    const result = await tool.execute("tc1", { video: "https://youtu.be/dQw4w9WgXcQ" }, undefined, undefined, {} as any)
+    expect((result.content[0] as { text: string }).text).toContain("Content")
     expect(mockFetchTranscript).toHaveBeenCalledWith("dQw4w9WgXcQ")
   })
 
@@ -76,22 +76,22 @@ describe("youtube_transcript tool", () => {
       { text: "Content", offset: 0, duration: 1, lang: "en" },
     ])
 
-    const result = await tool.execute("tc1", { video: "https://www.youtube.com/embed/dQw4w9WgXcQ" })
-    expect(result.content[0].text).toContain("Content")
+    const result = await tool.execute("tc1", { video: "https://www.youtube.com/embed/dQw4w9WgXcQ" }, undefined, undefined, {} as any)
+    expect((result.content[0] as { text: string }).text).toContain("Content")
     expect(mockFetchTranscript).toHaveBeenCalledWith("dQw4w9WgXcQ")
   })
 
   test("returns error for invalid video ID", async () => {
-    const result = await tool.execute("tc1", { video: "not-a-valid-id" })
-    expect(result.content[0].text).toContain("youtube_transcript error")
-    expect(result.content[0].text).toContain("Could not extract video ID")
+    const result = await tool.execute("tc1", { video: "not-a-valid-id" }, undefined, undefined, {} as any)
+    expect((result.content[0] as { text: string }).text).toContain("youtube_transcript error")
+    expect((result.content[0] as { text: string }).text).toContain("Could not extract video ID")
   })
 
   test("returns error when no transcript available", async () => {
     mockFetchTranscript.mockResolvedValueOnce([])
 
-    const result = await tool.execute("tc1", { video: "dQw4w9WgXcQ" })
-    expect(result.content[0].text).toContain("No transcript available")
+    const result = await tool.execute("tc1", { video: "dQw4w9WgXcQ" }, undefined, undefined, {} as any)
+    expect((result.content[0] as { text: string }).text).toContain("No transcript available")
   })
 
   test("truncates transcript over 8000 chars", async () => {
@@ -103,8 +103,8 @@ describe("youtube_transcript tool", () => {
     }))
     mockFetchTranscript.mockResolvedValueOnce(longTranscript)
 
-    const result = await tool.execute("tc1", { video: "dQw4w9WgXcQ" })
-    expect(result.content[0].text).toContain("[transcript truncated")
+    const result = await tool.execute("tc1", { video: "dQw4w9WgXcQ" }, undefined, undefined, {} as any)
+    expect((result.content[0] as { text: string }).text).toContain("[transcript truncated")
   })
 
   test("does not truncate transcript under 8000 chars", async () => {
@@ -112,16 +112,16 @@ describe("youtube_transcript tool", () => {
       { text: "Short transcript", offset: 0, duration: 1, lang: "en" },
     ])
 
-    const result = await tool.execute("tc1", { video: "dQw4w9WgXcQ" })
-    expect(result.content[0].text).not.toContain("[transcript truncated")
+    const result = await tool.execute("tc1", { video: "dQw4w9WgXcQ" }, undefined, undefined, {} as any)
+    expect((result.content[0] as { text: string }).text).not.toContain("[transcript truncated")
   })
 
   test("handles youtube-transcript-plus errors gracefully", async () => {
     mockFetchTranscript.mockRejectedValueOnce(new Error("Video unavailable"))
 
-    const result = await tool.execute("tc1", { video: "dQw4w9WgXcQ" })
-    expect(result.content[0].text).toContain("youtube_transcript error")
-    expect(result.content[0].text).toContain("Video unavailable")
+    const result = await tool.execute("tc1", { video: "dQw4w9WgXcQ" }, undefined, undefined, {} as any)
+    expect((result.content[0] as { text: string }).text).toContain("youtube_transcript error")
+    expect((result.content[0] as { text: string }).text).toContain("Video unavailable")
   })
 
   test("formats timestamps as MM:SS", async () => {
@@ -130,9 +130,9 @@ describe("youtube_transcript tool", () => {
       { text: "Two minutes", offset: 120, duration: 1, lang: "en" },
     ])
 
-    const result = await tool.execute("tc1", { video: "dQw4w9WgXcQ" })
-    expect(result.content[0].text).toContain("[1:00] One minute")
-    expect(result.content[0].text).toContain("[2:00] Two minutes")
+    const result = await tool.execute("tc1", { video: "dQw4w9WgXcQ" }, undefined, undefined, {} as any)
+    expect((result.content[0] as { text: string }).text).toContain("[1:00] One minute")
+    expect((result.content[0] as { text: string }).text).toContain("[2:00] Two minutes")
   })
 
   test("formats seconds with zero-padding", async () => {
@@ -140,8 +140,8 @@ describe("youtube_transcript tool", () => {
       { text: "Five seconds", offset: 5, duration: 1, lang: "en" },
     ])
 
-    const result = await tool.execute("tc1", { video: "dQw4w9WgXcQ" })
-    expect(result.content[0].text).toContain("[0:05] Five seconds")
+    const result = await tool.execute("tc1", { video: "dQw4w9WgXcQ" }, undefined, undefined, {} as any)
+    expect((result.content[0] as { text: string }).text).toContain("[0:05] Five seconds")
   })
 
   test("does not include terminate flag", async () => {
@@ -149,7 +149,7 @@ describe("youtube_transcript tool", () => {
       { text: "Content", offset: 0, duration: 1, lang: "en" },
     ])
 
-    const result = await tool.execute("tc1", { video: "dQw4w9WgXcQ" })
+    const result = await tool.execute("tc1", { video: "dQw4w9WgXcQ" }, undefined, undefined, {} as any)
     expect(result.terminate).toBeUndefined()
   })
 })

@@ -27,7 +27,7 @@ describe("Participant.steer", () => {
   test("throws when isStreaming is false", async () => {
     const mockSession = {
       isStreaming: false,
-      steer: async () => {},
+      steer: async (_text: string) => {},
     }
     const persona = { id: "builder", name: "Builder" }
 
@@ -44,7 +44,8 @@ describe("Participant.steer", () => {
 
   test("throws when isStreaming is undefined", async () => {
     const mockSession = {
-      steer: async () => {},
+      isStreaming: undefined,
+      steer: async (_text: string) => {},
     }
     const persona = { id: "auditor", name: "Auditor" }
 
@@ -137,13 +138,13 @@ describe("Server steer endpoint", () => {
   })
 
   test("missing text → 400", () => {
-    const body = { target: "builder" }
+    const body = { target: "builder" } as { text?: string; target: string }
     const hasText = body.text != null && body.text !== ""
     expect(hasText).toBe(false)
   })
 
   test("missing target → 400", () => {
-    const body = { text: "redirect" }
+    const body = { text: "redirect" } as { text: string; target?: string }
     const hasTarget = body.target != null && body.target !== ""
     expect(hasTarget).toBe(false)
   })

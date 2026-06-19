@@ -51,8 +51,11 @@ export class Room {
   /** Pending agents to run in the current routing pass. Mutated as agents chain. */
   private queue: Participant[] = []
   private aborted = false
-  /** When true, agents' @mentions chain to other agents. No turn budget. */
+  /** When true, agents' @mentions chain to other agents. */
   private chaining = true
+  /** Anti-loop: max chain hops per turn. Prevents A→B→A infinite loops. */
+  private readonly MAX_CHAIN_HOPS = 8
+  private chainBudget = 0
   /** Set when an agent called ask_user — pipeline is paused until user responds. */
   private pendingQuestion: PendingQuestion | null = null
   /** Agent that handles messages with no @mention. null = first active. */
@@ -229,6 +232,15 @@ export class Room {
     return conversationMeta(this.buildConversation())
   }
 
+  /** Start a new discussion with a preset roster. Returns its metadata. */
+  async loadPreset(personas: Conversation["personas"], title?: string): Promise<ConversationMeta> {
+    this.ensureIdle()
+    await this.saveCurrent()
+    const count = (await this.store.list()).length
+    await this.startFresh(title?.trim() || `Discussion ${count + 1}`, personas)
+    return conversationMeta(this.buildConversation())
+  }
+
   /** Switch to a saved discussion. No-op if already current. */
   async switchConversation(id: string): Promise<void> {
     this.ensureIdle()
@@ -357,11 +369,18 @@ export class Room {
   }
 
   /** Resolve @mentions emitted BY an agent. No @all (human-only), never the
-   *  speaker itself, active participants only. No budget / anti-rebound for now. */
+   *  speaker itself, active participants only. Only parses the last paragraph —
+   *  mid-text references like "as @builder mentioned" don't trigger chains.
+   *  No budget / anti-rebound for now. */
   private resolveAgentMentions(text: string, selfId: string): Participant[] {
+    // Only parse @mentions from the last paragraph — prevents casual
+    // mid-text references from triggering unintended chains.
+    const paragraphs = text.split(/\n\n/)
+    const tail = paragraphs.slice(-1)[0]
+
     const mentioned = new Set<string>()
     let m: RegExpExecArray | null
-    while ((m = MENTION_RE.exec(text)) !== null) mentioned.add(m[1].toLowerCase())
+    while ((m = MENTION_RE.exec(tail)) !== null) mentioned.add(m[1].toLowerCase())
     mentioned.delete("all") // agents cannot fan out to everyone
     mentioned.delete(selfId) // no self-invocation
 
@@ -402,6 +421,7 @@ export class Room {
 
   private async process(text: string, images?: string[]): Promise<void> {
     const trimmed = text.trim()
+    this.chainBudget = 0 // reset chain budget for this turn
 
     // Handle /cancel while paused — cancel the question and drain the held queue.
     if (this.pendingQuestion && trimmed === "/cancel") {
@@ -475,8 +495,13 @@ export class Room {
         if (this.chaining) {
           const next = this.resolveAgentMentions(result.reply, asker.persona.id)
           if (next.length > 0) {
-            this.queue.push(...next)
-            this.hub.broadcast("turn", { phase: "chain", from: asker.persona.id, targets: next.map((t) => t.persona.id) })
+            if (this.chainBudget < this.MAX_CHAIN_HOPS) {
+              this.chainBudget += next.length
+              this.queue.push(...next)
+              this.hub.broadcast("turn", { phase: "chain", from: asker.persona.id, targets: next.map((t) => t.persona.id) })
+            } else {
+              this.notice(`Chain budget exhausted (${this.MAX_CHAIN_HOPS} hops) — stopping.`, "info")
+            }
           }
         }
       }
@@ -566,16 +591,20 @@ export class Room {
     )
   }
 
-  /** Run one agent end to end: snapshot, prompt, snapshot, diff. Does NOT post —
-   *  the caller posts results in group order to keep the transcript deterministic. */
-  private async runAgent(
+  /** Execute one agent end to end: snapshot, prompt/followUp, snapshot, diff.
+   *  Does NOT post — the caller posts results in group order to keep the
+   *  transcript deterministic. */
+  private async executeAgent(
     target: Participant,
     context: { text: string; images?: string[] },
+    mode: "prompt" | "followUp",
   ): Promise<RunOutput | null> {
     const before = await snapshot(config.workspaceDir)
     this.running.add(target)
     try {
-      const result = await target.run(context.text, context.images)
+      const result = mode === "prompt"
+        ? await target.run(context.text, context.images)
+        : await target.followUp(context.text, context.images)
       if (this.aborted) return null
       const after = await snapshot(config.workspaceDir)
 
@@ -611,48 +640,22 @@ export class Room {
     }
   }
 
-  /** Follow-up one agent end to end: snapshot, followUp, snapshot, diff.
-   *  Same structure as runAgent but uses session.followUp() — guaranteed to be
-   *  the next thing the agent processes. Used for self-chaining (ask_user resume).
-   *  Does NOT post — the caller posts results. */
-  private async followUpAgent(
+  /** Run one agent via prompt. Thin wrapper around executeAgent. */
+  private runAgent(
     target: Participant,
     context: { text: string; images?: string[] },
   ): Promise<RunOutput | null> {
-    const before = await snapshot(config.workspaceDir)
-    this.running.add(target)
-    try {
-      const result = await target.followUp(context.text, context.images)
-      if (this.aborted) return null
-      const after = await snapshot(config.workspaceDir)
+    return this.executeAgent(target, context, "prompt")
+  }
 
-      const usage = target.getContextUsage?.()
-      const stats = target.getSessionStats?.()
-      if (usage || stats) {
-        const payload: Record<string, unknown> = { id: target.persona.id, status: "idle" }
-        if (usage) payload.contextUsage = usage
-        if (stats) payload.sessionStats = stats
-        this.hub.broadcast("status", payload)
-      }
-
-      return {
-        target,
-        reply: result.text,
-        activity: result.activity,
-        reasoning: result.reasoning,
-        question: result.question,
-        receipt: diffSnapshots(before, after, target.persona.id),
-      }
-    } catch (err) {
-      this.notice(
-        `@${target.persona.id} failed: ${err instanceof Error ? err.message : String(err)}`,
-        "error",
-      )
-      target.cursor = this.transcript.length
-      return null
-    } finally {
-      this.running.delete(target)
-    }
+  /** Follow-up one agent via session.followUp(). Thin wrapper around executeAgent.
+   *  Used for self-chaining (ask_user resume) — guaranteed to be the next thing
+   *  the agent processes. */
+  private followUpAgent(
+    target: Participant,
+    context: { text: string; images?: string[] },
+  ): Promise<RunOutput | null> {
+    return this.executeAgent(target, context, "followUp")
   }
 
   /** Handle `/kick @x`, `/activate @x`, `/deactivate @x`. Returns true if handled. */
@@ -749,8 +752,13 @@ export class Room {
         if (this.chaining) {
           const next = this.resolveAgentMentions(out.reply, out.target.persona.id)
           if (next.length > 0) {
-            this.queue.push(...next)
-            this.hub.broadcast("turn", { phase: "chain", from: out.target.persona.id, targets: next.map((t) => t.persona.id) })
+            if (this.chainBudget < this.MAX_CHAIN_HOPS) {
+              this.chainBudget += next.length
+              this.queue.push(...next)
+              this.hub.broadcast("turn", { phase: "chain", from: out.target.persona.id, targets: next.map((t) => t.persona.id) })
+            } else {
+              this.notice(`Chain budget exhausted (${this.MAX_CHAIN_HOPS} hops) — stopping.`, "info")
+            }
           }
         }
       }

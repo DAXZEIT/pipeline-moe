@@ -3,6 +3,7 @@ import type {
   Message,
   ModelInfo,
   PersonaDetail,
+  PresetFile,
   RosterItem,
   WorkspaceFile,
 } from "./types"
@@ -165,4 +166,26 @@ export const api = {
     fetch(`${API_BASE}/api/conversations/${id}`, { method: "DELETE" }).then((r) => {
       if (!r.ok && r.status !== 204) throw new Error(`${r.status}`)
     }),
+
+  // ── Presets ────────────────────────────────────────────────────────────────
+
+  presets: () =>
+    fetch(`${API_BASE}/api/presets`).then((r) => json<PresetFile[]>(r)),
+
+  savePreset: (name: string) =>
+    fetch(`${API_BASE}/api/presets`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name }),
+    }).then((r) => json<PresetFile>(r)),
+
+  deletePreset: (name: string) =>
+    fetch(`${API_BASE}/api/presets/${name}`, { method: "DELETE" }).then((r) => {
+      if (!r.ok && r.status !== 204) throw new Error(`${r.status}`)
+    }),
+
+  loadPreset: (name: string) =>
+    fetch(`${API_BASE}/api/presets/${name}/load`, { method: "POST" }).then((r) =>
+      json<{ ok: boolean; conversation: ConversationMeta }>(r),
+    ),
 }

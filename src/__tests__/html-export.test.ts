@@ -129,7 +129,7 @@ describe("Error handling", () => {
 
   test("non-Error thrown → stringified", () => {
     const err = "something went wrong"
-    const message = err instanceof Error ? err.message : String(err)
+    const message = (err as unknown) instanceof Error ? (err as unknown as Error).message : String(err)
     expect(message).toBe("something went wrong")
   })
 })

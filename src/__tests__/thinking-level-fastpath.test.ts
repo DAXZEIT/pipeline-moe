@@ -20,7 +20,7 @@ describe("Participant.setThinkingLevel", () => {
     const session = {
       setThinkingLevel: async (level: string) => { sessionLevel = level },
     } as any
-    const persona = { id: "a", name: "A", systemPrompt: "Go.", tools: [] }
+    const persona = { id: "a", name: "A", systemPrompt: "Go.", tools: [], thinkingLevel: "medium" as string }
 
     // Simulate what Participant.setThinkingLevel does
     await session.setThinkingLevel("high")
@@ -209,7 +209,7 @@ describe("EditAgent thinkingLevel selector filtering", () => {
   })
 
   test("when availableThinkingLevels is empty, all levels are shown", () => {
-    const available = []
+    const available: string[] = []
     const filtered = available.length > 0 ? available : ALL_LEVELS
     expect(filtered).toEqual(ALL_LEVELS)
   })

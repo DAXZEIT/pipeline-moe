@@ -441,6 +441,138 @@ body {
   cursor: default;
 }
 
+/* ---------- Preset menu ---------- */
+.preset-bar {
+  position: relative;
+}
+.preset-trigger {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 5px 10px;
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.preset-trigger:hover {
+  border-color: var(--muted);
+}
+.preset-caret {
+  color: var(--muted);
+  font-size: 10px;
+}
+.preset-menu {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: 6px;
+  width: 280px;
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 12px 32px rgba(0,0,0,0.5);
+  z-index: 100;
+  overflow: hidden;
+}
+.preset-section {
+  padding: 8px;
+}
+.preset-section + .preset-section {
+  border-top: 1px solid var(--border);
+}
+.preset-label {
+  display: block;
+  color: var(--muted);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin-bottom: 6px;
+}
+.preset-save-row {
+  display: flex;
+  gap: 6px;
+}
+.preset-input {
+  flex: 1;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 5px 8px;
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+}
+.preset-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.preset-save-btn {
+  background: var(--accent);
+  border: none;
+  border-radius: 5px;
+  padding: 5px 12px;
+  color: var(--bg);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.preset-save-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.preset-empty {
+  color: var(--muted);
+  padding: 10px;
+  font-size: 12px;
+}
+.preset-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  border-radius: 6px;
+  padding: 4px 6px;
+}
+.preset-item:hover {
+  background: var(--bg);
+}
+.preset-item-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.preset-name {
+  font-weight: 600;
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.preset-agent-count {
+  color: var(--muted);
+  font-size: 11px;
+}
+.preset-cloud {
+  font-size: 12px;
+  color: var(--muted);
+}
+.preset-item-actions {
+  display: flex;
+  gap: 2px;
+  flex-shrink: 0;
+}
+.preset-loading {
+  color: var(--muted);
+  font-size: 11px;
+  padding: 4px 6px;
+}
+
 .transcript {
   flex: 1;
   overflow: auto;

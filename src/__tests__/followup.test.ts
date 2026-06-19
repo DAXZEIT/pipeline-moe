@@ -241,7 +241,7 @@ describe("MockParticipant.followUp", () => {
 
   test("mock can return a question", async () => {
     const mock = {
-      followUp: async () => ({
+      followUp: async (_text: string) => ({
         text: "I need more info",
         activity: [],
         question: "What's the filename?",

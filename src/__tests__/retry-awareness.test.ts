@@ -175,6 +175,7 @@ describe("Roster retry indicator rendering", () => {
     const entry = {
       id: "builder",
       status: "retrying",
+      retry: undefined,
     }
     const shouldShow = entry.status === "retrying" && !!entry.retry
     expect(shouldShow).toBe(false)

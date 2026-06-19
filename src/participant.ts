@@ -11,7 +11,9 @@ import {
   type AgentSession,
   type AgentSessionEvent,
 } from "@earendil-works/pi-coding-agent"
-import { existsSync, readFileSync } from "node:fs"
+import { readFileSync } from "node:fs"
+import { access, readFile } from "node:fs/promises"
+import { constants } from "node:fs"
 import { join } from "node:path"
 import { config } from "./config.js"
 import { buildConfinedTools } from "./sandbox-tools.js"
@@ -46,6 +48,10 @@ const ROOM_NOTE =
   "genuinely need it. Do not @-mention yourself, and do not use @all (that is for the human).\n" +
   "You can refer to other agents by name in discussion (e.g. 'the builder said...') without " +
   "triggering a handoff — only the @prefix routes work.\n" +
+  "When handing off work to another agent, place the @mention in your final paragraph — " +
+  "this is where the routing system looks. Mentions earlier in your response are treated " +
+  "as discussion, not routing. Example: 'I've finished the analysis. @builder please implement " +
+  "the fix above.'\n" +
   "If you need information only the user can provide (preferences, credentials, context), " +
   "use the ask_user tool — it will pause the pipeline and wait for their response. Do NOT " +
   "use it for rhetorical questions or self-clarification.\n" +
@@ -95,11 +101,14 @@ export class Participant {
     // Capped at 4KB to avoid consuming excessive context tokens.
     const memoryPath = join(config.workspaceDir, "agent_memory", `${persona.id}.md`)
     let memoryNote = ""
-    if (existsSync(memoryPath)) {
-      const raw = readFileSync(memoryPath, "utf-8")
+    try {
+      await access(memoryPath, constants.R_OK)
+      const raw = await readFile(memoryPath, "utf-8")
       const content = raw.length > 4096 ? raw.slice(0, 4096) + "… (truncated)" : raw
       memoryNote = `\nYOUR MEMORY (agent_memory/${persona.id}.md):\n${content}\n` +
         "---\n(End of memory — updated by the scribe. After compaction, this is refreshed.)\n"
+    } catch {
+      // No memory file — fine, first run or not yet populated.
     }
 
     const loader = new DefaultResourceLoader({

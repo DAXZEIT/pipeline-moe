@@ -70,7 +70,7 @@ describe("web_search tool definition", () => {
     const tool = tools[0]
     expect(tool.parameters).toBeDefined()
     // TypeBox objects have a type field
-    expect(tool.parameters.type).toBe("object")
+    expect((tool.parameters as { type?: string }).type).toBe("object")
   })
 })
 

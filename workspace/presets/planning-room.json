@@ -1,0 +1,14 @@
+{
+  "name": "planning-room",
+  "personas": [
+    {
+      "id": "planner",
+      "name": "Planner",
+      "color": "#4A90D9",
+      "icon": "📋",
+      "tools": ["read", "grep", "find", "ls"],
+      "active": true,
+      "parallel": false
+    }
+  ]
+}

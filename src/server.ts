@@ -5,7 +5,7 @@
 // them via a serial queue, and streams everything to the UI over SSE.
 
 import { createHash } from "node:crypto"
-import { access, mkdir, writeFile } from "node:fs/promises"
+import { access, mkdir, readdir, readFile, unlink, writeFile } from "node:fs/promises"
 import { readFileSync } from "node:fs"
 import { extname, join } from "node:path"
 import cors from "cors"
@@ -14,12 +14,12 @@ import express from "express"
 import { config } from "./config.js"
 import { isAllowedModel, listModels, resolveModel } from "./model.js"
 import { listWorkspace } from "./receipts.js"
-import { SEED_PERSONAS } from "./personas.js"
+import { BASE_PROMPT, BUILDER_OVERLAY, PLANNER_OVERLAY, SEED_PERSONAS } from "./personas.js"
 import { Registry } from "./registry.js"
 import { Room } from "./room.js"
 import { SseHub } from "./sse.js"
 import { ConversationStore } from "./store.js"
-import type { Persona } from "./types.js"
+import type { Persona, PersonaState } from "./types.js"
 import { parsePersona, VALID_TOOLS } from "./validation.js"
 
 /** Directory for saved user images (relative to workspace). */
@@ -56,6 +56,168 @@ async function saveIncomingImages(images: unknown): Promise<string[]> {
 }
 
 
+// ── Preset I/O ──────────────────────────────────────────────────────────────
+
+/** A persona as persisted in a preset file — systemPrompt is optional since
+ *  seed personas rehydrate from SEED_PERSONAS at load time. */
+interface PresetPersona extends Omit<PersonaState, "systemPrompt"> {
+  systemPrompt?: string
+}
+
+/** A saved preset: roster configuration + metadata. */
+interface PresetFile {
+  name: string
+  personas: PresetPersona[]
+}
+
+function presetsDir(): string {
+  return join(config.workspaceDir, "presets")
+}
+
+function presetPath(name: string): string {
+  return join(presetsDir(), `${name}.json`)
+}
+
+async function listPresets(): Promise<PresetFile[]> {
+  await mkdir(presetsDir(), { recursive: true })
+  const files = await readdir(presetsDir())
+  const results: PresetFile[] = []
+  for (const f of files) {
+    if (!f.endsWith(".json")) continue
+    try {
+      const content = await readFile(presetPath(f.replace(".json", "")), "utf-8")
+      const parsed = JSON.parse(content) as PresetFile
+      results.push(parsed)
+    } catch {
+      // Skip corrupt files
+    }
+  }
+  return results.sort((a, b) => a.name.localeCompare(b.name))
+}
+
+async function readPreset(name: string): Promise<PresetFile | null> {
+  const path = presetPath(name)
+  try {
+    const content = await readFile(path, "utf-8")
+    return JSON.parse(content) as PresetFile
+  } catch {
+    return null
+  }
+}
+
+async function writePreset(preset: PresetFile): Promise<void> {
+  await mkdir(presetsDir(), { recursive: true })
+  const content = JSON.stringify(preset, null, 2)
+  await writeFile(presetPath(preset.name), content, "utf-8")
+}
+
+async function deletePreset(name: string): Promise<boolean> {
+  const path = presetPath(name)
+  try {
+    await unlink(path)
+    return true
+  } catch {
+    return false
+  }
+}
+
+/** Strip systemPrompt from seed persona IDs so presets don't carry stale prompts. */
+function stripSeedPrompts(personas: (PersonaState | PresetPersona)[]): PresetPersona[] {
+  const seedIds = new Set(SEED_PERSONAS.map(p => p.id))
+  return personas.map(p => {
+    if (seedIds.has(p.id)) {
+      const { systemPrompt: _, ...rest } = p
+      return rest
+    }
+    return p as PresetPersona
+  })
+}
+
+/** Rehydrate systemPrompt from current SEED_PERSONAS for matching IDs. */
+function rehydratePrompts(personas: PresetPersona[]): PersonaState[] {
+  const seedMap = new Map(SEED_PERSONAS.map(p => [p.id, p]))
+  return personas.map(p => {
+    const seed = seedMap.get(p.id)
+    if (seed && !p.systemPrompt) {
+      return { ...p, systemPrompt: seed.systemPrompt }
+    }
+    return p as PersonaState
+  })
+}
+
+/** Re-seed any missing default presets (allows user deletion, restored on restart). */
+async function seedDefaultPresets(): Promise<void> {
+  const existing = await listPresets()
+  const existingNames = new Set(existing.map(p => p.name))
+
+  const localDefault: PresetFile = {
+    name: "local-default",
+    personas: stripSeedPrompts(SEED_PERSONAS.map(p => ({ ...p, active: true, parallel: false }))),
+  }
+
+  // Cloud-sprint: builder2 (Haiku), auditor (Sonnet), planner (Opus), tester (Sonnet)
+  const cloudSprint: PresetFile = {
+    name: "cloud-sprint",
+    personas: stripSeedPrompts([
+      {
+        id: "builder2",
+        name: "Builder2",
+        color: "#EF9F27",
+        icon: "🔨",
+        tools: ["read", "bash", "edit", "write", "grep", "find", "ls"],
+        systemPrompt: BASE_PROMPT + BUILDER_OVERLAY,
+        model: "anthropic/claude-haiku-4-20250719",
+        active: true,
+        parallel: true,
+      },
+      {
+        id: "auditor",
+        name: "Auditor",
+        color: "#AFA9EC",
+        icon: "🛡️",
+        tools: ["read", "grep", "find", "ls"],
+        model: "anthropic/claude-sonnet-4-20250514",
+        active: true,
+        parallel: true,
+      },
+      {
+        id: "planner",
+        name: "Planner",
+        color: "#4A90D9",
+        icon: "📋",
+        tools: ["read", "grep", "find", "ls"],
+        systemPrompt: BASE_PROMPT + PLANNER_OVERLAY,
+        model: "anthropic/claude-opus-4-6-20250603",
+        active: true,
+        parallel: true,
+      },
+      {
+        id: "tester",
+        name: "Tester",
+        color: "#97C459",
+        icon: "🧪",
+        tools: ["read", "bash", "grep", "find", "ls"],
+        model: "anthropic/claude-sonnet-4-20250514",
+        active: true,
+        parallel: true,
+      },
+    ]),
+  }
+
+  let seeded = 0
+  if (!existingNames.has("local-default")) {
+    await writePreset(localDefault)
+    seeded++
+  }
+  if (!existingNames.has("cloud-sprint")) {
+    await writePreset(cloudSprint)
+    seeded++
+  }
+  if (seeded > 0) {
+    console.log(`[presets] seeded ${seeded} default preset(s)`)
+  }
+}
+
 async function main(): Promise<void> {
   await mkdir(config.workspaceDir, { recursive: true })
   await mkdir(mediaDir(), { recursive: true })
@@ -68,14 +230,101 @@ async function main(): Promise<void> {
 
   // Load the most recent saved discussion, or seed a fresh one.
   await room.init()
+  await seedDefaultPresets()
   console.log(`[room] roster: ${registry.roster().length} participants`)
 
   const app = express()
-  app.use(cors({ origin: ["http://localhost:5310", "http://localhost:5300"] }))
+  app.use(cors({ origin: config.corsOrigins }))
   app.use(express.json({ limit: "5mb" }))
 
   app.get("/api/health", (_req, res) => {
     res.json({ ok: true, workspace: config.workspaceDir, clients: hub.clientCount })
+  })
+
+  // ── Presets ────────────────────────────────────────────────────────────────
+
+  app.get("/api/presets", async (_req, res) => {
+    try {
+      const presets = await listPresets()
+      res.json(presets)
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : String(err) })
+    }
+  })
+
+  app.post("/api/presets", async (req, res) => {
+    const name = String(req.body?.name ?? "").trim().replace(/[^a-zA-Z0-9_-]/g, "")
+    if (!name) {
+      res.status(400).json({ error: "`name` is required (alphanumeric, dash, underscore)" })
+      return
+    }
+    if (room.isBusy()) {
+      res.status(409).json({ error: "a turn is running — press Stop before saving a preset" })
+      return
+    }
+    try {
+      const personas = stripSeedPrompts(registry.personaStates())
+      const preset: PresetFile = { name, personas }
+      await writePreset(preset)
+      res.status(201).json(preset)
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : String(err) })
+    }
+  })
+
+  app.delete("/api/presets/:name", async (req, res) => {
+    const name = req.params.name
+    const deleted = await deletePreset(name)
+    if (!deleted) {
+      res.status(404).json({ error: `preset "${name}" not found` })
+      return
+    }
+    res.status(204).end()
+  })
+
+  app.post("/api/presets/:name/load", async (req, res) => {
+    const name = req.params.name
+    if (room.isBusy()) {
+      res.status(409).json({ error: "a turn is running — press Stop before loading a preset" })
+      return
+    }
+    try {
+      const preset = await readPreset(name)
+      if (!preset) {
+        res.status(404).json({ error: `preset "${name}" not found` })
+        return
+      }
+
+      // Rehydrate systemPrompts from current SEED_PERSONAS
+      const personas = rehydratePrompts(preset.personas)
+
+      // Guard: empty roster would brick the session
+      if (personas.length === 0) {
+        res.status(400).json({ error: `preset "${name}" has no personas — would brick the session` })
+        return
+      }
+
+      // Validate: all model refs must be available
+      const missingModels: string[] = []
+      for (const p of personas) {
+        if (p.model && !isAllowedModel(resolved, p.model)) {
+          const reason = config.allowCloud
+            ? `model "${p.model}" not found`
+            : `model "${p.model}" unavailable — cloud is disabled (set PIPELINE_ALLOW_CLOUD=1)`
+          missingModels.push(reason)
+        }
+      }
+      if (missingModels.length > 0) {
+        res.status(400).json({ error: "unavailable models in preset:", details: missingModels })
+        return
+      }
+
+      const meta = await room.loadPreset(personas, `${name} — ${new Date().toLocaleTimeString()}`)
+      res.json({ ok: true, conversation: meta })
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      res.status(msg.includes("unknown") ? 404 : 409).json({ error: msg })
+    }
   })
 
   // Serve saved images from the media directory.
