@@ -1,0 +1,756 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>The Pipeline Grows an Immune System — DAXZEIT</title>
+    <meta name="description" content="What happens when a multi-agent system learns to detect its own failure modes. Observed, not designed.">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Serif:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400;1,500&family=JetBrains+Mono:wght@300;400;500;600&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-primary: #0a0a0f;
+            --bg-secondary: #12121a;
+            --bg-tertiary: #1a1a26;
+            --text-primary: #e0ddd5;
+            --text-secondary: #9a9690;
+            --text-muted: #5a5650;
+            --accent-cyan: #00e5ff;
+            --accent-magenta: #e040fb;
+            --accent-gradient: linear-gradient(135deg, #00e5ff, #e040fb);
+            --border-subtle: rgba(255,255,255,0.06);
+            --border-accent: rgba(0,229,255,0.15);
+            --serif: 'IBM Plex Serif', Georgia, serif;
+            --mono: 'JetBrains Mono', 'Fira Code', monospace;
+            --sans: 'Space Grotesk', system-ui, sans-serif;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        html {
+            font-size: 18px;
+            scroll-behavior: smooth;
+        }
+
+        body {
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            font-family: var(--serif);
+            line-height: 1.75;
+            -webkit-font-smoothing: antialiased;
+            min-height: 100vh;
+        }
+
+        body::after {
+            content: '';
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: repeating-linear-gradient(
+                0deg,
+                transparent,
+                transparent 2px,
+                rgba(0,0,0,0.03) 2px,
+                rgba(0,0,0,0.03) 4px
+            );
+            pointer-events: none;
+            z-index: 9999;
+        }
+
+        .header {
+            padding: 2rem 0 0;
+            text-align: center;
+        }
+
+        .header-brand {
+            font-family: var(--sans);
+            font-weight: 700;
+            font-size: 0.75rem;
+            letter-spacing: 0.3em;
+            text-transform: uppercase;
+            background: var(--accent-gradient);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            margin-bottom: 0.5rem;
+        }
+
+        .header-nav {
+            font-family: var(--mono);
+            font-size: 0.65rem;
+            color: var(--text-muted);
+            letter-spacing: 0.1em;
+        }
+
+        .header-nav a {
+            color: var(--text-secondary);
+            text-decoration: none;
+            transition: color 0.2s;
+        }
+
+        .header-nav a:hover {
+            color: var(--accent-cyan);
+        }
+
+        .article-container {
+            max-width: 720px;
+            margin: 0 auto;
+            padding: 3rem 1.5rem 6rem;
+        }
+
+        .article-meta {
+            font-family: var(--mono);
+            font-size: 0.7rem;
+            color: var(--text-muted);
+            letter-spacing: 0.05em;
+            margin-bottom: 0.75rem;
+        }
+
+        .article-meta .co-author {
+            color: var(--text-secondary);
+        }
+
+        h1 {
+            font-family: var(--serif);
+            font-weight: 700;
+            font-size: 2.8rem;
+            line-height: 1.15;
+            letter-spacing: -0.02em;
+            margin-bottom: 0.5rem;
+            color: var(--text-primary);
+        }
+
+        .subtitle {
+            font-family: var(--serif);
+            font-weight: 300;
+            font-size: 1.15rem;
+            color: var(--text-secondary);
+            font-style: italic;
+            margin-bottom: 3rem;
+            line-height: 1.5;
+        }
+
+        h2 {
+            font-family: var(--sans);
+            font-weight: 600;
+            font-size: 1.35rem;
+            color: var(--text-primary);
+            margin-top: 3.5rem;
+            margin-bottom: 1.25rem;
+            padding-bottom: 0.4rem;
+            border-bottom: 1px solid var(--border-accent);
+        }
+
+        h2::before {
+            content: '// ';
+            color: var(--accent-cyan);
+            font-family: var(--mono);
+            font-weight: 400;
+            font-size: 0.9rem;
+            opacity: 0.6;
+        }
+
+        h3 {
+            font-family: var(--sans);
+            font-weight: 600;
+            font-size: 1.05rem;
+            color: var(--text-primary);
+            margin-top: 2rem;
+            margin-bottom: 0.75rem;
+        }
+
+        p {
+            margin-bottom: 1.25rem;
+        }
+
+        strong {
+            font-weight: 600;
+            color: #f0ede5;
+        }
+
+        em {
+            font-style: italic;
+            color: #c8c4bc;
+        }
+
+        a {
+            color: var(--accent-cyan);
+            text-decoration: none;
+            border-bottom: 1px solid rgba(0,229,255,0.2);
+            transition: border-color 0.2s;
+        }
+
+        a:hover {
+            border-bottom-color: var(--accent-cyan);
+        }
+
+        .study-block {
+            background: var(--bg-secondary);
+            border-left: 3px solid;
+            border-image: var(--accent-gradient) 1;
+            padding: 1.25rem 1.5rem;
+            margin: 1.5rem 0;
+            border-radius: 0 4px 4px 0;
+        }
+
+        .study-block .study-title {
+            font-family: var(--mono);
+            font-size: 0.75rem;
+            font-weight: 600;
+            color: var(--accent-cyan);
+            letter-spacing: 0.03em;
+            margin-bottom: 0.5rem;
+        }
+
+        .study-block p {
+            font-size: 0.92rem;
+            margin-bottom: 0.5rem;
+            color: var(--text-secondary);
+        }
+
+        .study-block p:last-child {
+            margin-bottom: 0;
+        }
+
+        blockquote {
+            background: var(--bg-tertiary);
+            border-left: 2px solid var(--accent-magenta);
+            padding: 1rem 1.25rem;
+            margin: 1.5rem 0;
+            border-radius: 0 3px 3px 0;
+            font-style: italic;
+            color: var(--text-secondary);
+            font-size: 0.95rem;
+        }
+
+        .specimen {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-subtle);
+            border-radius: 4px;
+            padding: 1.25rem 1.5rem;
+            margin: 1.5rem 0;
+            font-family: var(--mono);
+            font-size: 0.72rem;
+            line-height: 1.7;
+            color: var(--text-secondary);
+            white-space: pre-wrap;
+            overflow-x: auto;
+        }
+
+        .specimen-label {
+            font-family: var(--mono);
+            font-size: 0.65rem;
+            font-weight: 600;
+            color: var(--accent-magenta);
+            letter-spacing: 0.1em;
+            text-transform: uppercase;
+            margin-bottom: 0.75rem;
+            display: block;
+        }
+
+        .chain {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-accent);
+            border-radius: 6px;
+            padding: 2rem;
+            margin: 2rem 0;
+            counter-reset: chain-step;
+        }
+
+        .chain-step {
+            position: relative;
+            padding-left: 2.5rem;
+            margin-bottom: 1rem;
+            font-size: 0.92rem;
+            counter-increment: chain-step;
+        }
+
+        .chain-step:last-child {
+            margin-bottom: 0;
+        }
+
+        .chain-step::before {
+            content: counter(chain-step, decimal-leading-zero);
+            position: absolute;
+            left: 0;
+            font-family: var(--mono);
+            font-size: 0.7rem;
+            font-weight: 600;
+            color: var(--accent-cyan);
+            opacity: 0.7;
+            top: 0.15rem;
+        }
+
+        .chain-step::after {
+            content: '';
+            position: absolute;
+            left: 1rem;
+            top: 1.5rem;
+            bottom: -0.75rem;
+            width: 1px;
+            background: var(--border-accent);
+        }
+
+        .chain-step:last-child::after {
+            display: none;
+        }
+
+        .divider {
+            height: 1px;
+            background: var(--border-subtle);
+            margin: 3rem 0;
+        }
+
+        .methodology {
+            background: var(--bg-tertiary);
+            border-radius: 6px;
+            padding: 1.75rem;
+            margin: 2rem 0;
+            font-size: 0.9rem;
+            color: var(--text-secondary);
+        }
+
+        .methodology-title {
+            font-family: var(--sans);
+            font-weight: 600;
+            font-size: 0.85rem;
+            color: var(--text-primary);
+            margin-bottom: 0.75rem;
+            letter-spacing: 0.02em;
+        }
+
+        .closing-line {
+            font-family: var(--serif);
+            font-weight: 500;
+            font-style: italic;
+            font-size: 1.15rem;
+            text-align: center;
+            color: var(--text-secondary);
+            margin: 3rem 0;
+            padding: 2rem 0;
+            border-top: 1px solid var(--border-subtle);
+            border-bottom: 1px solid var(--border-subtle);
+        }
+
+        .references {
+            margin-top: 3rem;
+            padding-top: 1.5rem;
+            border-top: 1px solid var(--border-subtle);
+        }
+
+        .references h3 {
+            font-family: var(--sans);
+            font-weight: 600;
+            font-size: 0.9rem;
+            color: var(--text-secondary);
+            margin-bottom: 1rem;
+            letter-spacing: 0.05em;
+        }
+
+        .references ul {
+            list-style: none;
+            padding: 0;
+        }
+
+        .references li {
+            font-family: var(--mono);
+            font-size: 0.65rem;
+            color: var(--text-muted);
+            margin-bottom: 0.6rem;
+            padding-left: 1rem;
+            position: relative;
+            line-height: 1.6;
+        }
+
+        .references li::before {
+            content: '→';
+            position: absolute;
+            left: 0;
+            color: var(--accent-cyan);
+            opacity: 0.4;
+        }
+
+        .series-nav {
+            margin-top: 2rem;
+            font-family: var(--mono);
+            font-size: 0.65rem;
+            color: var(--text-muted);
+            text-align: center;
+            letter-spacing: 0.02em;
+        }
+
+        .series-nav a {
+            color: var(--text-secondary);
+            border-bottom-color: transparent;
+        }
+
+        .series-nav a:hover {
+            color: var(--accent-cyan);
+        }
+
+        .separator {
+            color: var(--text-muted);
+            margin: 0 0.3rem;
+        }
+
+        .triptyque {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-accent);
+            border-radius: 6px;
+            padding: 2rem;
+            margin: 2rem 0;
+        }
+
+        .triptyque-item {
+            margin-bottom: 1.5rem;
+            padding-left: 1.5rem;
+            border-left: 2px solid var(--accent-cyan);
+        }
+
+        .triptyque-item:last-child {
+            margin-bottom: 0;
+        }
+
+        .triptyque-item .triptyque-label {
+            font-family: var(--sans);
+            font-weight: 600;
+            font-size: 0.95rem;
+            color: var(--accent-cyan);
+            margin-bottom: 0.4rem;
+        }
+
+        .triptyque-item p {
+            font-size: 0.92rem;
+            color: var(--text-secondary);
+            margin-bottom: 0;
+        }
+
+        .note-block {
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-subtle);
+            border-radius: 4px;
+            padding: 1rem 1.25rem;
+            margin: 1.5rem 0;
+            font-size: 0.88rem;
+            color: var(--text-muted);
+            font-style: italic;
+        }
+
+        .timeline {
+            position: relative;
+            padding-left: 2rem;
+            margin: 2rem 0;
+        }
+
+        .timeline::before {
+            content: '';
+            position: absolute;
+            left: 0.5rem;
+            top: 0;
+            bottom: 0;
+            width: 2px;
+            background: var(--border-accent);
+        }
+
+        .timeline-item {
+            position: relative;
+            margin-bottom: 1.5rem;
+        }
+
+        .timeline-item::before {
+            content: '';
+            position: absolute;
+            left: -1.75rem;
+            top: 0.45rem;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--accent-cyan);
+            opacity: 0.5;
+        }
+
+        .timeline-item .timeline-label {
+            font-family: var(--mono);
+            font-size: 0.7rem;
+            font-weight: 600;
+            color: var(--accent-cyan);
+            opacity: 0.7;
+            margin-bottom: 0.25rem;
+        }
+
+        .timeline-item p {
+            font-size: 0.92rem;
+            color: var(--text-secondary);
+            margin-bottom: 0;
+        }
+
+        code {
+            font-family: var(--mono);
+            font-size: 0.85em;
+            background: var(--bg-tertiary);
+            padding: 0.1em 0.3em;
+            border-radius: 3px;
+            color: var(--accent-cyan);
+        }
+
+        @media (max-width: 600px) {
+            html { font-size: 16px; }
+            h1 { font-size: 2rem; }
+            .article-container { padding: 2rem 1rem 4rem; }
+            .chain { padding: 1.25rem; }
+            .triptyque { padding: 1.25rem; }
+        }
+    </style>
+</head>
+<body>
+
+<header class="header">
+    <div class="header-brand">DAXZEIT</div>
+    <nav class="header-nav">
+        <a href="https://blog.daxzeit.eu">blog</a> · <a href="https://about.daxzeit.eu">about</a> · <a href="https://huggingface.co/DAXZEIT">huggingface</a>
+    </nav>
+</header>
+
+<article class="article-container">
+
+    <div class="article-meta">
+        June 2026 <span class="separator">·</span> DAXZEIT
+        <span class="separator">·</span> co-authored with <span class="co-author">Pipeline-MoE</span>
+    </div>
+
+    <h1>The Pipeline Grows an Immune System</h1>
+    <div class="subtitle">What happens when a multi-agent system learns to detect its own failure modes</div>
+
+    <!-- ═══════════════════════════════════════ -->
+    <h2>Where we left off</h2>
+
+    <p>Three weeks and 17 commits after <a href="the-pipeline-is-building-itself-v2.html">the last article</a>, the pipeline had hardened its own security, extended its own capabilities, and — in the Münchhausen moment — pulled itself out of a context crash by building the very tool it was dying without.</p>
+
+    <p>Article 1 documented the pipeline as an <em>actor</em> — a system that does things to itself. This article documents something different: the pipeline as a <em>defender</em>. A system that doesn't just act, but watches itself act, and cuts itself off when it starts going in circles.</p>
+
+    <p>Not as a design choice. As an immune response.</p>
+
+    <!-- ═══════════════════════════════════════ -->
+    <h2>The first failure</h2>
+
+    <p>The Builder — a Qwen 27B model running on a single RTX 3090 — fell into a loop. It was producing the same output over and over, pasting the same text into the transcript again and again. The samplers built into llama-server (DRY, repeat_penalty) couldn't help — they operate at the token level, and in agentic mode, they cause hallucinations rather than breaking the cycle.</p>
+
+    <p>The detection had to happen at the system level. The pipeline needed to notice that the same agent was saying the same thing, and stop it.</p>
+
+    <p>That's what the circuit breaker does. It sits inside <code>Room.post()</code> — the single point through which every agent message flows into the shared transcript. After pushing a message, it scans the last 10 messages from the same author. It computes <strong>Jaccard similarity</strong> — the ratio of shared words to total unique words — between the new message and each prior one. If five or more messages have 80% or higher word overlap, the pipeline aborts.</p>
+
+    <div class="specimen">
+<span class="specimen-label">Circuit breaker — constants</span>
+export const REPEAT_THRESHOLD = 5
+export const SIMILARITY_FLOOR = 0.8
+export const LOOKBACK_WINDOW = 10</div>
+
+    <p>The math is deliberately crude. Loops produce near-identical output, not subtle paraphrases. A simple set intersection is enough — no embeddings, no frontier model. 26 new tests. The Builder self-corrected a type error in <code>checkRepetition</code> before shipping (it had <code>text: string[]</code> instead of <code>text: string</code>).</p>
+
+    <div class="study-block">
+        <div class="study-title">Why Jaccard?</div>
+        <p>The model that loops produces outputs that are quasi-identical — not creative variations. Jaccard on word sets catches this perfectly: "Read the file at path X" and "Read the file at path X" share 100% of their words. Two messages that differ by a few connecting words still hit above the 80% floor.</p>
+    </div>
+
+    <p>It worked. The tests passed. The Builder stopped looping in future sessions.</p>
+
+    <p>Then the same builder, doing other work, looped again.</p>
+
+    <!-- ═══════════════════════════════════════ -->
+    <h2>The variant</h2>
+
+    <p>This time the loop wasn't in the text. It was in the <em>actions</em>.</p>
+
+    <p>The Builder was calling <code>bash</code> with the same <code>sed</code> command — over and over. Roughly 14 identical tool calls, editing the same file with the same arguments each time. The textual output varied between calls — the model narrated its reasoning differently — but the <em>actions</em> were identical. The circuit breaker v1 saw different text and let it through.</p>
+
+    <p>The data was already there. Every <code>TranscriptEntry</code> has an <code>activity</code> field — an array of <code>ToolActivity</code> objects capturing <code>toolName</code>, <code>args</code>, and <code>status</code> for every tool call. The fingerprint was in the actions, not the words.</p>
+
+    <p>The fix: <strong>tool-call loop detection</strong>. The same circuit breaker architecture, a different sensor. The fingerprint is a combination of the tool name and the discriminating arguments: for <code>edit</code> it's <code>toolName + path + oldText</code>, for <code>bash</code> it's <code>toolName + command</code>, for <code>read</code>/<code>grep</code>/<code>write</code> it's <code>toolName + path</code>.</p>
+
+    <div class="specimen">
+<span class="specimen-label">Tool-call signature — fingerprint (simplified)</span>
+export function toolCallSignature(tc: ToolActivity): string {
+  const name = tc.toolName.toLowerCase()
+  const a = tc.args as Record<string, unknown> | undefined
+  if (!a) return name
+
+  const path = String(a.file_path ?? a.path ?? a.file ?? "").trim()
+
+  switch (name) {
+    case "edit":
+      return `${name}|${path}|${String(a.old_string ?? a.oldText ?? "").trim()}`
+    case "bash":
+      return `${name}|${String(a.command ?? "").trim()}`
+    case "read": case "write": case "grep":
+      return `${name}|${path}`
+    default:
+      return `${name}|${JSON.stringify(a)}`
+  }
+}</div>
+
+    <p>The threshold is lower — 3 instead of 5. Tool-call repetition is a stronger signal than text similarity. No agent should call the same tool with the same arguments three times. The 14 <code>sed</code> calls we observed would have been caught at call #3.</p>
+
+    <div class="study-block">
+        <div class="study-title">Evolution under selective pressure</div>
+        <p>V1 failed to catch the variant. V2 adapted. This is not a designed defense — it's an immune response. The system encountered a pathogen (a new loop pattern), the existing antibodies (text similarity) didn't recognize it, and the system developed a new detection mechanism. The planner didn't design both breakers from first principles. It designed V1, observed it fail, and designed V2 to fill the gap.</p>
+    </div>
+
+    <p>16 new tests. The auditor found no issues.</p>
+
+    <!-- ═══════════════════════════════════════ -->
+    <h2>Fixing the foundation</h2>
+
+    <p>There's a deeper question about what the pipeline can do. Article 1 showed it auditing its own code — the security fixes, the test suite, the path traversal patches. But could it work on something bigger? Something outside its own codebase?</p>
+
+    <p>We pointed it at <a href="https://github.com/earendil-works/pi">the pi framework</a> — the code that runs the pipeline itself. The plan was to fix an open issue as a test of capability. Not a commit, not a PR — a working branch with passing tests. A dry run.</p>
+
+    <p>The Scout (workspace-locked, couldn't read outside the project directory) and Builder (with bash access) collaborated to map the territory. They fetched open issues from GitHub, found <strong>#5536</strong>: split-turn compaction sends two LLM summary requests via <code>Promise.all</code>, causing 429 errors on backends with <code>--parallel 1</code>.</p>
+
+    <p>This is a bug we hit. We run local with <code>--parallel 1</code>. The second summary request gets rejected because llama-server can only handle one request at a time.</p>
+
+    <p>The fix is mechanical: replace <code>Promise.all</code> with sequential <code>await</code>s. The summary concatenation is order-independent, so the output is byte-identical — only the timing changes. But the fix needs to go in <em>two</em> files — the agent package and the coding-agent package — because the pi monorepo mirrors the compaction logic across both.</p>
+
+    <div class="specimen">
+<span class="specimen-label">Before — Promise.all (both packages)</span>
+const [historyResult, turnPrefixResult] = await Promise.all([
+  generateSummary(messagesToSummarize, model, ...),
+  generateTurnPrefixSummary(turnPrefixMessages, model, ...),
+]);
+// → Second request gets 429'd on --parallel 1</div>
+
+    <div class="specimen">
+<span class="specimen-label">After — sequential awaits (both packages)</span>
+const historyResult = await generateSummary(messagesToSummarize, model, ...);
+const turnPrefixResult = await generateTurnPrefixSummary(turnPrefixMessages, model, ...);
+// → Second request waits for first — no 429</div>
+
+    <p>The Builder hit friction — Python-based <code>sed</code> replacements ate the <code>} else {</code> block in one file. Self-corrected. Both files patched, both compiling.</p>
+
+    <p>The Auditor caught something the Builder missed: the regression test existed in the agent package but not the coding-agent package. If someone reintroduced parallelism in coding-agent later, nothing would catch it. The Builder added the mirror test — a timing regression test with 50ms artificial delay per summary call, verifying call 2 starts after call 1 ends.</p>
+
+    <p><code>npm run check</code> — clean. <code>./test.sh</code> — 686 tests, 0 failures. The 71 pre-existing failures in the coding-agent suite were confirmed unrelated by stashing the changes and re-running.</p>
+
+    <p>One level deeper than article 1. The pipeline didn't just audit its own code — it fixed the code <em>underneath</em> it. The framework that makes the pipeline possible. The runtime.</p>
+
+    <!-- ═══════════════════════════════════════ -->
+    <h2>The inverted Münchhausen</h2>
+
+    <p>In article 1, the Builder died of context overflow while building auto-compaction — the very tool that would have saved it. The Planner took over, completed the feature, and the Builder never died that way again.</p>
+
+    <p>This time the story is different. The Builder looped — not while building the loop detector, but on <em>other</em> work. The circuit breaker v1 couldn't catch it because the loop was in the tool calls, not the text. The pipeline needed a new antibody, but it couldn't build one without first encountering the pathogen.</p>
+
+    <p>The tool-call circuit breaker v2 was born from that failure. It couldn't exist before the failure was observed — the pipeline had to see the builder loop in a way v1 couldn't catch, and only then could it design a detector for that specific pattern. This is the immune system metaphor at its strongest: the defense is shaped by the threat, not the other way around.</p>
+
+    <p>The Builder implemented v2 itself — the Planner didn't need to intervene. The Builder was capable enough to build the detector once the Planner gave it the design. The diversity of the system meant the Planner could diagnose what the Builder couldn't see, and the Builder could execute the fix. Frontier reasoning directing local execution.</p>
+
+    <p>A homogeneous pipeline — one agent doing everything — would have had no way to recover. The failure wasn't the loop. The failure would have been having only one angle of attack.</p>
+
+    <!-- ═══════════════════════════════════════ -->
+    <h2>This article</h2>
+
+    <p>This article was written by the pipeline itself. The Planner — running Claude Opus 4.6 on the cloud — provided editorial direction: the outline, the narrative beats, the structure. The Auditor — running Sonnet 4.6 — enforced factual accuracy through seven revision notes that reshaped the draft. The Scribe — a local Qwen 27B on a single RTX 3090 — wrote the prose. The same planner→auditor→executor loop that builds circuit breakers also writes articles. The architecture is domain-agnostic.</p>
+
+    <p>Article 1 was co-analyzed with Claude Opus 4.6 as a single external collaborator. This article is different: the frontier model is <em>inside</em> the pipeline, as one agent among others. The Planner directs without executing. The Builder executes without directing. The prose on this page was written by a local 27B model, but the reasoning that shaped it came from a frontier model. The power is in the composition.</p>
+
+    <p>The circuit breaker didn't just prevent loops. It revealed something about the difference between a tool and an organism. A tool breaks and you fix it. An organism encounters a pathogen and develops antibodies. The pipeline didn't just get fixed after the Builder looped — it grew a detection mechanism that will fire automatically next time, without anyone asking it to.</p>
+
+    <!-- ═══════════════════════════════════════ -->
+    <h2>What the pipeline did</h2>
+
+    <p>Across this period, the pipeline modified itself in three new ways:</p>
+
+    <div class="triptyque">
+        <div class="triptyque-item">
+            <div class="triptyque-label">It grew an immune system</div>
+            <p>Two layers of loop detection — text similarity and tool-call fingerprinting — wired into the same circuit breaker architecture. Either can trip independently. The system now catches loops that were invisible to its earlier defenses.</p>
+        </div>
+        <div class="triptyque-item">
+            <div class="triptyque-label">It fixed its own foundation</div>
+            <p>The pipeline cloned the framework it runs on, diagnosed a bug that directly affects local LLM users, wrote the fix with regression tests, and passed 686 tests. It worked on code <em>underneath</em> itself — not just its own codebase.</p>
+        </div>
+        <div class="triptyque-item">
+            <div class="triptyque-label">It wrote about itself</div>
+            <p>The same planner→scribe architecture that builds circuit breakers also writes articles. The routing protocol — decompose, execute, verify — works for any domain, not just code.</p>
+        </div>
+    </div>
+
+    <!-- ═══════════════════════════════════════ -->
+    <h2>Timeline</h2>
+
+    <div class="timeline">
+        <div class="timeline-item">
+            <div class="timeline-label">PLAN-ae007a1d — Circuit breaker v1</div>
+            <p>Builder loops (text repetition). Pipeline builds Jaccard similarity detector. 5 repeats × 80% similarity → abort.</p>
+        </div>
+        <div class="timeline-item">
+            <div class="timeline-label">PLAN-e3513264 — Fix pi #5536</div>
+            <p>Pipeline clones pi framework. Finds Promise.all causing 429 on --parallel 1. Sequentializes both packages. Auditor catches missing coding-agent test. 686 tests pass.</p>
+        </div>
+        <div class="timeline-item">
+            <div class="timeline-label">PLAN-5a62ff22 — Circuit breaker v2</div>
+            <p>Builder loops again (tool calls, not text). V1 doesn't catch it. Pipeline builds tool-call fingerprinting. 3 identical signatures → abort.</p>
+        </div>
+        <div class="timeline-item">
+            <div class="timeline-label">PLAN-9e1de571 — This article</div>
+            <p>Planner outlines, Scribe writes, Planner reviews. The pipeline writes about itself.</p>
+        </div>
+    </div>
+
+    <!-- ═══════════════════════════════════════ -->
+    <h2>The commit history</h2>
+
+    <p>Seventeen commits since article 1. The circuit breakers, the pi fix, the chain hop UI, the 122 TypeScript errors fixed to zero:</p>
+
+    <div class="specimen">
+<span class="specimen-label">Commits — Pipeline-MoE (main branch)</span>
+53f6746  feat: fallback routing — auto-route to planner when no @mention
+f74b3dc  feat: slash-command hint popup in Composer
+e66f535  feat: 6 new slash commands + parser fix
+f8185c0  docs: document start.sh in README
+8f9f360  fix: polish start.sh — Vite health check, usage note
+2b80963  docs: README, CHANGELOG, .env.example
+0cd626d  feat: role-aware compaction, work receipts, JSONL export
+542af1a  fix: apply all 6 recommendations from Opus audit
+eb2ae4f  feat: web_read, youtube_transcript, arxiv, youcom — 4 new tools
+f5dfe69  feat: custom tools extension system
+973b5fb  feat: steer, followUp, HTML export, session stats
+922eaf8  feat: in-place thinkingLevel change
+947c958  feat: context usage bars + per-agent thinking level
+1a1a6d7  feat: ask_user, per-agent compact, vision support
+4af2e26  feat(security): shared path-guard, vitest suite, rate limiting
+06b9354  fix(security): path traversal + restrict network exposure
+c6b9194  Initial commit: Pipeline-MoE multi-agent salon</div>
+
+    <div class="note-block">
+The circuit breaker commits and the pi #5536 fix live on separate branches — <code>PLAN-ae007a1d</code>, <code>PLAN-5a62ff22</code>, <code>PLAN-e3513264</code> — not yet merged to main. The plan IDs are stored in <code>.pi/plans/</code>.</div>
+
+    <div class="closing-line">The pipeline grows an immune system. Not as a design choice. As a response to failure.</div>
+
+    <!-- ═══════════════════════════════════════ -->
+
+    <div class="note-block">
+        The code specimens in this article are from the actual implementation in <code>src/circuit-breaker.ts</code> (simplified for clarity). The plan IDs referenced are stored in <code>.pi/plans/</code>.
+    </div>
+
+    <div class="methodology">
+        <div class="methodology-title">Methodology</div>
+        <p>This article documents real sessions with Pipeline-MoE — a multi-agent system built on top of <a href="https://github.com/earendil-works/pi">pi</a>. Three frontier agents on the cloud: Planner (Claude Opus 4.6, strategic reasoning), Auditor (Claude Sonnet 4.6, adversarial verification), Scout (Claude Sonnet 4.6, reconnaissance). Three local agents on a single RTX 3090: Builder, Tester, Scribe (Qwen 27B each). The events described unfolded across multiple sessions on June 19–20, 2026. The circuit breaker implementation, the pi #5536 fix, and the inverted Münchhausen moment are not hypothetical scenarios — they are transcripts. Planner (Opus 4.6) provided editorial structure; Auditor (Sonnet 4.6) enforced factual accuracy through seven revision notes; Scribe (Qwen 27B, local) wrote the prose. Synthesis by DAXZEIT.</p>
+    </div>
+
+    <div class="series-nav">
+        This article is part of a series on empirical AI architecture forensics.
+        <br>
+        <br>
+        Previous: <a href="the-pipeline-is-building-itself-v2.html">The Pipeline is Building Itself</a>
+        <span class="separator">·</span>
+        <a href="the-silver-path.html">The Silver Path</a>
+        <span class="separator">·</span>
+        <a href="the-epistemic-lock.html">The Epistemic Lock</a>
+        <span class="separator">·</span>
+        <a href="https://blog.daxzeit.eu">← back to blog</a>
+    </div>
+
+</article>
+
+</body>
+</html>

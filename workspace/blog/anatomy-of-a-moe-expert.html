@@ -1,0 +1,595 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Anatomy of a MoE Expert — Daxzeit</title>
+  <meta name="description" content="A MoE expert is 0.45 billion parameters of blind matrix multiplication. Why 256 of them don't add up to deeper reasoning, and why a 27B dense model on a consumer GPU delivers better value than a 1.6T behemoth.">
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500&family=IBM+Plex+Sans:ital,wght@0,300;0,400;0,500;0,600;1,300;1,400&family=IBM+Plex+Serif:ital,wght@0,300;0,400;0,500;1,300;1,400&display=swap');
+
+    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+    :root {
+      --bg: #0a0a0b;
+      --bg-card: #111113;
+      --text: #e4e4e7;
+      --text-dim: #a1a1aa;
+      --text-muted: #71717a;
+      --text-faint: #52525b;
+      --accent: #d4d4d8;
+      --border: #27272a;
+      --border-light: #3f3f46;
+      --green: #4ade80;
+      --green-dim: rgba(74, 222, 128, 0.08);
+      --red: #f87171;
+      --red-dim: rgba(248, 113, 113, 0.08);
+      --amber: #fbbf24;
+      --amber-dim: rgba(251, 191, 36, 0.08);
+      --blue: #60a5fa;
+      --blue-dim: rgba(96, 165, 250, 0.08);
+      --purple: #a78bfa;
+      --purple-dim: rgba(167, 139, 250, 0.08);
+      --mono: 'JetBrains Mono', monospace;
+      --sans: 'IBM Plex Sans', -apple-system, sans-serif;
+      --serif: 'IBM Plex Serif', Georgia, serif;
+    }
+
+    html { font-size: 17px; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--serif);
+      font-weight: 300;
+      line-height: 1.8;
+      min-height: 100vh;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    .container {
+      max-width: 680px;
+      margin: 0 auto;
+      padding: 80px 24px 120px;
+    }
+
+    nav { margin-bottom: 56px; }
+    nav a {
+      font-family: var(--mono);
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      text-decoration: none;
+      transition: color 0.2s;
+    }
+    nav a:hover { color: var(--text-dim); }
+
+    .article-header { margin-bottom: 56px; }
+    .article-header h1 {
+      font-family: var(--sans);
+      font-size: 2rem;
+      font-weight: 600;
+      line-height: 1.25;
+      letter-spacing: -0.03em;
+      margin-bottom: 16px;
+    }
+    .article-header .subtitle {
+      font-size: 1.05rem;
+      color: var(--text-dim);
+      font-weight: 300;
+      font-style: italic;
+      margin-bottom: 20px;
+    }
+    .article-meta {
+      font-family: var(--mono);
+      font-size: 0.73rem;
+      color: var(--text-faint);
+      display: flex;
+      gap: 16px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+    .article-tag {
+      font-size: 0.68rem;
+      color: var(--text-muted);
+      background: var(--bg-card);
+      padding: 2px 8px;
+      border-radius: 3px;
+      border: 1px solid var(--border);
+    }
+
+    .article-body h2 {
+      font-family: var(--sans);
+      font-size: 1.25rem;
+      font-weight: 500;
+      letter-spacing: -0.01em;
+      margin-top: 48px;
+      margin-bottom: 16px;
+    }
+    .article-body h3 {
+      font-family: var(--sans);
+      font-size: 1.05rem;
+      font-weight: 500;
+      margin-top: 36px;
+      margin-bottom: 12px;
+      color: var(--text-dim);
+    }
+    .article-body p { margin-bottom: 20px; }
+    .article-body strong { font-weight: 500; color: var(--accent); }
+    .article-body em { font-style: italic; color: var(--text-dim); }
+    .article-body ul, .article-body ol { margin-bottom: 20px; padding-left: 24px; }
+    .article-body li { margin-bottom: 8px; }
+    .article-body hr {
+      border: none;
+      height: 1px;
+      background: var(--border);
+      margin: 48px 0;
+      opacity: 0.5;
+    }
+    .article-body pre {
+      margin: 24px 0;
+      padding: 20px;
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      overflow-x: auto;
+      font-family: var(--mono);
+      font-size: 0.78rem;
+      line-height: 1.6;
+      color: var(--text-dim);
+    }
+    .article-body code {
+      font-family: var(--mono);
+      font-size: 0.85em;
+      background: var(--bg-card);
+      padding: 2px 6px;
+      border-radius: 3px;
+      border: 1px solid var(--border);
+    }
+    .article-body pre code {
+      background: none;
+      border: none;
+      padding: 0;
+    }
+    .article-body blockquote {
+      margin: 28px 0;
+      padding: 16px 24px;
+      border-left: 2px solid var(--border-light);
+      color: var(--text-dim);
+      font-style: italic;
+    }
+    .article-body a {
+      color: var(--accent);
+      text-decoration: underline;
+      text-decoration-color: var(--border-light);
+      text-underline-offset: 3px;
+      transition: text-decoration-color 0.2s;
+    }
+    .article-body a:hover { text-decoration-color: var(--text-dim); }
+
+    /* Tables */
+    .article-body table {
+      margin: 24px 0;
+      border-collapse: collapse;
+      width: 100%;
+      font-size: 0.88rem;
+    }
+    .article-body thead th {
+      font-family: var(--mono);
+      font-size: 0.73rem;
+      font-weight: 500;
+      letter-spacing: 0.03em;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      text-align: left;
+      padding: 10px 14px;
+      border-bottom: 1px solid var(--border-light);
+      background: var(--bg-card);
+    }
+    .article-body tbody td {
+      padding: 9px 14px;
+      border-bottom: 1px solid var(--border);
+      color: var(--text-dim);
+      font-family: var(--mono);
+      font-size: 0.78rem;
+    }
+    .article-body tbody tr:last-child td {
+      border-bottom: none;
+    }
+    .article-body tbody tr:hover {
+      background: rgba(255,255,255,0.02);
+    }
+    .article-body .delta-positive {
+      color: var(--red);
+    }
+    .article-body .delta-small {
+      color: var(--amber);
+    }
+
+    /* Callout blocks */
+    .callout {
+      margin: 28px 0;
+      padding: 20px 24px;
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+    }
+    .callout .callout-label {
+      font-family: var(--mono);
+      font-size: 0.68rem;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      margin-bottom: 14px;
+      color: var(--text-muted);
+    }
+    .callout .callout-content {
+      color: var(--text-dim);
+      font-size: 0.92rem;
+      line-height: 1.7;
+    }
+    .callout .callout-content p {
+      margin-bottom: 12px;
+    }
+    .callout .callout-content p:last-child {
+      margin-bottom: 0;
+    }
+
+    /* Hypothesis block */
+    .hypothesis-block {
+      margin: 28px 0;
+      padding: 20px 24px;
+      background: var(--purple-dim);
+      border: 1px solid rgba(167, 139, 250, 0.15);
+      border-radius: 6px;
+    }
+    .hypothesis-block .hyp-label {
+      font-family: var(--mono);
+      font-size: 0.68rem;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      margin-bottom: 14px;
+      color: var(--purple);
+    }
+    .hypothesis-block .hyp-content {
+      color: var(--text-dim);
+      font-size: 0.92rem;
+      line-height: 1.7;
+    }
+    .hypothesis-block .hyp-content p {
+      margin-bottom: 12px;
+    }
+    .hypothesis-block .hyp-content p:last-child {
+      margin-bottom: 0;
+    }
+
+    /* Trade-off list */
+    .tradeoff-block {
+      margin: 28px 0;
+      padding: 20px 24px;
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+    }
+    .tradeoff-block .tradeoff-label {
+      font-family: var(--mono);
+      font-size: 0.68rem;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      margin-bottom: 14px;
+      color: var(--text-muted);
+    }
+    .tradeoff-block ul {
+      list-style: none;
+      padding-left: 0;
+    }
+    .tradeoff-block li {
+      padding: 6px 0;
+      border-bottom: 1px solid var(--border);
+      font-size: 0.9rem;
+      color: var(--text-dim);
+    }
+    .tradeoff-block li:last-child { border-bottom: none; }
+    .tradeoff-block li .tradeoff-key {
+      font-family: var(--mono);
+      font-size: 0.78rem;
+      color: var(--text-muted);
+      margin-right: 8px;
+    }
+
+    .signature {
+      margin-top: 56px;
+      padding-top: 24px;
+      border-top: 1px solid var(--border);
+      font-style: italic;
+      color: var(--text-muted);
+      font-size: 0.92rem;
+      line-height: 1.7;
+    }
+
+    footer {
+      margin-top: 80px;
+      padding-top: 24px;
+      border-top: 1px solid var(--border);
+      display: flex;
+      justify-content: space-between;
+    }
+    footer a {
+      font-family: var(--mono);
+      font-size: 0.78rem;
+      color: var(--text-faint);
+      text-decoration: none;
+      transition: color 0.2s;
+    }
+    footer a:hover { color: var(--text-dim); }
+
+    @media (max-width: 600px) {
+      html { font-size: 16px; }
+      .container { padding: 48px 16px 80px; }
+      .article-header h1 { font-size: 1.6rem; }
+      .article-body table { font-size: 0.78rem; }
+      .article-body thead th,
+      .article-body tbody td { padding: 8px 10px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <nav>
+      <a href="index.html">&larr; blog</a>
+    </nav>
+
+    <article>
+      <div class="article-header">
+        <h1>Anatomy of a MoE Expert</h1>
+        <p class="subtitle">Why 1.6 Trillion Parameters Isn&rsquo;t Worth It</p>
+        <div class="article-meta">
+          <span>2026-06-09</span>
+          <span class="article-tag">moe</span>
+          <span class="article-tag">architecture</span>
+          <span class="article-tag">dense</span>
+          <span class="article-tag">deepseek</span>
+          <span class="article-tag">qwen</span>
+          <span class="article-tag">scaling</span>
+        </div>
+      </div>
+
+      <div class="article-body">
+
+        <p>Everyone talks about Mixture-of-Experts as if more experts means more intelligence. It doesn&rsquo;t. I did the math, and the numbers are brutal.</p>
+
+        <p>This article breaks down what a MoE expert actually <em>is</em> at the architectural level, why 256 of them don&rsquo;t add up to deeper reasoning, and why a 27B dense model on a single consumer GPU delivers better value per parameter than a 1.6 trillion parameter behemoth that requires a datacenter to run.</p>
+
+        <hr>
+
+        <h2>The architecture nobody reads</h2>
+
+        <p>Qwen 3.5 A10B (122B total, 10B activated) is one of the few models with its full architecture published. Here&rsquo;s the layout:</p>
+
+        <pre><code>Hidden Layout: 12 &times; (3 &times; (Gated DeltaNet &rarr; MoE) &rarr; 1 &times; (Gated Attention &rarr; MoE))</code></pre>
+
+        <p>Read that carefully. It tells you three things:</p>
+
+        <p><strong>1. It&rsquo;s not a Transformer.</strong> 75% of the layers use DeltaNet (linear attention), not standard quadratic attention. Only 1 in 4 layers uses actual Gated Attention. The model the industry calls a &ldquo;Transformer&rdquo; is mostly something else.</p>
+
+        <p><strong>2. Every layer feeds into MoE.</strong> All 48 layers &mdash; DeltaNet and Attention alike &mdash; route through a Mixture of Experts block with 256 experts, of which 8 are routed and 1 is shared (always active).</p>
+
+        <p><strong>3. The model doesn&rsquo;t know this.</strong> When I asked Qwen 3.5 A10B about its own architecture, it confidently said &ldquo;Architecture Transformer.&rdquo; When corrected with the actual specs, it replied &ldquo;You&rsquo;re absolutely right, thank you for the correction! 🙏&rdquo; &mdash; reformatting what I gave it into a neat table without any sign of having known it beforehand.</p>
+
+        <p>That last point matters. A model that doesn&rsquo;t know what it is can&rsquo;t reason about what it is.</p>
+
+        <hr>
+
+        <h2>The math: 0.45B per expert</h2>
+
+        <p>Each MoE expert is a gated feed-forward network. Let&rsquo;s calculate its size.</p>
+
+        <p>The specs:</p>
+        <ul>
+          <li>Hidden dimension: 3072</li>
+          <li>Expert intermediate dimension: 1024</li>
+          <li>Gated FFN: 3 weight matrices (up, gate, down)</li>
+        </ul>
+
+        <p>Per expert, per layer:</p>
+
+        <pre><code>3 &times; (3072 &times; 1024) = 9,437,184 parameters &asymp; 9.4M</code></pre>
+
+        <p>Across all 48 MoE layers:</p>
+
+        <pre><code>9.4M &times; 48 = ~452M per expert</code></pre>
+
+        <p><strong>Each expert is 0.45 billion parameters.</strong> Not 4B. Not 1B. Less than half a billion.</p>
+
+        <p>And what <em>is</em> that 0.45B? It&rsquo;s a feed-forward network. No attention heads. No context window. No ability to see what came before or after. It receives a hidden state vector, multiplies some matrices, and returns a transformed vector. That&rsquo;s it.</p>
+
+        <p>It doesn&rsquo;t &ldquo;reason.&rdquo; It doesn&rsquo;t &ldquo;know.&rdquo; It pattern-matches.</p>
+
+        <hr>
+
+        <h2>The active budget</h2>
+
+        <p>With 9 experts activated per token (8 routed + 1 shared):</p>
+
+        <pre><code>9 &times; 452M = ~4.1B of expert parameters active per token</code></pre>
+
+        <p>The remaining ~6B is shared infrastructure &mdash; DeltaNet layers, Gated Attention layers, embeddings, layer norms, the router itself. This shared infrastructure is what provides continuity, context, and coherence. It&rsquo;s the actual &ldquo;brain&rdquo; of the model.</p>
+
+        <p>So the 10B activated parameter budget breaks down as:</p>
+        <ul>
+          <li><strong>~6B of reasoning infrastructure</strong> (attention, DeltaNet, embeddings)</li>
+          <li><strong>~4B of pattern-matching FFN</strong> (blind experts)</li>
+        </ul>
+
+        <p>A dense 27B model uses all 27 billion parameters for reasoning on every token. Every FFN, every attention head, every layer &mdash; all engaged, all the time. That&rsquo;s <strong>4.5&times; more reasoning capacity</strong> than the &ldquo;10B activated&rdquo; figure suggests, because in the MoE, nearly half the activated parameters can&rsquo;t reason.</p>
+
+        <hr>
+
+        <h2>The shared expert: a permanent channel</h2>
+
+        <p>One architectural detail deserves its own section: the shared expert.</p>
+
+        <p>In Qwen&rsquo;s MoE layout, 8 experts are routed (selected by the router based on the input) and 1 is shared &mdash; always active, regardless of routing decisions. This means one expert participates in every token&rsquo;s computation, in every layer, no matter what the 8 specialists are doing.</p>
+
+        <div class="hypothesis-block">
+          <div class="hyp-label">Hypothesis worth testing</div>
+          <div class="hyp-content">
+            <p>This permanent channel could serve a monitoring function. While routed experts come and go, the shared expert provides continuity across the sequence. It doesn&rsquo;t have a privileged view of what other experts are doing &mdash; it sees the same hidden state as everyone else, before and after routing &mdash; but it processes every token without exception. Whether this constitutes &ldquo;auditing&rdquo; or is simply a baseline computation backbone is an open question.</p>
+            <p>What&rsquo;s clear architecturally is that the shared expert provides something the routed experts cannot: consistency. It&rsquo;s the one component whose contribution doesn&rsquo;t depend on routing decisions. In a system where 8 out of 256 experts are selected per token, that permanence is structurally significant, whatever its functional role turns out to be.</p>
+          </div>
+        </div>
+
+        <hr>
+
+        <h2>DeepSeek V4 Pro: The case study</h2>
+
+        <p>DeepSeek V4 Pro is the latest showcase for massive MoE scaling. The numbers:</p>
+
+        <table>
+          <thead>
+            <tr><th>Spec</th><th>Value</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>Total parameters</td><td>1.6 Trillion</td></tr>
+            <tr><td>Activated parameters</td><td>49B</td></tr>
+            <tr><td>Expert precision</td><td>FP4 (quantization-aware training)</td></tr>
+            <tr><td>Attention</td><td>Hybrid CSA + HCA</td></tr>
+            <tr><td>Context</td><td>1M tokens</td></tr>
+            <tr><td>Training data</td><td>33T tokens</td></tr>
+            <tr><td>License</td><td>MIT</td></tr>
+          </tbody>
+        </table>
+
+        <p>On paper, it&rsquo;s impressive. In practice, let&rsquo;s compare it to Qwen 3.6 27B &mdash; a dense model that runs on a single RTX 3090.</p>
+
+        <h3>Benchmarks (instruct vs instruct)</h3>
+
+        <table>
+          <thead>
+            <tr><th>Benchmark</th><th>V4 Pro (1.6T/49B)</th><th>Qwen 3.6 27B</th><th>Delta</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>MMLU-Pro</td><td>87.5</td><td>86.2</td><td class="delta-small">+1.3</td></tr>
+            <tr><td>GPQA Diamond</td><td>90.1</td><td>87.8</td><td class="delta-small">+2.3</td></tr>
+            <tr><td>SWE-bench Verified</td><td>80.6</td><td>77.2</td><td class="delta-small">+3.4</td></tr>
+            <tr><td>LiveCodeBench</td><td>93.5</td><td>83.9</td><td class="delta-positive">+9.6</td></tr>
+            <tr><td>HLE</td><td>37.7</td><td>24.0</td><td class="delta-positive">+13.7</td></tr>
+          </tbody>
+        </table>
+
+        <p>V4 Pro wins on every benchmark. But the gains reveal something structural.</p>
+
+        <p>The smallest deltas &mdash; MMLU-Pro (+1.3), GPQA Diamond (+2.3), SWE-bench Verified (+3.4) &mdash; are tasks where reasoning depth matters more than pattern coverage. On these, the 27B dense model is nearly at parity despite being 60&times; smaller.</p>
+
+        <p>The largest deltas &mdash; LiveCodeBench (+9.6) and HLE (+13.7) &mdash; are tasks where breadth of pattern recognition matters. A 256-expert MoE has seen more patterns of code and problem types than a 27B dense model could absorb in a single FFN. The router finds the expert that has seen the neighborhood, and that&rsquo;s enough to win the benchmark.</p>
+
+        <p>But this is a <em>coverage</em> advantage, not a <em>depth</em> advantage. The MoE isn&rsquo;t reasoning more deeply about any given problem &mdash; it&rsquo;s recognizing a wider range of problems. And coverage is something you can obtain through other means: RAG, tool use, multi-agent pipelines. You don&rsquo;t need 1.6 trillion parameters for it.</p>
+
+        <h3>The cost of those points</h3>
+
+        <p>Here&rsquo;s where it gets real.</p>
+
+        <p><strong>Qwen 3.6 27B in Q4_K_M:</strong> ~18GB. One RTX 3090, ~€700 second-hand. Running at 50+ tokens/second with MTP.</p>
+
+        <p><strong>DeepSeek V4 Pro in Q4_K_M:</strong> 955GB. The GGUF quantizations require a <a href="https://github.com/cchuter/llama.cpp">custom llama.cpp fork</a> because upstream doesn&rsquo;t support the architecture. The hardware compatibility checker on HuggingFace shows ❌ across the board &mdash; no quantization fits a single 3090. Even the most aggressive Q2_K is 574GB.</p>
+
+        <p>To run V4 Pro locally:</p>
+        <ul>
+          <li>~14 H100 80GB GPUs minimum for Q4 with context headroom</li>
+          <li>~€30,000 per GPU</li>
+          <li><strong>Total: ~€420,000</strong> for a single inference node</li>
+          <li>Plus NVLink/InfiniBand, servers, cooling, power, rack space</li>
+          <li>Realistically: €500,000&ndash;600,000 all-in</li>
+        </ul>
+
+        <p>The ratio: <strong>700:1 in cost for &lt;20% performance gain.</strong></p>
+
+        <p>At €3.50/Mtok output via API, you&rsquo;d need to run 100M tokens per month for <strong>over 100 years</strong> to break even on the hardware investment. The API is cheaper &mdash; but it means sending your data to servers in China. Pick your trade-off.</p>
+
+        <h3>3,507 downloads</h3>
+
+        <p>The HuggingFace GGUF repo for V4 Pro had 3,507 downloads last month. The model is &ldquo;open-weight&rdquo; but physically inaccessible to the community that builds with open-source. Nobody runs it because nobody <em>can</em> run it.</p>
+
+        <p>The gap between &ldquo;open&rdquo; and &ldquo;accessible&rdquo; has never been wider.</p>
+
+        <hr>
+
+        <h2>Diminishing returns on MoE expert stacking</h2>
+
+        <p>Let me be precise: scaling <em>in general</em> isn&rsquo;t dead. Training on more data helps. Better architectures help. Better post-training helps. Qwen 3.6 27B proves all of this &mdash; it&rsquo;s dramatically better than any 27B model from two years ago.</p>
+
+        <p>What&rsquo;s dead is the specific strategy of <strong>stacking more MoE experts</strong> to improve performance. Going from 256 to 512 experts won&rsquo;t double the performance. The routing mechanism has a natural ceiling: beyond a certain count, most experts become redundant or over-specialized, and the 8&ndash;9 activated per token end up doing the same work a dense model does with all its parameters.</p>
+
+        <p>DeepSeek V4 Pro demonstrates this ceiling empirically. They went from 671B (V3) to 1.6T (V4), from 37B to 49B activated, trained on 33T tokens instead of 14.8T &mdash; and the result is, by their own admission, &ldquo;3 to 6 months behind&rdquo; frontier closed-source models. The model was delayed multiple times over four months due to underwhelming performance. FP4 on expert weights was a necessity, not a choice &mdash; it&rsquo;s the only way to make 256 experts per layer viable at inference without absurd hardware requirements.</p>
+
+        <hr>
+
+        <h2>The alternative: Pipeline-MoE</h2>
+
+        <p>If 256 blind FFN experts at 0.45B each deliver diminishing returns, is there another way to get expert specialization?</p>
+
+        <p>Instead of one massive model with tiny, blind experts routing at the token level, consider multiple instances of a smaller dense model, each specialized by system prompt:</p>
+
+        <ul>
+          <li><strong>Instance 1:</strong> Primary reasoning &mdash; generates the base response</li>
+          <li><strong>Instance 2:</strong> Auditor &mdash; validates claims and catches errors</li>
+          <li><strong>Instance 3:</strong> RAG agent &mdash; searches and retrieves relevant context</li>
+          <li><strong>Instance 4:</strong> Code reviewer &mdash; specialized technical validation</li>
+        </ul>
+
+        <p>Each &ldquo;expert&rdquo; in this pipeline is a full 27B dense model with attention, context, and autonomous reasoning capability. That&rsquo;s <strong>60&times; more capacity</strong> per expert than a Qwen A10B MoE FFN block. And you can change specializations by editing a system prompt &mdash; no retraining needed.</p>
+
+        <p>This is not a drop-in replacement for MoE. The trade-offs are real:</p>
+
+        <div class="tradeoff-block">
+          <div class="tradeoff-label">Pipeline-MoE trade-offs</div>
+          <ul>
+            <li><span class="tradeoff-key">Latency</span> 4&times; inference time sequentially, or 4&times; VRAM in parallel</li>
+            <li><span class="tradeoff-key">Routing</span> No token-level routing &mdash; every token passes through the same model, unlike MoE where each token can activate different experts within a single forward pass</li>
+            <li><span class="tradeoff-key">Specialization</span> System-prompt specialization is shallower than weight specialization &mdash; a fine-tuned expert has the knowledge in its parameters; a prompted expert is working from instructions</li>
+          </ul>
+        </div>
+
+        <p>But the Pipeline-MoE has one structural advantage that weight-level MoE can never match: <strong>each expert <em>reasons</em></strong>. A prompted 27B can introspect on its own uncertainty, decide to search for information, change strategy on failure. A 0.45B FFN block transforms a vector and returns it. That&rsquo;s not a difference of degree &mdash; it&rsquo;s a difference of kind.</p>
+
+        <p>Your SYSTEM.md is the router. Your tool stack is the expert pool. This isn&rsquo;t a replacement for MoE &mdash; it&rsquo;s a complement that covers MoE&rsquo;s blind spot: reasoning depth at the expert level.</p>
+
+        <hr>
+
+        <h2>Practical implications</h2>
+
+        <p><strong>For self-hosters:</strong> A 27B dense model on consumer hardware delivers 85&ndash;95% of frontier MoE performance. The remaining 5&ndash;15% costs 700&times; more to capture. The economically rational move is obvious.</p>
+
+        <p><strong>For European SMEs:</strong> A 1.6T model is physically out of reach. The API sends your data to China. A local 27B on a €700 GPU gives you GDPR compliance by design, data sovereignty, and performance that would have been frontier-class 18 months ago. The value proposition writes itself.</p>
+
+        <p><strong>For the field:</strong> Dense models aren&rsquo;t going away. They&rsquo;re getting better, faster, and more efficient while MoE scaling hits diminishing returns. The future likely isn&rsquo;t one giant model &mdash; it&rsquo;s smaller, denser models orchestrated intelligently. Not Mixture-of-Experts in weights alone. Mixture-of-Experts in systems, where each expert can actually think.</p>
+
+        <hr>
+
+        <h2>Conclusion</h2>
+
+        <p>In Qwen 3.5 A10B, a MoE expert is 0.45 billion parameters of blind matrix multiplication. No attention, no context, no ability to reason. Nine of them activate per token &mdash; 4 billion parameters of pattern matching riding on 6 billion parameters of actual reasoning infrastructure. The &ldquo;10B activated&rdquo; label hides the fact that less than half of it can think.</p>
+
+        <p>DeepSeek V4 Pro scales this approach to 1.6 trillion parameters and 49B activated, but the structural problem remains: experts are still isolated FFN blocks, still blind to context, still incapable of reasoning independently &mdash; just bigger ones. And the result is &lt;20% improvement over a 27B dense model, at 700&times; the cost.</p>
+
+        <p>The alternative is straightforward: deploy a 27B dense model where all 27 billion parameters reason together on every token. No routing overhead. No dormant experts consuming memory. No exotic hardware requirements. No custom llama.cpp forks.</p>
+
+        <p>The question was never &ldquo;how many experts can we fit?&rdquo; It was always &ldquo;how much reasoning can we deliver per watt, per dollar, per token?&rdquo;</p>
+
+        <p>The answer, increasingly, is dense.</p>
+
+        <hr>
+
+        <p><em>Previously in this series: <a href="when-mtp-gives-dense-moe-speed.html">When MTP Gives Your Dense Model MoE Speed</a> &middot; <a href="bullshitbench-ablation.html">The Scaffolding Is the Signal</a> &middot; <a href="moe-narrowly-competent.html">MoE: Narrowly Competent, Globally Incoherent</a></em></p>
+
+        <div class="signature">
+          <p>&mdash; Dax, Zwevegem, Belgium. June 2026.</p>
+        </div>
+      </div>
+    </article>
+
+    <footer>
+      <a href="index.html">&larr; blog</a>
+      <a href="https://daxzeit.eu">daxzeit.eu</a>
+    </footer>
+  </div>
+</body>
+</html>

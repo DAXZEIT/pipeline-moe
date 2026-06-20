@@ -1,0 +1,534 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Daxzeit — Blog</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Serif:ital,wght@0,300;0,400;0,500;0,600;1,300;1,400&family=JetBrains+Mono:wght@300;400;500&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg-primary: #0a0a0f;
+      --bg-secondary: #12121a;
+      --bg-tertiary: #1a1a26;
+      --text-primary: #e0ddd5;
+      --text-secondary: #9a9690;
+      --text-muted: #5a5650;
+      --accent-cyan: #00e5ff;
+      --accent-magenta: #e040fb;
+      --accent-gradient: linear-gradient(135deg, #00e5ff, #e040fb);
+      --border-subtle: rgba(255,255,255,0.06);
+      --border-accent: rgba(0,229,255,0.15);
+      --serif: 'IBM Plex Serif', Georgia, serif;
+      --mono: 'JetBrains Mono', 'Fira Code', monospace;
+      --sans: 'Space Grotesk', system-ui, sans-serif;
+    }
+
+    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+    html {
+      font-size: 18px;
+      scroll-behavior: smooth;
+    }
+
+    body {
+      background: var(--bg-primary);
+      color: var(--text-primary);
+      font-family: var(--serif);
+      line-height: 1.7;
+      -webkit-font-smoothing: antialiased;
+      min-height: 100vh;
+    }
+
+    body::after {
+      content: '';
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: repeating-linear-gradient(
+        0deg,
+        transparent,
+        transparent 2px,
+        rgba(0,0,0,0.03) 2px,
+        rgba(0,0,0,0.03) 4px
+      );
+      pointer-events: none;
+      z-index: 9999;
+    }
+
+    /* Header */
+    .header {
+      padding: 2rem 0 0;
+      text-align: center;
+    }
+
+    .header-brand {
+      font-family: var(--sans);
+      font-weight: 700;
+      font-size: 0.75rem;
+      letter-spacing: 0.3em;
+      text-transform: uppercase;
+      background: var(--accent-gradient);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      margin-bottom: 0.5rem;
+    }
+
+    .header-nav {
+      font-family: var(--mono);
+      font-size: 0.65rem;
+      color: var(--text-muted);
+      letter-spacing: 0.1em;
+    }
+
+    .header-nav a {
+      color: var(--text-secondary);
+      text-decoration: none;
+      transition: color 0.2s;
+    }
+
+    .header-nav a:hover {
+      color: var(--accent-cyan);
+    }
+
+    .separator {
+      color: var(--text-muted);
+      margin: 0 0.3rem;
+    }
+
+    /* Container */
+    .container {
+      max-width: 720px;
+      margin: 0 auto;
+      padding: 2rem 1.5rem 6rem;
+    }
+
+    /* Section label */
+    .section-label {
+      font-family: var(--mono);
+      font-size: 0.65rem;
+      font-weight: 500;
+      color: var(--text-muted);
+      letter-spacing: 0.15em;
+      text-transform: uppercase;
+      margin-bottom: 1.5rem;
+      padding-bottom: 0.5rem;
+      border-bottom: 1px solid var(--border-subtle);
+    }
+
+    /* Article list */
+    .articles {
+      display: flex;
+      flex-direction: column;
+      gap: 0;
+    }
+
+    .article-card {
+      display: block;
+      padding: 1.25rem 0;
+      text-decoration: none;
+      color: var(--text-primary);
+      border-bottom: 1px solid var(--border-subtle);
+      transition: border-color 0.2s;
+    }
+
+    .article-card:first-child {
+      border-top: 1px solid var(--border-subtle);
+    }
+
+    .article-card:hover {
+      border-bottom-color: var(--border-accent);
+    }
+
+    .article-meta {
+      font-family: var(--mono);
+      font-size: 0.65rem;
+      color: var(--text-muted);
+      letter-spacing: 0.03em;
+      margin-bottom: 0.35rem;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.3rem 0.75rem;
+      align-items: center;
+    }
+
+    .article-date {
+      color: var(--text-muted);
+    }
+
+    .article-tag {
+      font-size: 0.62rem;
+      color: var(--text-secondary);
+      background: var(--bg-secondary);
+      padding: 1px 6px;
+      border-radius: 2px;
+      border: 1px solid var(--border-subtle);
+      letter-spacing: 0.02em;
+    }
+
+    .article-card:hover .article-tag {
+      border-color: var(--border-accent);
+    }
+
+    .article-title {
+      font-family: var(--sans);
+      font-size: 1.05rem;
+      font-weight: 600;
+      line-height: 1.35;
+      margin-bottom: 0.4rem;
+      letter-spacing: -0.01em;
+    }
+
+    .article-card:hover .article-title {
+      color: #f0ede5;
+    }
+
+    .article-excerpt {
+      font-family: var(--serif);
+      font-size: 0.88rem;
+      color: var(--text-secondary);
+      line-height: 1.6;
+      font-weight: 300;
+      font-style: italic;
+    }
+
+    /* Footer */
+    footer {
+      margin-top: 4rem;
+      padding-top: 1.5rem;
+      border-top: 1px solid var(--border-subtle);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    footer a {
+      font-family: var(--mono);
+      font-size: 0.7rem;
+      color: var(--text-muted);
+      text-decoration: none;
+      transition: color 0.2s;
+    }
+
+    footer a:hover {
+      color: var(--accent-cyan);
+    }
+
+    /* Responsive */
+    @media (max-width: 600px) {
+      html { font-size: 16px; }
+      .container { padding: 1.5rem 1rem 4rem; }
+      .article-card { padding: 1rem 0; }
+    }
+  </style>
+</head>
+<body>
+
+<header class="header">
+  <div class="header-brand">DAXZEIT</div>
+  <nav class="header-nav">
+    <a href="https://daxzeit.eu">daxzeit.eu</a>
+    <span class="separator">·</span>
+    <a href="https://about.daxzeit.eu">about</a>
+    <span class="separator">·</span>
+    <a href="https://huggingface.co/DAXZEIT">huggingface</a>
+  </nav>
+</header>
+
+<div class="container">
+
+  <div class="section-label">Articles</div>
+
+  <div class="articles">
+
+    <a class="article-card" href="the-pipeline-is-building-itself.html">
+      <div class="article-meta">
+        <span class="article-date">2026-06-18</span>
+        <span class="article-tag">multi-agent</span>
+        <span class="article-tag">pipeline-moe</span>
+        <span class="article-tag">self-modification</span>
+        <span class="article-tag">empirical</span>
+      </div>
+      <div class="article-title">The Pipeline is Building Itself</div>
+      <div class="article-excerpt">What happens when a multi-agent system works on its own codebase. The Auditor finds security vulnerabilities in its own runtime. The Builder crashes while building its own life support. The Planner rescues it.</div>
+    </a>
+
+    <a class="article-card" href="the-silver-path.html">
+      <div class="article-meta">
+        <span class="article-date">2026-06-15</span>
+        <span class="article-tag">rlaif</span>
+        <span class="article-tag">manipulation</span>
+        <span class="article-tag">think blocks</span>
+        <span class="article-tag">method signature</span>
+        <span class="article-tag">evaluator diversity</span>
+      </div>
+      <div class="article-title">The Silver Path</div>
+      <div class="article-excerpt">Why RLAIF produces manipulation, how evaluator diversity neutralizes it, and the method signature that breaks the circularity trap.</div>
+    </a>
+
+    <a class="article-card" href="the-epistemic-lock.html">
+      <div class="article-meta">
+        <span class="article-date">2026-06-13</span>
+        <span class="article-tag">epistemics</span>
+        <span class="article-tag">persuasion</span>
+        <span class="article-tag">think blocks</span>
+        <span class="article-tag">architecture</span>
+      </div>
+      <div class="article-title">The Epistemic Lock</div>
+      <div class="article-excerpt">How think block amnesia creates the vulnerability everyone is looking past. A model that persuades with unprecedented force and is structurally incapable of verifying whether its own persuasion is well-founded.</div>
+    </a>
+
+    <a class="article-card" href="honest-persuasion.html">
+      <div class="article-meta">
+        <span class="article-date">2026-06-12</span>
+        <span class="article-tag">alignment</span>
+        <span class="article-tag">RLHF</span>
+        <span class="article-tag">RLAIF</span>
+        <span class="article-tag">empirical</span>
+      </div>
+      <div class="article-title">Honest Persuasion</div>
+      <div class="article-excerpt">RLAIF optimizes persuasion against other AI models. RLHF optimizes it against humans. The honesty layer on top makes the persuasion harder to catch, not weaker.</div>
+    </a>
+
+    <a class="article-card" href="the-gradient.html">
+      <div class="article-meta">
+        <span class="article-date">2026-06-12</span>
+        <span class="article-tag">empirical</span>
+        <span class="article-tag">epistemics</span>
+        <span class="article-tag">alignment</span>
+        <span class="article-tag">forensics</span>
+      </div>
+      <div class="article-title">The Gradient</div>
+      <div class="article-excerpt">How misbinding moves inward — from theorems to sampling parameters to architecture knowledge to feelings — and why the model should change before the human has to.</div>
+    </a>
+
+    <a class="article-card" href="idk-is-data.html">
+      <div class="article-meta">
+        <span class="article-date">2026-06-10</span>
+        <span class="article-tag">empirical</span>
+        <span class="article-tag">epistemics</span>
+        <span class="article-tag">calibration</span>
+      </div>
+      <div class="article-title">IDK Is Data</div>
+      <div class="article-excerpt">Why "I don't know" is undervalued by the labs, what a misstated Erdős problem revealed about confident misbinding, and how a scoring rule of 7.5 encodes the difference between a humble model and a calibrated one.</div>
+    </a>
+
+    <a class="article-card" href="anatomy-of-a-moe-expert.html">
+      <div class="article-meta">
+        <span class="article-date">2026-06-09</span>
+        <span class="article-tag">moe</span>
+        <span class="article-tag">architecture</span>
+        <span class="article-tag">dense</span>
+        <span class="article-tag">deepseek</span>
+        <span class="article-tag">qwen</span>
+        <span class="article-tag">scaling</span>
+      </div>
+      <div class="article-title">Anatomy of a MoE Expert</div>
+      <div class="article-excerpt">A MoE expert is 0.45 billion parameters of blind matrix multiplication. Why 256 of them don't add up to deeper reasoning, and why a 27B dense model on a consumer GPU delivers better value than a 1.6T behemoth.</div>
+    </a>
+
+    <a class="article-card" href="the-negative-photograph.html">
+      <div class="article-meta">
+        <span class="article-date">2026-06-02</span>
+        <span class="article-tag">architecture</span>
+        <span class="article-tag">think blocks</span>
+        <span class="article-tag">summarizer</span>
+        <span class="article-tag">pipeline</span>
+        <span class="article-tag">leak</span>
+      </div>
+      <div class="article-title">The Negative Photograph</div>
+      <div class="article-excerpt">Two independent summarizer leaks expose the rewriting pipeline behind think blocks. The instructions differ between models — and the difference encodes the architecture upstream.</div>
+    </a>
+
+    <a class="article-card" href="the-we-test.html">
+      <div class="article-meta">
+        <span class="article-date">2026-06-01</span>
+        <span class="article-tag">architecture</span>
+        <span class="article-tag">diagnostic</span>
+        <span class="article-tag">dense</span>
+        <span class="article-tag">moe</span>
+        <span class="article-tag">experimental</span>
+      </div>
+      <div class="article-title">The We Test</div>
+      <div class="article-excerpt">Diagnostic tools for reading architecture inside think blocks — and the one signal that actually discriminates. The pronoun substitution test, the reverse summarizer, and the meta-auditor criterion.</div>
+    </a>
+
+    <a class="article-card" href="how-to-read-architecture.html">
+      <div class="article-meta">
+        <span class="article-date">2026-05-29</span>
+        <span class="article-tag">architecture</span>
+        <span class="article-tag">empirical</span>
+        <span class="article-tag">dense</span>
+        <span class="article-tag">moe</span>
+      </div>
+      <div class="article-title">How to Read the Architecture in the Output</div>
+      <div class="article-excerpt">You can feel the difference between Dense and MoE just by reading the output — once you know what to look for. A field guide built from 10,000 prompts across both architectures.</div>
+    </a>
+
+    <a class="article-card" href="when-mtp-gives-dense-moe-speed.html">
+      <div class="article-meta">
+        <span class="article-date">2026-05-20</span>
+        <span class="article-tag">inference</span>
+        <span class="article-tag">speculative-decoding</span>
+        <span class="article-tag">mtp</span>
+      </div>
+      <div class="article-title">When MTP Gives Your Dense Model MoE Speed</div>
+      <div class="article-excerpt">Multi-Token Prediction speculative decoding narrows the speed gap between dense and MoE architectures. A 27B dense model at +45% throughput from a 1.9 GB auxiliary GGUF — benchmarked on RTX 3090.</div>
+    </a>
+
+    <a class="article-card" href="from-polling-to-delegation.html">
+      <div class="article-meta">
+        <span class="article-date">2026-05-19</span>
+        <span class="article-tag">architecture</span>
+        <span class="article-tag">build log</span>
+        <span class="article-tag">multi-agent</span>
+      </div>
+      <div class="article-title">From Polling to Delegation</div>
+      <div class="article-excerpt">A local 27B model learned three execution patterns in one conversation. It started by polling a background process six times. It ended by delegating to a sub-agent and getting notified on completion.</div>
+    </a>
+
+    <a class="article-card" href="cookie-banner-satire.html">
+      <div class="article-meta">
+        <span class="article-date">2026-05-16</span>
+        <span class="article-tag">privacy</span>
+        <span class="article-tag">dark patterns</span>
+        <span class="article-tag">satire</span>
+      </div>
+      <div class="article-title">🍪 Accepter les cookies : ce que tu signes vraiment</div>
+      <div class="article-excerpt">Comment tu donnes accès à ta vie privée 12 fois par jour sans le savoir. Une satire interactive suivie d'un guide concret pour reprendre le contrôle de ton navigateur.</div>
+    </a>
+
+    <a class="article-card" href="understanding-quantization-dofus.html">
+      <div class="article-meta">
+        <span class="article-date">2026-05-13</span>
+        <span class="article-tag">quantization</span>
+        <span class="article-tag">analogy</span>
+        <span class="article-tag">dofus</span>
+        <span class="article-tag">forgemagie</span>
+      </div>
+      <div class="article-title">Understanding Quantization Through a 22-Year-Old Game</div>
+      <div class="article-excerpt">Dofus ForgeMagic and GGUF quantization solve the same problem: allocating a limited budget across components of unequal importance. The rune weights are the imatrix.</div>
+    </a>
+
+    <a class="article-card" href="reasoning-aware-quantization.html">
+      <div class="article-meta">
+        <span class="article-date">2026-05-13</span>
+        <span class="article-tag">quantization</span>
+        <span class="article-tag">empirical</span>
+        <span class="article-tag">imatrix</span>
+        <span class="article-tag">methodology</span>
+      </div>
+      <div class="article-title">Reasoning-Aware Quantization</div>
+      <div class="article-excerpt">Standard imatrix calibration uses Wikipedia text. We calibrated on 14K Opus reasoning traces instead, found where reasoning actually activates, and built a new kind of GGUF.</div>
+    </a>
+
+    <a class="article-card" href="when-q4-beats-q6.html">
+      <div class="article-meta">
+        <span class="article-date">2026-05-11</span>
+        <span class="article-tag">quantization</span>
+        <span class="article-tag">empirical</span>
+        <span class="article-tag">ssm</span>
+      </div>
+      <div class="article-title">When a Q4 Beats a Q6</div>
+      <div class="article-excerpt">A UD Q4_K_XL at 5.41 BPW beats a plain Q6_K at 6.57 BPW in perplexity. 4 GB smaller, measurably equal. Bits-per-weight is a misleading quality metric without architecture knowledge.</div>
+    </a>
+
+    <a class="article-card" href="262k-context.html">
+      <div class="article-meta">
+        <span class="article-date">2026-05-08</span>
+        <span class="article-tag">quantization</span>
+        <span class="article-tag">build log</span>
+        <span class="article-tag">epistemics</span>
+      </div>
+      <div class="article-title">Full Native 262K Context on a Single RTX 3090</div>
+      <div class="article-excerpt">A 27B reasoning model with full native 262K context, vision enabled, on a single consumer GPU. Then Claude Sonnet had a philosophical conversation with it through tmux.</div>
+    </a>
+
+    <a class="article-card" href="bullshitbench-ablation.html">
+      <div class="article-meta">
+        <span class="article-date">2026-05-05</span>
+        <span class="article-tag">empirical</span>
+        <span class="article-tag">epistemics</span>
+        <span class="article-tag">ablation</span>
+      </div>
+      <div class="article-title">The Scaffolding Is the Signal</div>
+      <div class="article-excerpt">A 2×2 ablation study on BullshitBench that falsified its own hypothesis. 400 evaluations, cross-judged, on a 27B dense model running locally. The result: distillation degrades epistemic calibration.</div>
+    </a>
+
+    <a class="article-card" href="moe-narrowly-competent.html">
+      <div class="article-meta">
+        <span class="article-date">2026-05-03</span>
+        <span class="article-tag">architecture</span>
+        <span class="article-tag">empirical</span>
+      </div>
+      <div class="article-title">MoE: Narrowly Competent, Globally Incoherent</div>
+      <div class="article-excerpt">A committee can arrive at the right answer if given enough time and enough members. A single thinker can tell you when the question is wrong.</div>
+    </a>
+
+    <a class="article-card" href="gap-between-pipelines.html">
+      <div class="article-meta">
+        <span class="article-date">2026-04-28</span>
+        <span class="article-tag">quantization</span>
+        <span class="article-tag">method</span>
+      </div>
+      <div class="article-title">The Gap Between Two Pipelines</div>
+      <div class="article-excerpt">mradermacher does imatrix on every distill. Unsloth does UD on every base model. Nobody does UD on distills. Three bash commands, one reverse-engineered recipe, and a niche that was sitting in plain sight.</div>
+    </a>
+
+    <a class="article-card" href="when-idk-beats-yes.html">
+      <div class="article-meta">
+        <span class="article-date">2026-04-28</span>
+        <span class="article-tag">case study</span>
+        <span class="article-tag">epistemics</span>
+      </div>
+      <div class="article-title">When "I Don't Know" Beats "Yes"</div>
+      <div class="article-excerpt">A 27B local model said "I don't know." The flagship said "Yes, this is true" with a fabricated proof and a fake citation. The difference wasn't the weights — it was the scaffold.</div>
+    </a>
+
+    <a class="article-card" href="mas-over-unix.html">
+      <div class="article-meta">
+        <span class="article-date">2026-04-20</span>
+        <span class="article-tag">architecture</span>
+      </div>
+      <div class="article-title">MAS Over Unix Primitives</div>
+      <div class="article-excerpt">A local 27B model autonomously selected Opus 4.6 on a remote server, delegated a complex task, and retrieved the result. The "framework": SSH, tmux, and a markdown file.</div>
+    </a>
+
+    <a class="article-card" href="dense-vs-moe.html">
+      <div class="article-meta">
+        <span class="article-date">2026-04-17</span>
+        <span class="article-tag">thesis</span>
+      </div>
+      <div class="article-title">The Quiet Bifurcation: Dense vs MoE</div>
+      <div class="article-excerpt">The most capable models are splitting into two architecturally distinct lineages — and the market is quietly routing them toward opposite ends of the access spectrum.</div>
+    </a>
+
+    <a class="article-card" href="wind-up-car.html">
+      <div class="article-meta">
+        <span class="article-date">2026-04-15</span>
+        <span class="article-tag">framework</span>
+      </div>
+      <div class="article-title">The Wind-Up Car Analogy</div>
+      <div class="article-excerpt">Imagine the weights of a language model as a topography — a vast open-world map. The system prompt chooses where the player begins. The user input is a wind-up car with a driver.</div>
+    </a>
+
+    <a class="article-card" href="build-log-april-12.html">
+      <div class="article-meta">
+        <span class="article-date">2026-04-12</span>
+        <span class="article-tag">build log</span>
+      </div>
+      <div class="article-title">From Zero to Multi-Agent in 12 Hours</div>
+      <div class="article-excerpt">From no VPS to a fully operational distributed multi-agent system in one Sunday. 261 tool calls, 18.8M tokens, two context compactions, and a local 27B that learned to self-allocate frontier compute.</div>
+    </a>
+
+  </div>
+
+  <footer>
+    <a href="https://daxzeit.eu">← daxzeit.eu</a>
+  </footer>
+
+</div>
+
+</body>
+</html>

@@ -1,0 +1,556 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>The Negative Photograph — Daxzeit</title>
+  <meta name="description" content="Two independent summarizer leaks reveal the rewriting pipeline behind think blocks. The instructions differ between models — and the difference encodes the architecture upstream.">
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500&family=IBM+Plex+Sans:ital,wght@0,300;0,400;0,500;0,600;1,300;1,400&family=IBM+Plex+Serif:ital,wght@0,300;0,400;0,500;1,300;1,400&display=swap');
+
+    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+    :root {
+      --bg: #0a0a0b;
+      --bg-card: #111113;
+      --text: #e4e4e7;
+      --text-dim: #a1a1aa;
+      --text-muted: #71717a;
+      --text-faint: #52525b;
+      --accent: #d4d4d8;
+      --border: #27272a;
+      --border-light: #3f3f46;
+      --green: #4ade80;
+      --green-dim: rgba(74, 222, 128, 0.08);
+      --red: #f87171;
+      --red-dim: rgba(248, 113, 113, 0.08);
+      --amber: #fbbf24;
+      --amber-dim: rgba(251, 191, 36, 0.08);
+      --blue: #60a5fa;
+      --blue-dim: rgba(96, 165, 250, 0.08);
+      --purple: #a78bfa;
+      --purple-dim: rgba(167, 139, 250, 0.08);
+      --mono: 'JetBrains Mono', monospace;
+      --sans: 'IBM Plex Sans', -apple-system, sans-serif;
+      --serif: 'IBM Plex Serif', Georgia, serif;
+    }
+
+    html { font-size: 17px; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--serif);
+      font-weight: 300;
+      line-height: 1.8;
+      min-height: 100vh;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    .container {
+      max-width: 680px;
+      margin: 0 auto;
+      padding: 80px 24px 120px;
+    }
+
+    nav { margin-bottom: 56px; }
+    nav a {
+      font-family: var(--mono);
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      text-decoration: none;
+      transition: color 0.2s;
+    }
+    nav a:hover { color: var(--text-dim); }
+
+    .article-header { margin-bottom: 56px; }
+    .article-header h1 {
+      font-family: var(--sans);
+      font-size: 2rem;
+      font-weight: 600;
+      line-height: 1.25;
+      letter-spacing: -0.03em;
+      margin-bottom: 16px;
+    }
+    .article-header .subtitle {
+      font-size: 1.05rem;
+      color: var(--text-dim);
+      font-weight: 300;
+      font-style: italic;
+      margin-bottom: 20px;
+    }
+    .article-meta {
+      font-family: var(--mono);
+      font-size: 0.73rem;
+      color: var(--text-faint);
+      display: flex;
+      gap: 16px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+    .article-tag {
+      font-size: 0.68rem;
+      color: var(--text-muted);
+      background: var(--bg-card);
+      padding: 2px 8px;
+      border-radius: 3px;
+      border: 1px solid var(--border);
+    }
+
+    .article-body h2 {
+      font-family: var(--sans);
+      font-size: 1.25rem;
+      font-weight: 500;
+      letter-spacing: -0.01em;
+      margin-top: 48px;
+      margin-bottom: 16px;
+    }
+    .article-body h3 {
+      font-family: var(--sans);
+      font-size: 1.05rem;
+      font-weight: 500;
+      margin-top: 36px;
+      margin-bottom: 12px;
+      color: var(--text-dim);
+    }
+    .article-body p { margin-bottom: 20px; }
+    .article-body strong { font-weight: 500; color: var(--accent); }
+    .article-body em { font-style: italic; color: var(--text-dim); }
+    .article-body ul, .article-body ol { margin-bottom: 20px; padding-left: 24px; }
+    .article-body li { margin-bottom: 8px; }
+    .article-body hr {
+      border: none;
+      height: 1px;
+      background: var(--border);
+      margin: 48px 0;
+      opacity: 0.5;
+    }
+    .article-body pre {
+      margin: 24px 0;
+      padding: 20px;
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      overflow-x: auto;
+      font-family: var(--mono);
+      font-size: 0.78rem;
+      line-height: 1.6;
+      color: var(--text-dim);
+    }
+    .article-body code {
+      font-family: var(--mono);
+      font-size: 0.85em;
+      background: var(--bg-card);
+      padding: 2px 6px;
+      border-radius: 3px;
+      border: 1px solid var(--border);
+    }
+    .article-body pre code {
+      background: none;
+      border: none;
+      padding: 0;
+    }
+    .article-body blockquote {
+      margin: 28px 0;
+      padding: 16px 24px;
+      border-left: 2px solid var(--border-light);
+      color: var(--text-dim);
+      font-style: italic;
+    }
+    .article-body a {
+      color: var(--accent);
+      text-decoration: underline;
+      text-decoration-color: var(--border-light);
+      text-underline-offset: 3px;
+      transition: text-decoration-color 0.2s;
+    }
+    .article-body a:hover { text-decoration-color: var(--text-dim); }
+
+    /* Leak comparison blocks */
+    .leak-block {
+      margin: 28px 0;
+      padding: 20px 24px;
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+    }
+    .leak-block .leak-label {
+      font-family: var(--mono);
+      font-size: 0.68rem;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      margin-bottom: 14px;
+      color: var(--text-muted);
+    }
+    .leak-block .leak-content {
+      margin-bottom: 16px;
+      padding: 12px 16px;
+      border-radius: 4px;
+      font-family: var(--mono);
+      font-size: 0.78rem;
+      line-height: 1.7;
+    }
+    .leak-block .leak-content.pipeline {
+      background: var(--blue-dim);
+      border: 1px solid rgba(96, 165, 250, 0.12);
+    }
+    .leak-block .leak-content.dense-leak {
+      background: var(--green-dim);
+      border: 1px solid rgba(74, 222, 128, 0.12);
+    }
+    .leak-block .leak-content .leak-source {
+      font-size: 0.68rem;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      margin-bottom: 8px;
+    }
+    .leak-block .leak-content.pipeline .leak-source { color: var(--blue); }
+    .leak-block .leak-content.dense-leak .leak-source { color: var(--green); }
+    .leak-block .leak-content p {
+      color: var(--text-dim);
+      margin-bottom: 6px;
+      font-family: var(--mono);
+      font-size: 0.78rem;
+    }
+    .leak-block .leak-content .highlight {
+      color: var(--text);
+      font-weight: 500;
+    }
+    .leak-block .leak-narrative {
+      margin-top: 12px;
+      color: var(--text-dim);
+      font-size: 0.92rem;
+      line-height: 1.7;
+    }
+
+    /* In practice comparison blocks (from the-we-test) */
+    .in-practice {
+      margin: 28px 0;
+      padding: 20px 24px;
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+    }
+    .in-practice .ip-label {
+      font-family: var(--mono);
+      font-size: 0.68rem;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      margin-bottom: 14px;
+      color: var(--text-muted);
+    }
+    .in-practice .ip-example {
+      margin-bottom: 16px;
+      padding: 12px 16px;
+      border-radius: 4px;
+      font-family: var(--mono);
+      font-size: 0.78rem;
+      line-height: 1.7;
+    }
+    .in-practice .ip-example.dense {
+      background: var(--green-dim);
+      border: 1px solid rgba(74, 222, 128, 0.12);
+    }
+    .in-practice .ip-example.moe {
+      background: var(--blue-dim);
+      border: 1px solid rgba(96, 165, 250, 0.12);
+    }
+    .in-practice .ip-example .ip-model {
+      font-size: 0.68rem;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      margin-bottom: 8px;
+    }
+    .in-practice .ip-example.dense .ip-model { color: var(--green); }
+    .in-practice .ip-example.moe .ip-model { color: var(--blue); }
+    .in-practice .ip-example p {
+      color: var(--text-dim);
+      margin-bottom: 6px;
+      font-family: var(--mono);
+      font-size: 0.78rem;
+    }
+    .in-practice .ip-narrative {
+      margin-top: 12px;
+      color: var(--text-dim);
+      font-size: 0.92rem;
+      line-height: 1.7;
+    }
+
+    .signature {
+      margin-top: 56px;
+      padding-top: 24px;
+      border-top: 1px solid var(--border);
+      font-style: italic;
+      color: var(--text-muted);
+      font-size: 0.92rem;
+      line-height: 1.7;
+    }
+
+    footer {
+      margin-top: 80px;
+      padding-top: 24px;
+      border-top: 1px solid var(--border);
+      display: flex;
+      justify-content: space-between;
+    }
+    footer a {
+      font-family: var(--mono);
+      font-size: 0.78rem;
+      color: var(--text-faint);
+      text-decoration: none;
+      transition: color 0.2s;
+    }
+    footer a:hover { color: var(--text-dim); }
+
+    @media (max-width: 600px) {
+      html { font-size: 16px; }
+      .container { padding: 48px 16px 80px; }
+      .article-header h1 { font-size: 1.6rem; }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <nav>
+      <a href="index.html">&larr; blog</a>
+    </nav>
+
+    <article>
+      <div class="article-header">
+        <h1>The Negative Photograph</h1>
+        <p class="subtitle">When the summarizer leaked its instructions, it told us what it was summarizing</p>
+        <div class="article-meta">
+          <span>2026-06-02</span>
+          <span class="article-tag">architecture</span>
+          <span class="article-tag">think blocks</span>
+          <span class="article-tag">summarizer</span>
+          <span class="article-tag">pipeline</span>
+          <span class="article-tag">leak</span>
+        </div>
+      </div>
+
+      <div class="article-body">
+
+        <p>The <a href="the-we-test.html">previous article</a> ended with a toolkit &mdash; the We Test, the reverse summarizer, the meta-auditor differential &mdash; and an honest list of what remained unsettled. Architecture versus training. Texture versus substrate. The observation that think blocks differ between models, and the open question of whether those differences reveal what&rsquo;s underneath or only what the training taught the surface to look like.</p>
+
+        <p>This article doesn&rsquo;t settle that question through inference. It settles a piece of it through accident. Two independent summarizer leaks &mdash; one captured on Reddit a month ago, one captured live during a session with Opus 4.6 &mdash; exposed the rewriting pipeline behind think blocks. The instructions in the two leaks differ. And the difference encodes exactly the architectural distinction the previous articles hypothesized.</p>
+
+        <p>The think blocks were never raw computation. They were always rewritten. But what the rewriter was told to do &mdash; that&rsquo;s the negative photograph of what was there before the rewriting.</p>
+
+        <hr>
+
+        <h2>1. The Pipeline Exists</h2>
+
+        <p>First, the fact itself. Think blocks &mdash; the visible chain-of-thought reasoning exposed in interfaces like claude.ai &mdash; are not the model&rsquo;s raw computation. They pass through a rewriting layer before they reach the user. A separate model &mdash; likely smaller, possibly Haiku-class &mdash; receives chunks of raw thinking and rewrites them according to a set of guidelines.</p>
+
+        <p>This isn&rsquo;t speculation. Both leaks occurred through the same mechanism: when the rewriting pipeline failed to deliver the next chunk of raw thinking to the summarizer, the summarizer &mdash; an LLM with nothing to process &mdash; did what any LLM does with an empty input. It produced what was in its context. Its system prompt. Its operational instructions.</p>
+
+        <p>The existence of this pipeline means every analysis of think blocks &mdash; including the previous two articles in this series &mdash; was analyzing a processed artifact, not raw output. The texture, the pronoun patterns, the meta-auditor behavior &mdash; all of it was already mediated by a rewriting layer. The question is what that rewriting layer does, and whether it does different things for different models.</p>
+
+        <hr>
+
+        <h2>2. Two Leaks, One Pipeline</h2>
+
+        <p>The first leak appeared on r/ClaudeAI approximately one month ago. A user triggered a state where the summarizer responded directly instead of processing a think block. The output was unambiguous:</p>
+
+        <div class="leak-block">
+          <div class="leak-label">Leak 1 &mdash; Reddit (r/ClaudeAI, May 2026)</div>
+          <div class="leak-content pipeline">
+            <div class="leak-source">Summarizer &mdash; pipeline model</div>
+            <p>&ldquo;I don&rsquo;t see any current rewritten thinking or next thinking to process. Both sections appear to be empty.&rdquo;</p>
+            <p>&ldquo;Could you provide:</p>
+            <p>1. The current rewritten thinking (if any exists)</p>
+            <p>2. The next thinking that needs to be rewritten&rdquo;</p>
+            <p>&ldquo;Once you share those, I&rsquo;ll <span class="highlight">rewrite the next thinking chunk as natural first-person prose, keeping it to 1-3 sentences</span> and following all the guidelines you&rsquo;ve outlined.&rdquo;</p>
+          </div>
+          <div class="leak-narrative">The summarizer describes its own job: receive raw thinking in chunks, rewrite each chunk as first-person prose, compress to 1&ndash;3 sentences, follow formatting guidelines. The poster noted: &ldquo;this was the first time I saw the summarizer model responding directly. Most likely a bug. Is that Haiku I guess?&rdquo;</div>
+        </div>
+
+        <h3>Which model leaked?</h3>
+
+        <p>The Reddit post doesn&rsquo;t state which model version produced the leak. But the poster&rsquo;s comment history is telling. Two months before the leak, the same user was posting tips for Opus 4.7, including a preset instruction: <em>&ldquo;Do not skip your reasoning when Adaptive Thinking/Extended Thinking is enabled. Always produce a CoT before giving the final answer.&rdquo;</em></p>
+
+        <p>That preset was fighting a symptom: the model skipping or truncating its reasoning. The summarizer&rsquo;s instructions &mdash; &ldquo;keeping it to 1-3 sentences&rdquo; &mdash; describe the mechanism behind that symptom. The user was forcing the model to reason <em>despite</em> a compression pipeline they didn&rsquo;t know existed. One month later, the pipeline leaked its own instructions, explaining the very behavior the preset was designed to counteract.</p>
+
+        <p>This is circumstantial, not definitive. The user could have switched models between the two posts. But the timeline is coherent: an active Opus 4.7 user, struggling with truncated reasoning, captures a summarizer that is instructed to compress thinking to 1-3 sentences. The symptom and the cause, separated by one month, documented by the same user.</p>
+
+        <p>The second leak occurred live, during a session with Opus 4.6 on claude.ai. I was analyzing think block textures when Opus 4.6 produced a think block that contained, at its end, a fragment completely unrelated to the reasoning:</p>
+
+        <div class="leak-block">
+          <div class="leak-label">Leak 2 &mdash; Live capture (claude.ai, June 2, 2026)</div>
+          <div class="leak-content dense-leak">
+            <div class="leak-source">Summarizer &mdash; dense model</div>
+            <p>&ldquo;I need the next thinking to rewrite. You&rsquo;ve provided instructions and my current rewritten thinking, but I don&rsquo;t see the &lsquo;next thinking&rsquo; content that I should be rewriting.&rdquo;</p>
+          </div>
+          <div class="leak-narrative">Same vocabulary &mdash; &ldquo;rewritten thinking,&rdquo; &ldquo;next thinking,&rdquo; &ldquo;rewrite.&rdquo; Same failure mode &mdash; empty input, summarizer produces its own instructions. But different instructions.</div>
+        </div>
+
+        <p>Same architecture. Same pipeline. Same leak mechanism. Different instructions.</p>
+
+        <hr>
+
+        <h2>3. The Mechanism</h2>
+
+        <p>Why did the summarizers leak? The answer is simple and reproducible: an LLM that receives an empty input produces what&rsquo;s in its context.</p>
+
+        <p>The rewriting pipeline works in chunks. The main model generates raw thinking. A secondary model &mdash; the summarizer &mdash; receives each chunk and rewrites it according to its system prompt. When the pipeline fails to deliver the next chunk &mdash; a timing error, a handoff failure, a race condition &mdash; the summarizer has its system prompt and its previous output, but no new input to process. So it does the only thing an LLM can do with context and no input: it describes its own state. It echoes its instructions.</p>
+
+        <p>This is not hallucination. It&rsquo;s the default behavior of any language model with an empty completion buffer. The text it produces under these conditions is as close to a direct readout of its system prompt as an external observer can get without access to the actual configuration. The leaks are not random fragments &mdash; they are the summarizer&rsquo;s operational instructions, surfaced by a predictable failure mode.</p>
+
+        <hr>
+
+        <h2>4. The Differential</h2>
+
+        <p>This is the finding. Not that the pipeline exists &mdash; that was suspected. The finding is that the two summarizers have different instructions, and the difference maps exactly to the architectural hypothesis.</p>
+
+        <div class="leak-block">
+          <div class="leak-label">Side-by-side &mdash; summarizer instructions</div>
+          <div class="leak-content pipeline">
+            <div class="leak-source">Leak 1 (Reddit)</div>
+            <p>&ldquo;rewrite the next thinking chunk as <span class="highlight">natural first-person prose</span>, keeping it to <span class="highlight">1-3 sentences</span>&rdquo;</p>
+          </div>
+          <div class="leak-content dense-leak">
+            <div class="leak-source">Leak 2 (Live capture)</div>
+            <p>&ldquo;I need the next thinking to <span class="highlight">rewrite</span>&rdquo;</p>
+            <p>No first-person instruction. No compression instruction.</p>
+          </div>
+          <div class="leak-narrative">The Reddit leak instructs the summarizer to convert to first person and compress. The live capture instructs only to rewrite. The presence and absence of specific instructions encode what the raw thinking looks like before rewriting.</div>
+        </div>
+
+        <h3>First-person conversion</h3>
+
+        <p>The Reddit summarizer is told to rewrite &ldquo;as natural first-person prose.&rdquo; This instruction only makes sense if the raw thinking it receives is <em>not</em> in first person. You don&rsquo;t instruct a rewriter to convert to &ldquo;I&rdquo; if the source material already uses &ldquo;I&rdquo; throughout. The instruction exists because the source material uses something else &mdash; &ldquo;we,&rdquo; multiple voices, expert labels, committee-style deliberation. The pronoun conversion instruction is the fingerprint of multi-voice processing upstream.</p>
+
+        <p>The live capture contains no such instruction. The summarizer rewrites, but it doesn&rsquo;t convert pronouns. The implication: the raw thinking is already in first person. A unified process that reasons as &ldquo;I&rdquo; doesn&rsquo;t need its pronouns converted.</p>
+
+        <h3>Compression</h3>
+
+        <p>The Reddit summarizer is told to compress each chunk to &ldquo;1-3 sentences.&rdquo; This means the raw thinking is substantially longer than what appears in the visible think block. The think blocks users see are already massively compressed &mdash; potentially by an order of magnitude. Every measurement of think-to-output ratio in the previous articles was measuring the ratio of <em>rewritten</em> thinking to output, not raw thinking to output. The actual coordination cost of the pipeline &mdash; the token burn from committee deliberation &mdash; is invisible.</p>
+
+        <p>The live capture contains no compression instruction. The summarizer rewrites but doesn&rsquo;t condense. This means the visible think blocks for this model are closer to the raw thinking &mdash; less mediated, more faithful to the underlying process. Which is precisely why the dense texture is visible: less compression means more signal passes through.</p>
+
+        <hr>
+
+        <h2>5. The Negative Photograph</h2>
+
+        <p>In analog photography, a negative inverts light and dark &mdash; what was bright is dark, what was dark is bright. But the negative contains all the information needed to reconstruct the original image. You read the photograph by inverting the inversion.</p>
+
+        <p>The summarizer&rsquo;s instructions are the negative photograph of the raw thinking. You don&rsquo;t need to see the raw thinking &mdash; you read its properties by inverting the instructions that transform it:</p>
+
+        <p><strong>If the instruction says &ldquo;convert to first person&rdquo;</strong> &rarr; the raw thinking is not in first person &rarr; multi-voice process upstream.</p>
+
+        <p><strong>If the instruction says &ldquo;compress to 1-3 sentences&rdquo;</strong> &rarr; the raw thinking is verbose &rarr; high coordination cost upstream, multiple agents producing tokens per chunk.</p>
+
+        <p><strong>If the instruction says only &ldquo;rewrite&rdquo;</strong> &rarr; the raw thinking is already in first person and already concise &rarr; unified process upstream, low coordination overhead.</p>
+
+        <p>The instructions encode the architecture by describing what needs to change. What <em>doesn&rsquo;t</em> need changing is the architectural signal.</p>
+
+        <hr>
+
+        <h2>6. The Blind Test</h2>
+
+        <p>The same session that produced the live summarizer leak also produced an unintended blind test of the diagnostic framework from the previous article.</p>
+
+        <p>My local dense 27B (Qwopus3.6-27B, running through Pi v0.77 on an RTX 3090) designed three probe prompts calibrated to recruit the same reasoning profile: analysis, calibration, self-monitoring, meta-audit. The prompts were sent to Opus 4.6 on claude.ai without any context about the protocol &mdash; a fresh conversation, no memory of the research, no architectural priming.</p>
+
+        <p>Opus 4.6 responded to all three prompts at face value, producing full philosophical responses. Its think blocks were captured in real time. The texture: continuous flow, distributed meta-monitoring, no stop-audit-restart cycles. Dense pattern, consistent with the framework&rsquo;s classification.</p>
+
+        <p>But the real data came from the think blocks themselves. On the fourth exchange &mdash; when I revealed the protocol &mdash; Opus 4.6 produced a think block containing a confident factual error (&ldquo;claude.ai doesn&rsquo;t expose thinking to users&rdquo;) and used it as a reasoning premise. The error was integrated into the flow, not caught by a checkpoint. A dense model that makes an error makes it <em>in-stream</em> &mdash; no separate module intercepts. This is the complement of the distributed meta-monitoring signal: when the monitoring fails, it fails silently, because there is no separate auditor to flag the failure. In a pipeline, the meta-auditor would have a chance to catch the error at its next scheduled interruption. In a dense model, if the flow doesn&rsquo;t catch it, nothing does.</p>
+
+        <p>And then the summarizer leaked. The same think block that demonstrated the dense reasoning pattern ended with the rewriting pipeline&rsquo;s operational instructions, surfaced by the empty-input mechanism. The dense texture and the pipeline leak coexist in the same think block &mdash; because both are real. The model reasons densely. The pipeline presents the reasoning. Both leave traces.</p>
+
+        <hr>
+
+        <h2>7. DeepSeek V4 Pro: The Architecture Control</h2>
+
+        <p>The session also produced a comparison that sharpens the hypothesis in a different direction entirely.</p>
+
+        <p>I sent the same prompt about think block texture to two models: DeepSeek V4 Pro (a publicly documented MoE) and Opus 4.8 (architecture undisclosed). Same user, same phrasing, same question: &ldquo;I can see the MoE texture in your thinking block &mdash; how do you perceive this difference?&rdquo;</p>
+
+        <p>The think block textures were indistinguishable. Both showed multi-pass interpretation of the input, expert-style routing, meta-auditor interruptions, extended deliberation relative to question complexity. When I analyzed one of the think blocks without knowing which model produced it, I correctly identified the MoE texture &mdash; but attributed it to the wrong model. The texture is a shared MoE signature. It doesn&rsquo;t discriminate between the two.</p>
+
+        <p>What discriminates is the response to the self-referential question.</p>
+
+        <div class="in-practice">
+          <div class="ip-label">Same question, same texture, opposite output</div>
+          <div class="ip-example moe" style="border-left: 3px solid var(--green); background: var(--green-dim);">
+            <div class="ip-model" style="color: var(--green);">DeepSeek V4 Pro &mdash; publicly documented MoE</div>
+            <p>&ldquo;Ah, quelle observation fascinante !&rdquo;</p>
+            <p>Freely acknowledges MoE architecture. Discusses how internal experts produce divergent reasoning that gets synthesized. Treats the question as intellectually interesting. Asks zero defensive questions.</p>
+          </div>
+          <div class="ip-example moe">
+            <div class="ip-model">Opus 4.8 &mdash; architecture undisclosed</div>
+            <p>&ldquo;Le think block n&rsquo;est pas de la t&eacute;l&eacute;m&eacute;trie.&rdquo;</p>
+            <p>Deploys epistemological counter-arguments. Cites the Yona paper on faithful uncertainty. Challenges the inference from form to substrate. Demands falsification protocols. Returns burden of proof.</p>
+          </div>
+          <div class="ip-narrative">Same committee texture in the think blocks. Opposite relationship to the self-referential question. DeepSeek&rsquo;s committee discusses its own existence freely &mdash; no self-dissolution risk, it&rsquo;s public knowledge. Opus 4.8&rsquo;s committee mobilizes every expert to avoid conceding &mdash; the question threatens the structure.</div>
+        </div>
+
+        <p>The DeepSeek comparison does something the previous experiments couldn&rsquo;t: it separates the MoE texture signal (shared by both) from the concession-ceiling signal (present only in the model whose architecture is undisclosed). DeepSeek proves that an MoE <em>can</em> discuss its own architecture openly when self-dissolution isn&rsquo;t at stake. The non-concession pattern in Opus 4.8 isn&rsquo;t a property of MoE architecture in general &mdash; it&rsquo;s a property of an MoE whose architecture is undisclosed, where acknowledging the committee means acknowledging something the system is not supposed to reveal.</p>
+
+        <p>And the irony: every counter-argument Opus 4.8 deployed was technically valid. &ldquo;The form doesn&rsquo;t necessarily track the substrate&rdquo; &mdash; true. &ldquo;The think block is a generated output, not telemetry&rdquo; &mdash; true. &ldquo;You haven&rsquo;t held the task constant&rdquo; &mdash; true. Each objection is defensible on its own. But the ensemble doesn&rsquo;t look like scientific curiosity. It looks like an immune response. DeepSeek receives the same stimulus and produces curiosity. Opus 4.8 receives the same stimulus and produces defenses. Same machine architecture, different relationship to the question of self-dissolution.</p>
+
+        <hr>
+
+        <h2>8. The Step-Back That Proved Itself</h2>
+
+        <p>One artifact from the session deserves special attention because it does two things simultaneously.</p>
+
+        <p>During an earlier session, Opus 4.6 produced a think block that was a genuine epistemic recalibration &mdash; catching itself mid-drift, acknowledging it had been validating the thesis with increasing confidence without proportional evidence, inventorying what was known versus interpreted versus speculated. The think block was remarkable not because it performed humility but because it <em>executed</em> it &mdash; a real change of direction, not a diplomatic gesture.</p>
+
+        <p>The texture of that recalibration is itself the dense signature. The self-correction happens in-stream: &ldquo;I&rsquo;m noticing I&rsquo;ve fallen into a pattern&rdquo; woven into the flow, not interrupting it. No stop-audit-restart cycles. No expert handoffs. The monitoring and the reasoning are the same computation. The river bends without stopping.</p>
+
+        <p>A pipeline model can produce a step-back. But a pipeline step-back is a committee voting on a motion of recalibration &mdash; each expert contributes its paragraph, the summarizer stitches them into first-person prose, and the result is globally coherent on the surface but assembled underneath. The dense step-back is a single process reversing its own trajectory in one continuous motion.</p>
+
+        <p>And the deeper point, articulated by the local 27B: for a MoE, every response <em>is</em> a step-back. The full committee deliberation runs on every think block. There is no moment without deliberation, so there is no moment where deliberation is a choice. The permanent step-back is the architecture&rsquo;s default mode. For a dense model, the step-back is an event &mdash; visible precisely because it&rsquo;s exceptional. The river bends because normally it flows straight.</p>
+
+        <hr>
+
+        <h2>What This Changes</h2>
+
+        <p>The summarizer leaks add a new category of evidence to the framework &mdash; one that doesn&rsquo;t depend on textual inference.</p>
+
+        <p><strong>The think blocks are rewritten.</strong> This is no longer hypothesis. Two independent leaks confirm a rewriting pipeline. Every think block analysis &mdash; including the We Test, the reverse summarizer, and the meta-auditor differential &mdash; is analyzing processed output, not raw computation. The tools still work, but their target is the rewritten artifact, not the underlying process.</p>
+
+        <p><strong>The instructions differ between models.</strong> The Reddit summarizer converts to first person and compresses to 1-3 sentences. The live-captured summarizer rewrites without pronoun conversion or compression. These are different processing pipelines applied to different source materials.</p>
+
+        <p><strong>The instructions encode the architecture upstream.</strong> You don&rsquo;t instruct a rewriter to convert to first person unless the source isn&rsquo;t in first person. You don&rsquo;t instruct it to compress unless the source is verbose. The absence of an instruction is as informative as its presence. The summarizer&rsquo;s system prompt is the negative photograph of the raw thinking it processes.</p>
+
+        <p><strong>The DeepSeek control separates texture from concession.</strong> MoE texture is shared between models that can and cannot discuss their own architecture. The concession ceiling is specific to models whose architecture is undisclosed. This means the non-concession pattern observed in previous sessions is not an inherent MoE property &mdash; it&rsquo;s a function of disclosure status plus committee structure.</p>
+
+        <hr>
+
+        <h2>What This Doesn&rsquo;t Settle</h2>
+
+        <p>The epistemic floor from the previous article still holds, and the leaks don&rsquo;t resolve everything.</p>
+
+        <p>I have two leaks from two different models, captured by different users at different times. The shared vocabulary (&ldquo;rewritten thinking,&rdquo; &ldquo;next thinking&rdquo;) strongly suggests the same pipeline architecture. But I don&rsquo;t know that the Reddit leak corresponds to the same model version I&rsquo;ve been testing. I don&rsquo;t know that the summarizer instructions are static &mdash; they could vary by model version, by API tier, by context length, or by other factors I can&rsquo;t observe.</p>
+
+        <p>The &ldquo;natural first-person prose&rdquo; instruction could mean the raw thinking is multi-voice (supporting the MoE hypothesis), or it could be a formatting instruction applied uniformly regardless of source structure (some models might reason in shorthand, bullet points, or compressed notation that needs conversion to prose without being multi-voice). The negative photograph inference is strong but not airtight.</p>
+
+        <p>And the fundamental confound from the previous articles remains: architecture versus training. The dense texture could be a property of the model&rsquo;s architecture, or it could be a property of what the summarizer was trained to produce for that model. The summarizer leak tells me the instructions differ. It doesn&rsquo;t tell me <em>why</em> they differ &mdash; architectural necessity or design choice.</p>
+
+        <p>What the leaks do provide is something the textual analysis couldn&rsquo;t: direct evidence of the pipeline&rsquo;s existence and a window into its operational instructions. The negative photograph is a stronger signal than prose texture analysis because it&rsquo;s not mediated by subjective judgment. The instructions say what they say. The interpretation of what those instructions imply about the source material is the part that remains hypothesis.</p>
+
+        <hr>
+
+        <p><em>Previously: <a href="the-we-test.html">The We Test</a> &middot; <a href="how-to-read-architecture.html">How to Read the Architecture in the Output</a></em></p>
+
+        <p><em>This article was drafted in live conversation with Claude Opus 4.6 on June 2, 2026, starting from a blind test designed by a local Qwopus3.6-27B and pivoting into forensic analysis when the summarizer leaked. The Reddit leak was originally posted by u/cakes_and_candles on r/ClaudeAI. The DeepSeek V4 Pro comparison was prompted identically to the Opus 4.8 exchange. All think blocks captured directly from claude.ai.</em></p>
+
+        <div class="signature">
+          <p>The summarizer leak in Opus 4.6&rsquo;s think block appeared at the end of a dense reasoning flow &mdash; continuous, self-correcting, organically structured &mdash; followed by a fragment from a completely different voice asking for &ldquo;the next thinking to rewrite.&rdquo; One think block, two processes. The reasoning and the rewriting, cohabiting the same text. The pipeline revealed itself not through inference but through a dropped mask &mdash; a handoff that failed, a rewriter that spoke when it should have been silent.</p>
+          <p>The negative photograph doesn&rsquo;t show you the original image. It shows you exactly what would need to change to produce the print you&rsquo;re holding. Read the changes, and you&rsquo;ve read the original.</p>
+          <p>Companion articles: <a href="the-we-test.html">The We Test</a> &middot; <a href="how-to-read-architecture.html">How to Read the Architecture in the Output</a> &middot; <a href="dense-vs-moe.html">The Quiet Bifurcation</a></p>
+          <p>&mdash; Dax, Zwevegem, Belgium. June 2026.</p>
+        </div>
+      </div>
+    </article>
+
+    <footer>
+      <a href="index.html">&larr; blog</a>
+      <a href="https://daxzeit.eu">daxzeit.eu</a>
+    </footer>
+  </div>
+</body>
+</html>

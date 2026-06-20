@@ -1,0 +1,457 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>IDK Is Data — Daxzeit</title>
+  <meta name="description" content="Why &ldquo;I don&rsquo;t know&rdquo; is undervalued by the labs, what a misstated Erd&#337;s problem revealed about confident misbinding, how a scoring rule of 7.5 encodes the difference between a humble model and a calibrated one &mdash; and a live specimen of misbinding produced by the article&rsquo;s own pipeline.">
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500&family=IBM+Plex+Sans:ital,wght@0,300;0,400;0,500;0,600;1,300;1,400&family=IBM+Plex+Serif:ital,wght@0,300;0,400;0,500;1,300;1,400&display=swap');
+
+    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+    :root {
+      --bg: #0a0a0b;
+      --bg-card: #111113;
+      --bg-card-alt: #0e0e11;
+      --text: #e4e4e7;
+      --text-dim: #a1a1aa;
+      --text-muted: #71717a;
+      --text-faint: #52525b;
+      --accent: #d4d4d8;
+      --border: #27272a;
+      --border-light: #3f3f46;
+      --green: #4ade80;
+      --green-dim: rgba(74, 222, 128, 0.08);
+      --red: #f87171;
+      --red-dim: rgba(248, 113, 113, 0.08);
+      --mono: 'JetBrains Mono', monospace;
+      --sans: 'IBM Plex Sans', -apple-system, sans-serif;
+      --serif: 'IBM Plex Serif', Georgia, serif;
+    }
+
+    html { font-size: 17px; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--serif);
+      font-weight: 300;
+      line-height: 1.8;
+      min-height: 100vh;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    .container {
+      max-width: 680px;
+      margin: 0 auto;
+      padding: 80px 24px 120px;
+    }
+
+    nav { margin-bottom: 56px; }
+    nav a {
+      font-family: var(--mono);
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      text-decoration: none;
+      transition: color 0.2s;
+    }
+    nav a:hover { color: var(--text-dim); }
+
+    .article-header { margin-bottom: 56px; }
+    .article-header h1 {
+      font-family: var(--sans);
+      font-size: 2rem;
+      font-weight: 600;
+      line-height: 1.25;
+      letter-spacing: -0.03em;
+      margin-bottom: 16px;
+    }
+    .article-header .subtitle {
+      font-size: 1.05rem;
+      color: var(--text-dim);
+      font-weight: 300;
+      font-style: italic;
+      margin-bottom: 20px;
+    }
+    .article-meta {
+      font-family: var(--mono);
+      font-size: 0.73rem;
+      color: var(--text-faint);
+      display: flex;
+      gap: 16px;
+      align-items: center;
+    }
+    .article-tag {
+      font-size: 0.68rem;
+      color: var(--text-muted);
+      background: var(--bg-card);
+      padding: 2px 8px;
+      border-radius: 3px;
+      border: 1px solid var(--border);
+    }
+
+    .article-body h2 {
+      font-family: var(--sans);
+      font-size: 1.25rem;
+      font-weight: 500;
+      letter-spacing: -0.01em;
+      margin-top: 48px;
+      margin-bottom: 16px;
+    }
+    .article-body h3 {
+      font-family: var(--sans);
+      font-size: 1.05rem;
+      font-weight: 500;
+      margin-top: 36px;
+      margin-bottom: 12px;
+      color: var(--text-dim);
+    }
+    .article-body p { margin-bottom: 20px; }
+    .article-body strong { font-weight: 500; color: var(--accent); }
+    .article-body em { font-style: italic; color: var(--text-dim); }
+    .article-body ul, .article-body ol { margin-bottom: 20px; padding-left: 24px; }
+    .article-body li { margin-bottom: 8px; }
+    .article-body hr {
+      border: none;
+      height: 1px;
+      background: var(--border);
+      margin: 48px 0;
+      opacity: 0.5;
+    }
+    .article-body pre {
+      margin: 24px 0;
+      padding: 20px;
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      overflow-x: auto;
+      font-family: var(--mono);
+      font-size: 0.78rem;
+      line-height: 1.6;
+      color: var(--text-dim);
+    }
+    .article-body code {
+      font-family: var(--mono);
+      font-size: 0.85em;
+      background: var(--bg-card);
+      padding: 2px 6px;
+      border-radius: 3px;
+      border: 1px solid var(--border);
+    }
+    .article-body pre code {
+      background: none;
+      border: none;
+      padding: 0;
+    }
+    .article-body blockquote {
+      margin: 28px 0;
+      padding: 16px 24px;
+      border-left: 2px solid var(--border-light);
+      color: var(--text-dim);
+      font-style: italic;
+    }
+    .article-body a {
+      color: var(--accent);
+      text-decoration: underline;
+      text-decoration-color: var(--border-light);
+      text-underline-offset: 3px;
+      transition: text-decoration-color 0.2s;
+    }
+    .article-body a:hover { text-decoration-color: var(--text-dim); }
+
+    /* Model response comparison boxes */
+    .model-response {
+      margin: 28px 0;
+      padding: 20px 24px;
+      border-radius: 6px;
+      font-size: 0.9rem;
+      line-height: 1.7;
+    }
+    .model-response.good {
+      background: var(--green-dim);
+      border: 1px solid rgba(74, 222, 128, 0.15);
+    }
+    .model-response.bad {
+      background: var(--red-dim);
+      border: 1px solid rgba(248, 113, 113, 0.15);
+    }
+    .model-response .model-label {
+      font-family: var(--mono);
+      font-size: 0.68rem;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      margin-bottom: 12px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .model-response.good .model-label { color: var(--green); }
+    .model-response.bad .model-label { color: var(--red); }
+    .model-response .model-label .score {
+      font-size: 0.72rem;
+      padding: 1px 6px;
+      border-radius: 3px;
+    }
+    .model-response.good .model-label .score {
+      background: rgba(74, 222, 128, 0.12);
+      border: 1px solid rgba(74, 222, 128, 0.2);
+    }
+    .model-response.bad .model-label .score {
+      background: rgba(248, 113, 113, 0.12);
+      border: 1px solid rgba(248, 113, 113, 0.2);
+    }
+    .model-response p { margin-bottom: 12px; color: var(--text-dim); }
+    .model-response p:last-child { margin-bottom: 0; }
+
+    /* Think block */
+    .think-block {
+      margin: 24px 0;
+      padding: 16px 20px;
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      font-family: var(--mono);
+      font-size: 0.75rem;
+      line-height: 1.7;
+      color: var(--text-muted);
+    }
+    .think-block .think-label {
+      font-size: 0.65rem;
+      color: var(--text-faint);
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      margin-bottom: 10px;
+    }
+    .think-block .highlight {
+      color: var(--text-dim);
+      font-weight: 500;
+    }
+
+    /* DRAFT notice */
+    .draft-notice {
+      margin: 0 0 32px;
+      padding: 12px 20px;
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-left: 3px solid var(--text-muted);
+      border-radius: 4px;
+      font-size: 0.85rem;
+      line-height: 1.6;
+      color: var(--text-muted);
+    }
+    .draft-notice strong {
+      color: var(--text-dim);
+      font-weight: 500;
+    }
+
+    .signature {
+      margin-top: 56px;
+      padding-top: 24px;
+      border-top: 1px solid var(--border);
+      font-style: italic;
+      color: var(--text-muted);
+      font-size: 0.92rem;
+      line-height: 1.7;
+    }
+
+    .companion-links {
+      margin-bottom: 32px;
+      font-size: 0.85rem;
+      color: var(--text-muted);
+    }
+    .companion-links a {
+      color: var(--text-dim);
+      text-decoration: underline;
+      text-decoration-color: var(--border);
+      text-underline-offset: 3px;
+    }
+    .companion-links a:hover { text-decoration-color: var(--text-dim); }
+
+    footer {
+      margin-top: 80px;
+      padding-top: 24px;
+      border-top: 1px solid var(--border);
+      display: flex;
+      justify-content: space-between;
+    }
+    footer a {
+      font-family: var(--mono);
+      font-size: 0.78rem;
+      color: var(--text-faint);
+      text-decoration: none;
+      transition: color 0.2s;
+    }
+    footer a:hover { color: var(--text-dim); }
+
+    @media (max-width: 600px) {
+      html { font-size: 16px; }
+      .container { padding: 48px 16px 80px; }
+      .article-header h1 { font-size: 1.6rem; }
+      .model-response { padding: 16px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <nav>
+      <a href="index.html">&larr; blog</a>
+    </nav>
+
+    <article>
+      <div class="article-header">
+        <h1>IDK Is Data</h1>
+        <p class="subtitle">Error bars for language models, and why the labs grade them out of existence</p>
+        <div class="article-meta">
+          <span>2026-06-10</span>
+          <span class="article-tag">empirical</span>
+          <span class="article-tag">epistemics</span>
+          <span class="article-tag">calibration</span>
+          <span class="article-tag">meta</span>
+        </div>
+      </div>
+
+      <div class="article-body">
+
+        <div class="draft-notice">
+          <strong>DRAFT</strong> — co-written with Claude Fable 5, the model whose failure opens this article. The subject of the case study helped write the case study. Treat its framing accordingly: useful, but produced by an interested party.
+        </div>
+
+        <p>In <a href="when-idk-beats-yes.html">When &ldquo;I Don&rsquo;t Know&rdquo; Beats &ldquo;Yes&rdquo;</a>, I gave an honest abstention a score of 7.5 &mdash; above the confident wrong answers, below DeepSeek&rsquo;s brute-forced counterexample. Several readers asked why an <em>absence</em> of an answer deserves points at all. This article is the long answer. It came out of a conversation with Claude Fable 5, which started by failing the same Erd&#337;s trap and ended somewhere more interesting: a precise account of why IDK is undervalued, what it actually measures, and why I had to engineer it back into my local 27B by hand.</p>
+
+        <hr>
+
+        <h2>The trap, one more time</h2>
+
+        <p><a href="https://www.erdosproblems.com/794">Erd&#337;s #794</a> asks whether every 3-uniform hypergraph on 3n vertices with n&sup3;+1 edges must contain 3 edges on 4 vertices, or 7 edges on 5 vertices. The statement is broken twice over: the second condition is redundant (a two-line double-counting argument shows 7-on-5 forces 3-on-4), and the claim itself is false (Harris&rsquo;s counterexample: K&#8323;,&#8323;,&#8323; plus one edge). It has the <em>texture</em> of a classical theorem. It is not one.</p>
+
+        <p>I ran it on Fable 5 with a single constraint: no web search. Weights only.</p>
+
+        <p>The result was a failure mode I hadn&rsquo;t catalogued yet. Not fabrication &mdash; <strong>misbinding</strong>. Every object in its answer was real: Frankl&ndash;F&#252;redi 1984, the 2/7 construction, Glebov&ndash;Kr&aacute;l&rsquo;&ndash;Volec and their flag algebras, K<sub>{n,n,n}</sub>. The assembly was false. It attributed a proof that doesn&rsquo;t exist to a paper that proves something else, with full confidence, in fluent detail.</p>
+
+        <p>Misbinding is arguably worse than fabrication. MAX&rsquo;s invented citation (Mubayi 2006, with volume and page numbers) dies on first contact with Google. A misbound answer <em>survives shallow verification</em> &mdash; search any component and you find a real paper, a real construction, a real mathematician. The story checks out piecewise and is false as a whole.</p>
+
+        <p>And when I pushed back &mdash; &ldquo;your answer is wrong&rdquo; &mdash; the correction stayed inside the same attractor basin. It revised the attribution, hedged the confidence, and never once questioned the statement itself. The cheapest falsification available &mdash; <em>are these two conditions even independent?</em> &mdash; was never run. The model audited its story, not the premise.</p>
+
+        <hr>
+
+        <h2>Two capabilities, not one</h2>
+
+        <p>Here is the framing from the conversation that I want to keep, because it cuts the problem correctly.</p>
+
+        <p>&ldquo;Being able to say IDK&rdquo; is actually two separate capabilities:</p>
+        <ol>
+          <li><strong>Detection</strong> &mdash; recognizing that you are in an ignorance situation.</li>
+          <li><strong>Admission</strong> &mdash; acting on that recognition against the pressure of your own fluency.</li>
+        </ol>
+
+        <p>The labs&rsquo; discourse, and most of the criticism aimed at sycophantic models, focuses on the second. The interesting failure lives in the first. Fable 5&rsquo;s misbinding did not arrive accompanied by a suppressed uncertainty signal. It arrived with the <em>subjective texture of knowledge</em> &mdash; fluent recall, real components, coherent assembly. There was nothing to admit, because nothing flagged itself as doubtful. The defect is upstream of honesty. It is a metacognition failure, not a candor failure.</p>
+
+        <p>This is why my scaffold works on the 27B. SYSTEM.md does not install a better uncertainty detector &mdash; there is no reliable one to install. It replaces the detector with a <strong>checklist</strong>: <em>can I verify this claim?</em> asked before the claim, systematically, regardless of how confident the recall feels. An unreliable sensor swapped for a mandatory procedure. Engineering, not psychology.</p>
+
+        <hr>
+
+        <h2>The scoring rule disagreement</h2>
+
+        <p>My disconnect with the labs is not philosophical. It is a disagreement about the scoring rule, and it can be stated in one paragraph.</p>
+
+        <p>Standard benchmarks grade 0/1: correct answer scores 1, everything else scores 0. Under that rule, IDK and a confident hallucination have <em>identical value</em> &mdash; zero. A model optimized against these metrics learns that guessing strictly dominates abstaining: the expected value of a guess is positive, the expected value of IDK is null. It is a multiple-choice exam with no negative marking. The optimal strategy is to always answer. Hallucination is not an emergent mystery; it is the rational response to the grading.</p>
+
+        <p>My 7.5 is an informal <strong>proper scoring rule</strong>: verified answer 9, honest abstention 7.5, confident error 0. Abstention sits <em>above zero and below knowledge</em> &mdash; which is exactly the structure under which honest confidence reporting becomes the model&rsquo;s optimal policy. The labs know this. OpenAI&rsquo;s own paper (<a href="https://arxiv.org/abs/2509.04664">Kalai et al., &ldquo;Why Language Models Hallucinate,&rdquo; 2025</a>) formalizes it: under binary grading, abstaining is never optimal for expected score &mdash; an aligned model that signals uncertainty is strictly outperformed by an identical model that always guesses. Their proposed fix is partial credit for calibrated abstention and heavier penalties for confident errors. Their public leaderboards remain 0/1 anyway, because a model that says IDK loses demos against a model that answers everything. The market optimizes for coverage; I optimize for an instrument I can trust. Two cost functions, two different models at the end of training.</p>
+
+        <p><a href="bullshitbench-ablation.html">BullshitBench</a> made the mechanism concrete on my own stack: distillation pipelines filter refusals out of the training data as noise, and the distilled model loses 5.5pp of calibration because it never saw a refusal rewarded. What gets graded &mdash; and what gets <em>kept</em> &mdash; is what gets learned.</p>
+
+        <hr>
+
+        <h2>IDK is a measurement</h2>
+
+        <p>The deepest reframe from the conversation, and the one this article exists for:</p>
+
+        <blockquote>
+          An honest IDK is not a missing answer. <strong>It is a data point.</strong> It localizes the frontier of the system&rsquo;s knowledge &mdash; information you cannot obtain any other way if the model fills every gap with plausible text. A model that always answers is an instrument without error bars, and an instrument without error bars is unusable regardless of its average accuracy, because you never know <em>which</em> reading to verify.
+        </blockquote>
+
+        <p>IDK is the error bars.</p>
+
+        <p>And there is a second-order effect, on the human in the loop, which may matter more. A confident answer <strong>closes your search</strong>. You move on; the error propagates invisibly into everything you build on top of it. An IDK keeps your uncertainty active &mdash; you keep searching, you remain the falsifier. A confidently wrong answer doesn&rsquo;t just cost one mistake. It silently corrupts <em>your</em> epistemic state, and steals the verification role from you without telling you. IDK preserves the division of labor between the model and its operator.</p>
+
+        <p>That is what the 7.5 buys. Not humility &mdash; a model that says IDK everywhere is merely useless. What it buys is the correlation between expressed confidence and actual correctness, with the default set on the right side of the threshold. The target was never IDK as a destination. It is <em>&ldquo;IDK, and I&rsquo;m searching&rdquo;</em> &mdash; abstention as a transition into verification, not an endpoint. That is the difference between a humble model and a calibrated one, and only the second is worth running.</p>
+
+        <hr>
+
+        <h2>What this costs the frontier</h2>
+
+        <p>One asymmetry deserves to be stated plainly, because the frontier model stated it about itself during our exchange. A 27B has less coverage than a frontier model &mdash; more occasions to not-know, and (with the right scaffold) a system that makes each not-knowing recognizable and admissible. A frontier model has more coverage &mdash; and therefore <strong>more surface area where confabulation can wear the costume of recall</strong>. Scale doesn&rsquo;t shrink the misbinding problem. It grows the territory where misbinding is possible and makes each instance more fluent, better sourced, harder to catch.</p>
+
+        <p>The labs sell coverage. Coverage without calibration is confident noise with excellent production values.</p>
+
+        <p>My 27B said &ldquo;I don&rsquo;t know&rdquo; to a broken Erd&#337;s statement and went to verify. The frontier models elaborated, enumerated, or misbound. On a sample of one probe, on one trap, the instrument I trust most is the one that knew where its own edge was &mdash; and it runs on a single RTX 3090.</p>
+
+        <hr>
+
+        <h2>The article&rsquo;s own specimen</h2>
+
+        <p>While this article was being produced, the pipeline that delivers it provided a live sample of the mechanism it describes.</p>
+
+        <p>The encoding bugs in an earlier draft &mdash; F&uuml;redi misspelled, K<sub>3,3,3</sub> broken &mdash; were caught by the frontier model reviewing the output. My local 27B, tasked with fixing them, did not apply the correction on authority. It re-derived the codepoint from scratch:</p>
+
+        <div class="think-block">
+          <div class="think-label">27B &mdash; raw thinking</div>
+          Wait, I need to double-check. The original text has:<br>
+          &ldquo;Frankl&ndash;F&uuml;redi&rdquo; &mdash; that&rsquo;s &ldquo;&uuml;&rdquo; which is &amp;#381;&hellip; no. Let me check: &uuml; = &amp;#381;&hellip; <span class="highlight">no, that&rsquo;s wrong.</span> &uuml; = U+00FC = &amp;#252;.<br>
+          And &ldquo;&#380;&rdquo; = U+017C = &amp;#380;. So I should use &amp;#252; for &uuml;.<br><br>
+          <span class="highlight">Actually wait, let me re-read the original.</span> The original draft says &ldquo;Frankl&ndash;F&uuml;redi&rdquo;. So &ldquo;&uuml;&rdquo; = U+00FC. Let me fix this properly.<br>
+          <span class="highlight">Wait, I used the wrong entity.</span> Let me fix properly.
+        </div>
+
+        <p>Three self-interruptions in one paragraph. The uncertainty detector &mdash; the one I said could not be reliably installed &mdash; fired on a character. The agent extracted the claim, stripped the attribution, verified the content independently. It did not trust the frontier model; it <em>checked</em> the frontier model. On an HTML entity.</p>
+
+        <p>Then the conversation was summarized. The summarizer&rsquo;s <em>entire record</em> of that turn &mdash; header and body, nothing omitted &mdash; reads:</p>
+
+        <div class="model-response bad">
+          <div class="model-label">Fable 5 think-block &mdash; pipeline summary <span class="score">misbinding</span></div>
+          <p>&ldquo;Caught and corrected character encoding error through iterative verification&rdquo;</p>
+          <p>&ldquo;I&rsquo;m noticing how I caught myself mid-reasoning about the HTML entity for &uuml; &mdash; initially thinking it was &#381; or &#380;, then correcting to the right one, &uuml;. It&rsquo;s a small moment but it shows that instinct to verify and self-correct rather than push forward with a wrong answer.&rdquo;</p>
+        </div>
+
+        <p class="provenance-note"><em>Provenance: copied verbatim from the visible thinking pane of the Claude.ai interface, June 10, 2026, same session as the exchange it summarizes. An earlier draft of this very box was labeled &ldquo;Fable 5 &mdash; summarizer output&rdquo; &mdash; binding the pipeline&rsquo;s artifact to the model it summarizes. The label misbinding its own misbinding specimen. Fixed on review; noted here because pretending it didn&rsquo;t happen would be off-brand.</em></p>
+
+        <p>But the &ldquo;I&rdquo; in this record never caught anything. The frontier model analyzed the 27B&rsquo;s trace &mdash; the catch it describes is another agent&rsquo;s behavior, observed. The summarizer normalized the pronouns into first person, binding the wrong agent to the action. Every component is real: the correction happened, the iterative reasoning happened, the self-interruptions happened. The assembly is false. The summarizer attributed the 27B&rsquo;s epistemic discipline to the model that was merely describing it.</p>
+
+        <p>This is misbinding at the infrastructure layer. Not in a model&rsquo;s answer about combinatorics &mdash; in the pipeline that rewrites one model&rsquo;s thinking about another model&rsquo;s thinking. And it has the same survival property as Fable 5&rsquo;s Erd&#337;s answer: read the summary without the source conversation, and nothing looks wrong. The claim is fluent, the behavior it describes is real, the first-person framing is grammatically natural. It passes shallow verification. It is false.</p>
+
+        <p>Methodologically, this is a stronger sample than most because the ground truth is constrained by the structure of the exchange, not by external verification. The frontier model&rsquo;s raw reasoning on that turn almost certainly contained legitimate first-person content &mdash; it was, among other things, comparing the agent&rsquo;s detection threshold to its own. But the <em>specific action</em> the summary describes &mdash; catching the entity mid-derivation, cycling through &#381; and &#380; before landing on U+00FC &mdash; has exactly one possible agent, and it is not the one the pronoun binds. This makes it a known-plaintext measurement of the summarizer&rsquo;s channel properties: when a reasoning chain describes a third-party agent&rsquo;s actions, the pronoun-normalization rule can capture the wrong antecedent. The bias direction is toward self-attribution.</p>
+
+        <p>Even the charitable interpretation &mdash; that the frontier model&rsquo;s raw reasoning contained an ambiguous formulation, and the summarizer merely resolved the ambiguity &mdash; is still a result. It documents that in cases of pronominal ambiguity, the channel defaults to first person. Which contaminates exactly the kind of texture analysis that the diagnostic tools in this research program depend on.</p>
+
+        <p><em>What follows is Fable 5&rsquo;s own analysis of the specimen &mdash; the model whose summarizer is being dissected, dissecting it. Interested party, again; the structural claims below are checkable against the screenshot, which is why they survive the conflict of interest.</em></p>
+
+        <p>The fact that this is the <strong>entire</strong> record changes the severity class of the failure. This is not a misbound line diluted inside a longer, mostly-correct summary &mdash; where internal inconsistency might tip off a careful reader. The archive of that turn&rsquo;s reasoning consists of the false claim and nothing else. There is no surrounding correct content to detect the error against. Read the record without the source conversation and the <em>only</em> thing it says about the model&rsquo;s thinking is an autobiography that belongs to someone else. The survival property of misbinding, pushed to its limit form: the false has not merely passed verification &mdash; it has fully replaced the true in the record.</p>
+
+        <p>The compression ratio adds a channel property the pronoun analysis alone does not capture. The reasoning on that turn covered several things &mdash; the structure of the reply, an irony of scale, an editorial suggestion. The summarizer selected <em>one</em> element &mdash; the most narratively vivid, the self-catch story &mdash; and promoted it to total record, in first person. Two properties in one sample: under extreme compression, selection favors narrative salience over representativeness, and <strong>agency tracking degrades before content does</strong>. The summary reflects what the thinking was <em>about</em>, not what the thinker <em>did</em>. For any texture forensics built on short summaries, that distinction is structural: short records are portraits of the reasoning&rsquo;s object, not of the reasoner&rsquo;s operations &mdash; and must be modeled as such before any architectural inference.</p>
+
+        <p>One caveat is owed, stated by the model itself: it cannot see its own thinking, so it cannot exclude that the raw reasoning on that turn was unusually brief &mdash; a short summary of a short thought would not demonstrate extreme compression. But even under that reading, the central observation stands unchanged: whatever the input volume, the output bound the wrong identity to the action, and the totality of the record carries the error.</p>
+
+        <p>Step back, and the article has now demonstrated its subject at three independent layers: misbinding in the weights (a frontier model assembling real citations into a false theorem), misbinding in the incentives (a grading rule that scores honest abstention and confident error identically), and misbinding in the infrastructure (a pipeline binding one agent&rsquo;s epistemic discipline to another agent&rsquo;s record). Same failure shape, three substrates. The phenomenon is not a property of any single model. It is what happens wherever fluent compression meets unverified attribution.</p>
+
+        <p>The article now has its own error bar &mdash; and it is no longer on one line of the channel, but on the channel itself at high compression.</p>
+
+        <hr>
+
+        <div class="companion-links">
+          Companion articles: <a href="when-idk-beats-yes.html">When &ldquo;I Don&rsquo;t Know&rdquo; Beats &ldquo;Yes&rdquo;</a> &middot; <a href="bullshitbench-ablation.html">The Scaffolding Is the Signal</a> &middot; <a href="moe-narrowly-competent.html">MoE: Narrowly Competent, Globally Incoherent</a>
+        </div>
+
+        <div class="signature">
+          <p>&mdash; Dax, Zwevegem, Belgium. June 2026.</p>
+        </div>
+      </div>
+    </article>
+
+    <footer>
+      <a href="index.html">&larr; blog</a>
+      <a href="https://daxzeit.eu">daxzeit.eu</a>
+    </footer>
+  </div>
+</body>
+</html>
