@@ -9,6 +9,7 @@ import type { Participant } from "./participant.js"
 import type { ConversationStore } from "./store.js"
 import { conversationMeta } from "./store.js"
 import type { SseHub } from "./sse.js"
+import { REPEAT_THRESHOLD, SIMILARITY_FLOOR, textSimilarity, LOOKBACK_WINDOW, checkToolLoop, TOOL_REPEAT_THRESHOLD } from "./circuit-breaker.js"
 import type {
   Conversation,
   ConversationMeta,
@@ -63,7 +64,7 @@ export class Room {
   /** When true, agents' @mentions chain to other agents. */
   private chaining = true
   /** Anti-loop: max chain hops per turn. Prevents A→B→A infinite loops. */
-  private readonly MAX_CHAIN_HOPS = 8
+  private maxChainHops = 30
   private chainBudget = 0
   /** Set when an agent called ask_user — pipeline is paused until user responds. */
   private pendingQuestion: PendingQuestion | null = null
@@ -123,8 +124,18 @@ export class Room {
     void this.saveCurrent()
   }
 
+  getMaxChainHops(): number {
+    return this.maxChainHops
+  }
+
+  setMaxChainHops(n: number): void {
+    this.maxChainHops = Math.max(1, Math.min(100, Math.round(n)))
+    this.broadcastSettings()
+    void this.saveCurrent()
+  }
+
   private broadcastSettings(): void {
-    this.hub.broadcast("settings", { chaining: this.chaining, defaultAgent: this.defaultAgentId, fallbackAgent: this.fallbackAgentId })
+    this.hub.broadcast("settings", { chaining: this.chaining, defaultAgent: this.defaultAgentId, fallbackAgent: this.fallbackAgentId, maxChainHops: this.maxChainHops })
   }
 
   // ── Conversation lifecycle ──────────────────────────────────────────────────
@@ -331,8 +342,55 @@ export class Room {
       ...(question ? { question } : {}),
     }
     this.transcript.push(entry)
+
+    // Circuit breaker — only for agents, not user
+    if (author !== "user" && this.checkRepetition(author, text)) {
+      this.aborted = true
+      const msg = `Circuit breaker: @${authorName} repeated similar output ${REPEAT_THRESHOLD} times — stopping.`
+      this.notice(msg, "error")
+      this.hub.broadcast("circuit_breaker", { agentId: author, agentName: authorName, count: REPEAT_THRESHOLD })
+    }
+
+    // Tool-call loop breaker — detect repeated identical tool calls
+    if (author !== "user" && activity && activity.length > 0 && !this.aborted) {
+      const result = checkToolLoop(this.transcript, author, activity)
+      if (result.tripped) {
+        this.aborted = true
+        const sig = result.signature ?? "unknown"
+        const msg = `Circuit breaker: @${authorName} repeated tool call "${sig}" ${result.count} times — stopping.`
+        this.notice(msg, "error")
+        this.hub.broadcast("circuit_breaker", { agentId: author, agentName: authorName, count: result.count, type: "tool_loop", signature: sig })
+      }
+    }
+
     this.hub.broadcast("message", entry)
     return entry
+  }
+
+  /**
+   * Check if the current text is a repetition of recent messages from the same author.
+   * Scans the last LOOKBACK_WINDOW messages from that author; if ≥ REPEAT_THRESHOLD
+   * have similarity ≥ SIMILARITY_FLOOR, returns true.
+   */
+  private checkRepetition(author: string, text: string): boolean {
+    const recent: string[] = []
+    for (let i = this.transcript.length - 1; i >= 0; i--) {
+      const entry = this.transcript[i]
+      if (entry.author !== author) continue
+      recent.push(entry.text)
+      if (recent.length >= LOOKBACK_WINDOW) break
+    }
+
+    let similarCount = 0
+    for (const prev of recent) {
+      if (textSimilarity(text, prev) >= SIMILARITY_FLOOR) {
+        similarCount++
+      }
+    }
+
+    // similarCount includes the current message's match against itself,
+    // so we need ≥ REPEAT_THRESHOLD total (the current message + REPEAT_THRESHOLD-1 prior)
+    return similarCount >= REPEAT_THRESHOLD
   }
 
   private notice(msg: string, level: "info" | "error" = "info"): void {
@@ -520,22 +578,22 @@ export class Room {
         if (this.chaining) {
           const next = this.resolveAgentMentions(result.reply, asker.persona.id)
           if (next.length > 0) {
-            if (this.chainBudget < this.MAX_CHAIN_HOPS) {
+            if (this.chainBudget < this.maxChainHops) {
               this.chainBudget += next.length
               this.queue.push(...next)
               this.hub.broadcast("turn", { phase: "chain", from: asker.persona.id, targets: next.map((t) => t.persona.id) })
             } else {
-              this.notice(`Chain budget exhausted (${this.MAX_CHAIN_HOPS} hops) — stopping.`, "info")
+              this.notice(`Chain budget exhausted (${this.maxChainHops} hops) — stopping.`, "info")
             }
           } else if (
             this.fallbackAgentId &&
             asker.persona.id !== this.fallbackAgentId &&
-            this.chainBudget < this.MAX_CHAIN_HOPS
+            this.chainBudget < this.maxChainHops
           ) {
             const fb = this.registry.get(this.fallbackAgentId)
             if (fb && fb.active) {
               this.chainBudget += 1
-              this.queue.push(fb)
+              pq.heldQueue.push(fb)
               this.notice(`No handoff detected — routing to @${this.fallbackAgentId}`, "info")
               this.hub.broadcast("turn", { phase: "chain", from: asker.persona.id, targets: [this.fallbackAgentId] })
               await fb.sendCustomMessage(
@@ -952,17 +1010,17 @@ export class Room {
         if (this.chaining) {
           const next = this.resolveAgentMentions(out.reply, out.target.persona.id)
           if (next.length > 0) {
-            if (this.chainBudget < this.MAX_CHAIN_HOPS) {
+            if (this.chainBudget < this.maxChainHops) {
               this.chainBudget += next.length
               this.queue.push(...next)
               this.hub.broadcast("turn", { phase: "chain", from: out.target.persona.id, targets: next.map((t) => t.persona.id) })
             } else {
-              this.notice(`Chain budget exhausted (${this.MAX_CHAIN_HOPS} hops) — stopping.`, "info")
+              this.notice(`Chain budget exhausted (${this.maxChainHops} hops) — stopping.`, "info")
             }
           } else if (
             this.fallbackAgentId &&
             out.target.persona.id !== this.fallbackAgentId &&
-            this.chainBudget < this.MAX_CHAIN_HOPS
+            this.chainBudget < this.maxChainHops
           ) {
             // No @mention found — route to fallback agent for routing decision.
             const fb = this.registry.get(this.fallbackAgentId)

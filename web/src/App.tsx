@@ -42,10 +42,22 @@ export default function App() {
           <button
             className={`chain-toggle ${room.chaining ? "on" : ""}`}
             onClick={() => room.setChaining(!room.chaining)}
-            title="When on, agents can summon each other via @mentions (no turn budget — use Stop to halt)"
+            title="When on, agents can summon each other via @mentions"
           >
             ⟳ chaining {room.chaining ? "on" : "off"}
           </button>
+          {room.chaining && (
+            <label className="chain-hops" title="Max chain hops per turn (1–100)">
+              hops
+              <input
+                type="number"
+                min={1}
+                max={100}
+                value={room.maxChainHops}
+                onChange={(e) => room.setMaxChainHops(Number(e.target.value))}
+              />
+            </label>
+          )}
         </header>
         <Transcript
           messages={room.messages}

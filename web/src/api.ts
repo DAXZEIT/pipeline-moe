@@ -125,7 +125,7 @@ export const api = {
 
   settings: () =>
     fetch(`${API_BASE}/api/settings`).then((r) =>
-      json<{ chaining: boolean; defaultAgent: string | null }>(r),
+      json<{ chaining: boolean; defaultAgent: string | null; maxChainHops: number }>(r),
     ),
 
   setChaining: (chaining: boolean) =>
@@ -133,14 +133,21 @@ export const api = {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ chaining }),
-    }).then((r) => json<{ chaining: boolean; defaultAgent: string | null }>(r)),
+    }).then((r) => json<{ chaining: boolean; defaultAgent: string | null; maxChainHops: number }>(r)),
 
   setDefaultAgent: (defaultAgent: string | null) =>
     fetch(`${API_BASE}/api/settings`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ defaultAgent }),
-    }).then((r) => json<{ chaining: boolean; defaultAgent: string | null }>(r)),
+    }).then((r) => json<{ chaining: boolean; defaultAgent: string | null; maxChainHops: number }>(r)),
+
+  setMaxChainHops: (maxChainHops: number) =>
+    fetch(`${API_BASE}/api/settings`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ maxChainHops }),
+    }).then((r) => json<{ chaining: boolean; defaultAgent: string | null; maxChainHops: number }>(r)),
 
   conversations: () =>
     fetch(`${API_BASE}/api/conversations`).then((r) =>

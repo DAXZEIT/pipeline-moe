@@ -546,7 +546,7 @@ async function main(): Promise<void> {
   })
 
   app.get("/api/settings", (_req, res) => {
-    res.json({ chaining: room.getChaining(), defaultAgent: room.getDefaultAgent(), fallbackAgent: room.getFallbackAgent() })
+    res.json({ chaining: room.getChaining(), defaultAgent: room.getDefaultAgent(), fallbackAgent: room.getFallbackAgent(), maxChainHops: room.getMaxChainHops() })
   })
 
   app.patch("/api/settings", (req, res) => {
@@ -584,7 +584,15 @@ async function main(): Promise<void> {
         return
       }
     }
-    res.json({ chaining: room.getChaining(), defaultAgent: room.getDefaultAgent(), fallbackAgent: room.getFallbackAgent() })
+    if ("maxChainHops" in body) {
+      const n = body.maxChainHops
+      if (typeof n !== "number" || n < 1 || n > 100) {
+        res.status(400).json({ error: "`maxChainHops` must be a number between 1 and 100" })
+        return
+      }
+      room.setMaxChainHops(n)
+    }
+    res.json({ chaining: room.getChaining(), defaultAgent: room.getDefaultAgent(), fallbackAgent: room.getFallbackAgent(), maxChainHops: room.getMaxChainHops() })
   })
 
   // Post a message to the room. Returns immediately; results stream over SSE.

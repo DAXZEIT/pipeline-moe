@@ -29,6 +29,7 @@ export function useRoom() {
   const [paused, setPaused] = useState(false)
   const [chaining, setChainingState] = useState(true)
   const [defaultAgent, setDefaultAgentState] = useState<string | null>(null)
+  const [maxChainHops, setMaxChainHopsState] = useState(30)
   const [conversations, setConversations] = useState<ConversationMeta[]>([])
   const [currentConversationId, setCurrentConversationId] = useState<string>("")
 
@@ -51,6 +52,7 @@ export function useRoom() {
     api.settings().then((s) => {
       setChainingState(s.chaining)
       setDefaultAgentState(s.defaultAgent)
+      if (s.maxChainHops !== undefined) setMaxChainHopsState(s.maxChainHops)
     }).catch(() => {})
     api.conversations().then((c) => {
       setConversations(c.list)
@@ -167,9 +169,10 @@ export function useRoom() {
     })
 
     es.addEventListener("settings", (e) => {
-      const { chaining: c, defaultAgent: d } = JSON.parse((e as MessageEvent).data)
+      const { chaining: c, defaultAgent: d, maxChainHops: m } = JSON.parse((e as MessageEvent).data)
       setChainingState(c)
       if (d !== undefined) setDefaultAgentState(d)
+      if (m !== undefined) setMaxChainHopsState(m)
     })
 
     // Full transcript replacement (conversation switch / new / load).
@@ -302,6 +305,15 @@ export function useRoom() {
     [pushNotice],
   )
 
+  const setMaxChainHops = useCallback(
+    (n: number) => {
+      api.setMaxChainHops(n).then((s) => setMaxChainHopsState(s.maxChainHops)).catch((err) =>
+        pushNotice(String(err.message ?? err), "error"),
+      )
+    },
+    [pushNotice],
+  )
+
   const newConversation = useCallback(
     (title?: string) => {
       api.newConversation(title).catch((err) => pushNotice(String(err.message ?? err), "error"))
@@ -348,6 +360,7 @@ export function useRoom() {
     paused,
     chaining,
     defaultAgent,
+    maxChainHops,
     conversations,
     currentConversationId,
     send,
@@ -362,6 +375,7 @@ export function useRoom() {
     steer,
     setChaining,
     setDefaultAgent,
+    setMaxChainHops,
     newConversation,
     loadConversation,
     renameConversation,
