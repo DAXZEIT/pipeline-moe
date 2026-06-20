@@ -31,6 +31,8 @@ export class Registry {
   constructor(
     private readonly resolved: ResolvedModel,
     private readonly hub: SseHub,
+    /** Providers the user has explicitly enabled via /api/providers. */
+    private readonly explicitlyEnabledProviders: Set<string> = new Set(),
   ) {}
 
   /** Participants that should take part in the loop, in insertion order. */
@@ -216,6 +218,36 @@ export class Registry {
 
   /** True if a "provider/id" ref is a model the UI is allowed to assign. */
   isAllowedModel(ref: string): boolean {
-    return isAllowedModel_(this.resolved, ref)
+    return isAllowedModel_(this.resolved, ref, this.explicitlyEnabledProviders)
+  }
+
+  // ── Provider auth (for /provider slash command) ──────────────────────────
+
+  /** Get all providers with their auth status (no secrets). */
+  getProviderList(): Array<{ name: string; displayName: string; configured: boolean; models: number }> {
+    const all = this.resolved.modelRegistry.getAll()
+    const providerSet = new Set(all.map((m) => m.provider))
+    return Array.from(providerSet).map((name) => ({
+      name,
+      displayName: this.resolved.modelRegistry.getProviderDisplayName(name),
+      configured: this.resolved.modelRegistry.getProviderAuthStatus(name).configured,
+      models: all.filter((m) => m.provider === name).length,
+    }))
+  }
+
+  /** Set an API key for a provider (persisted). Returns auth status, not the key. */
+  setProviderKey(name: string, key: string): { name: string; configured: boolean } {
+    this.resolved.authStorage.set(name, { type: "api_key", key })
+    this.explicitlyEnabledProviders.add(name)
+    this.resolved.modelRegistry.refresh()
+    return { name, configured: this.resolved.modelRegistry.getProviderAuthStatus(name).configured }
+  }
+
+  /** Remove credentials for a provider. Returns auth status. */
+  removeProviderKey(name: string): { name: string; configured: boolean } {
+    this.resolved.authStorage.remove(name)
+    this.explicitlyEnabledProviders.delete(name)
+    this.resolved.modelRegistry.refresh()
+    return { name, configured: this.resolved.modelRegistry.getProviderAuthStatus(name).configured }
   }
 }

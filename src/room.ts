@@ -277,6 +277,18 @@ export class Room {
     return conversationMeta(this.buildConversation())
   }
 
+  /** Apply a preset roster to the current room — replaces agents in-place without
+   *  changing the conversation id, title, or transcript. Persists immediately so
+   *  the roster survives reboot. */
+  async applyPreset(personas: Conversation["personas"]): Promise<ConversationMeta> {
+    this.ensureIdle()
+    await this.registry.reset(personas)
+    this.broadcastSettings()
+    await this.saveCurrent()
+    await this.broadcastConversations()
+    return conversationMeta(this.buildConversation())
+  }
+
   /** Switch to a saved discussion. No-op if already current. */
   async switchConversation(id: string): Promise<void> {
     this.ensureIdle()
@@ -814,7 +826,8 @@ export class Room {
         this.notice(
           "Commands: /help, /kick @agent, /activate @agent, /deactivate @agent, " +
           "/compact @agent, /model @agent provider/id, /thinking [level|@agent level], " +
-          "/stats [@agent], /chaining on|off, /default @agent|none, /fallback @agent|none"
+          "/stats [@agent], /chaining on|off, /default @agent|none, /fallback @agent|none, " +
+          "/provider [list|add <name> <key>|remove <name>]"
         )
         return true
       case "/model": {
@@ -961,6 +974,45 @@ export class Room {
           } catch (err) {
             this.notice(`/fallback: ${err instanceof Error ? err.message : String(err)}`, "error")
           }
+        }
+        return true
+      }
+      case "/provider": {
+        const subCmd = args[0]?.toLowerCase()
+        if (subCmd === "list" || !subCmd) {
+          // List providers
+          const providers = this.registry.getProviderList()
+          const lines = providers.map((p) =>
+            `${p.configured ? "✓" : "○"} ${p.displayName} (${p.models} models)`,
+          )
+          this.notice(`Providers:\n${lines.join("\n")}`)
+        } else if (subCmd === "add") {
+          const providerName = args[1]
+          const apiKey = args[2]
+          if (!providerName || !apiKey) {
+            this.notice("/provider add: usage — /provider add <name> <api_key>", "error")
+          } else {
+            try {
+              this.registry.setProviderKey(providerName, apiKey)
+              this.notice(`Provider "${providerName}" configured. Models should now be available.`)
+            } catch (err) {
+              this.notice(`/provider add failed: ${err instanceof Error ? err.message : String(err)}`, "error")
+            }
+          }
+        } else if (subCmd === "remove") {
+          const providerName = args[1]
+          if (!providerName) {
+            this.notice("/provider remove: usage — /provider remove <name>", "error")
+          } else {
+            try {
+              this.registry.removeProviderKey(providerName)
+              this.notice(`Provider "${providerName}" removed.`)
+            } catch (err) {
+              this.notice(`/provider remove failed: ${err instanceof Error ? err.message : String(err)}`, "error")
+            }
+          }
+        } else {
+          this.notice(`/provider: unknown sub-command "${subCmd}". Use: list, add <name> <key>, remove <name>`, "error")
         }
         return true
       }

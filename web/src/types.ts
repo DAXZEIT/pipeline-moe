@@ -121,3 +121,16 @@ export interface PresetFile {
   name: string
   personas: PresetPersona[]
 }
+
+/** A provider listed by GET /api/providers. */
+export interface ProviderInfo {
+  name: string
+  displayName: string
+  configured: boolean
+  source?: string
+  label?: string
+  explicitlyEnabled: boolean
+  /** Whether this provider supports OAuth login (e.g. Anthropic, GitHub). */
+  supportsOAuth?: boolean
+  models: Array<{ id: string; name: string }>
+}

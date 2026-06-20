@@ -18,6 +18,8 @@ export type SseEventName =
   | "settings" // room settings change (e.g. chaining toggle)
   | "transcript" // full transcript replacement (on conversation switch)
   | "conversations" // saved-conversation list + current id
+  | "providers" // provider auth status changed (after add/remove)
+  | "oauth_progress" // OAuth login progress (device code, success, error)
 
 export const DEFAULT_SSE_MAX_CLIENTS = 10
 

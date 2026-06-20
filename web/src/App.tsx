@@ -1,6 +1,7 @@
 import { Composer } from "./components/Composer"
 import { ConversationBar } from "./components/ConversationBar"
 import { PresetMenu } from "./components/PresetMenu"
+import { ProvidersPanel } from "./components/ProvidersPanel"
 import { Roster } from "./components/Roster"
 import { Transcript } from "./components/Transcript"
 import { WorkspacePanel } from "./components/WorkspacePanel"
@@ -11,19 +12,29 @@ export default function App() {
 
   return (
     <div className="app">
-      <Roster
-        roster={room.roster}
-        connected={room.connected}
-        defaultAgent={room.defaultAgent}
-        turnActive={room.turnActive}
-        onSetActive={room.setActive}
-        onSetParallel={room.setParallel}
-        onSetDefault={room.setDefaultAgent}
-        onKick={room.kick}
-        onCompact={room.compactAgent}
-        onCreate={room.createParticipant}
-        onReorder={room.reorderParticipants}
-      />
+      <aside className="sidebar">
+        <Roster
+          roster={room.roster}
+          connected={room.connected}
+          defaultAgent={room.defaultAgent}
+          turnActive={room.turnActive}
+          onSetActive={room.setActive}
+          onSetParallel={room.setParallel}
+          onSetDefault={room.setDefaultAgent}
+          onKick={room.kick}
+          onCompact={room.compactAgent}
+          onCreate={room.createParticipant}
+          onReorder={room.reorderParticipants}
+        />
+
+        <ProvidersPanel
+          providers={room.providers}
+          _explicitlyEnabled={room.explicitlyEnabled}
+          onAdd={room.addProvider}
+          onRemove={room.removeProvider}
+          onLogin={room.loginProvider}
+        />
+      </aside>
 
       <main className="center">
         <header className="topbar">

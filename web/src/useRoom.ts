@@ -4,6 +4,7 @@ import type {
   ConversationMeta,
   Message,
   Notice,
+  ProviderInfo,
   Receipt,
   RosterItem,
   ToolActivity,
@@ -32,6 +33,8 @@ export function useRoom() {
   const [maxChainHops, setMaxChainHopsState] = useState(30)
   const [conversations, setConversations] = useState<ConversationMeta[]>([])
   const [currentConversationId, setCurrentConversationId] = useState<string>("")
+  const [providers, setProviders] = useState<ProviderInfo[]>([])
+  const [explicitlyEnabled, setExplicitlyEnabled] = useState<string[]>([])
 
   const messagesRef = useRef<Message[]>([])
 
@@ -57,6 +60,10 @@ export function useRoom() {
     api.conversations().then((c) => {
       setConversations(c.list)
       setCurrentConversationId(c.currentId)
+    }).catch(() => {})
+    api.providers().then((d) => {
+      setProviders(d.providers)
+      setExplicitlyEnabled(d.explicitlyEnabled)
     }).catch(() => {})
   }, [])
 
@@ -190,6 +197,27 @@ export function useRoom() {
       const { currentId, list } = JSON.parse((e as MessageEvent).data)
       setConversations(list)
       setCurrentConversationId(currentId)
+    })
+
+    es.addEventListener("providers", (e) => {
+      const data = JSON.parse((e as MessageEvent).data)
+      if (data.providers) setProviders(data.providers)
+      if (data.explicitlyEnabled) setExplicitlyEnabled(data.explicitlyEnabled)
+    })
+
+    es.addEventListener("oauth_progress", (e) => {
+      const data = JSON.parse((e as MessageEvent).data)
+      if (data.type === "device_code") {
+        pushNotice(`OAuth for ${data.provider}: visit ${data.verificationUri}, enter code ${data.userCode}`)
+      } else if (data.type === "auth_url") {
+        pushNotice(`OAuth for ${data.provider}: ${data.instructions || "visit " + data.url}`)
+      } else if (data.type === "progress") {
+        pushNotice(`OAuth ${data.provider}: ${data.message}`)
+      } else if (data.type === "success") {
+        pushNotice(data.message)
+      } else if (data.type === "error") {
+        pushNotice(data.message, "error")
+      }
     })
 
     return () => es.close()
@@ -345,6 +373,39 @@ export function useRoom() {
     [pushNotice],
   )
 
+  const addProvider = useCallback(
+    (name: string, key: string) => {
+      api.addProvider(name, key).then(() => {
+        pushNotice(`Provider "${name}" configured.`)
+        // Refresh models so the dropdown picks up new models
+        api.models().catch(() => {})
+      }).catch((err) => pushNotice(String(err.message ?? err), "error"))
+    },
+    [pushNotice],
+  )
+
+  const removeProvider = useCallback(
+    (name: string) => {
+      api.removeProvider(name).then((r) => {
+        let msg = `Provider "${name}" removed.`
+        if (r.agentsUsing && r.agentsUsing.length > 0) {
+          msg += ` Note: ${r.agentsUsing.join(", ")} may need model reassigned.`
+        }
+        pushNotice(msg)
+      }).catch((err) => pushNotice(String(err.message ?? err), "error"))
+    },
+    [pushNotice],
+  )
+
+  const loginProvider = useCallback(
+    (name: string) => {
+      api.loginProvider(name).then(() => {
+        pushNotice(`OAuth login started for ${name} — follow the instructions in notifications.`)
+      }).catch((err) => pushNotice(String(err.message ?? err), "error"))
+    },
+    [pushNotice],
+  )
+
   return {
     roster,
     messages,
@@ -363,6 +424,11 @@ export function useRoom() {
     maxChainHops,
     conversations,
     currentConversationId,
+    providers,
+    explicitlyEnabled,
+    addProvider,
+    removeProvider,
+    loginProvider,
     send,
     setActive,
     setParallel,

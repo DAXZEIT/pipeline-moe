@@ -45,8 +45,8 @@ function normalize(text: string): string[] {
 
 import type { ToolActivity, TranscriptEntry } from "./types.js"
 
-/** How many identical tool-call signatures trigger the tool-loop breaker. */
-export const TOOL_REPEAT_THRESHOLD = 3
+/** How many consecutive identical tool-call signatures trigger the tool-loop breaker. */
+export const TOOL_REPEAT_THRESHOLD = 7
 
 /**
  * Build a fingerprint from a tool call: toolName + discriminating args.
@@ -89,34 +89,51 @@ export function checkToolLoop(
   author: string,
   currentActivity: ToolActivity[],
 ): { tripped: boolean; signature?: string; count?: number } {
-  // Collect all tool-call signatures: current turn + recent same-author entries
+  // Build chronological signature sequence: transcript (old→new) then current turn
   const signatures: string[] = []
 
-  // Current turn's calls
-  for (const tc of currentActivity) {
-    signatures.push(toolCallSignature(tc))
-  }
-
-  // Recent transcript entries from same author
+  // Walk backward from most recent, collect same-author entries up to LOOKBACK_WINDOW
+  const recentEntries: ToolActivity[][] = []
   let seen = 0
   for (let i = transcript.length - 1; i >= 0 && seen < LOOKBACK_WINDOW; i--) {
     const entry = transcript[i]
     if (entry.author !== author) continue
     seen++
     if (entry.activity) {
-      for (const tc of entry.activity) {
-        signatures.push(toolCallSignature(tc))
-      }
+      recentEntries.push(entry.activity)
+    }
+  }
+  // Reverse so we have oldest→newest
+  for (const activity of recentEntries.reverse()) {
+    for (const tc of activity) {
+      signatures.push(toolCallSignature(tc))
     }
   }
 
-  // Count occurrences
-  const counts = new Map<string, number>()
+  // Current turn's calls
+  for (const tc of currentActivity) {
+    signatures.push(toolCallSignature(tc))
+  }
+
+  // Find longest consecutive run of the same signature
+  let maxRun = 0
+  let maxSig = ""
+  let curRun = 0
+  let curSig = ""
+
   for (const sig of signatures) {
-    const c = (counts.get(sig) ?? 0) + 1
-    counts.set(sig, c)
-    if (c >= TOOL_REPEAT_THRESHOLD) {
-      return { tripped: true, signature: sig, count: c }
+    if (sig === curSig) {
+      curRun++
+    } else {
+      curSig = sig
+      curRun = 1
+    }
+    if (curRun > maxRun) {
+      maxRun = curRun
+      maxSig = sig
+    }
+    if (curRun >= TOOL_REPEAT_THRESHOLD) {
+      return { tripped: true, signature: sig, count: curRun }
     }
   }
 

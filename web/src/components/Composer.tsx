@@ -27,6 +27,7 @@ const SLASH_COMMANDS = [
   { cmd: "chaining", syntax: "/chaining on|off", desc: "Toggle followUp self-chaining" },
   { cmd: "default", syntax: "/default @agent|none", desc: "Set/clear default agent" },
   { cmd: "fallback", syntax: "/fallback @agent|none", desc: "Set/disable fallback routing agent" },
+  { cmd: "provider", syntax: "/provider [list|add|remove]", desc: "Manage cloud provider API keys" },
 ]
 
 /** Read a File as a base64 data URI. */

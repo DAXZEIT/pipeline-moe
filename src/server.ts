@@ -12,7 +12,7 @@ import cors from "cors"
 import rateLimit from "express-rate-limit"
 import express from "express"
 import { config } from "./config.js"
-import { isAllowedModel, listModels, resolveModel } from "./model.js"
+import { isAllowedModel, listModels, resolveModel, type ResolvedModel } from "./model.js"
 import { listWorkspace } from "./receipts.js"
 import { BASE_PROMPT, BUILDER_OVERLAY, PLANNER_OVERLAY, SEED_PERSONAS } from "./personas.js"
 import { Registry } from "./registry.js"
@@ -218,13 +218,42 @@ async function seedDefaultPresets(): Promise<void> {
   }
 }
 
+/** Build the provider list for SSE broadcast and API responses. */
+async function getProviderList(resolved: ResolvedModel, explicitlyEnabled: Set<string>) {
+  const allModels = resolved.modelRegistry.getAll()
+  const providerSet = new Set(allModels.map((m) => m.provider))
+  // Pre-compute which providers support OAuth login
+  const oauthProviderIds = new Set(
+    resolved.authStorage.getOAuthProviders().map((p) => p.id),
+  )
+  return Array.from(providerSet).map((name) => {
+    const authStatus = resolved.modelRegistry.getProviderAuthStatus(name)
+    const models = allModels
+      .filter((m) => m.provider === name)
+      .map((m) => ({ id: m.id, name: (m as { name?: string }).name ?? m.id }))
+    return {
+      name,
+      displayName: resolved.modelRegistry.getProviderDisplayName(name),
+      ...authStatus,
+      explicitlyEnabled: explicitlyEnabled.has(name),
+      supportsOAuth: oauthProviderIds.has(name),
+      models,
+    }
+  })
+}
+
 async function main(): Promise<void> {
   await mkdir(config.workspaceDir, { recursive: true })
   await mkdir(mediaDir(), { recursive: true })
 
   const resolved = await resolveModel()
   const hub = new SseHub()
-  const registry = new Registry(resolved, hub)
+
+  // Track providers the user has explicitly added via the API — their models
+  // appear in listModels() even when PIPELINE_ALLOW_CLOUD is false.
+  const explicitlyEnabledProviders = new Set<string>()
+
+  const registry = new Registry(resolved, hub, explicitlyEnabledProviders)
   const store = new ConversationStore()
   const room = new Room(registry, hub, store, SEED_PERSONAS)
 
@@ -307,7 +336,7 @@ async function main(): Promise<void> {
       // Validate: all model refs must be available
       const missingModels: string[] = []
       for (const p of personas) {
-        if (p.model && !isAllowedModel(resolved, p.model)) {
+        if (p.model && !isAllowedModel(resolved, p.model, explicitlyEnabledProviders)) {
           const reason = config.allowCloud
             ? `model "${p.model}" not found`
             : `model "${p.model}" unavailable — cloud is disabled (set PIPELINE_ALLOW_CLOUD=1)`
@@ -320,6 +349,53 @@ async function main(): Promise<void> {
       }
 
       const meta = await room.loadPreset(personas, `${name} — ${new Date().toLocaleTimeString()}`)
+      res.json({ ok: true, conversation: meta })
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      res.status(msg.includes("unknown") ? 404 : 409).json({ error: msg })
+    }
+  })
+
+  // ── Apply preset roster to current room (in-place, no new conversation) ──
+
+  app.post("/api/presets/:name/apply", async (req, res) => {
+    const name = req.params.name
+    if (room.isBusy()) {
+      res.status(409).json({ error: "a turn is running — press Stop before applying a preset" })
+      return
+    }
+    try {
+      const preset = await readPreset(name)
+      if (!preset) {
+        res.status(404).json({ error: `preset "${name}" not found` })
+        return
+      }
+
+      // Rehydrate systemPrompts from current SEED_PERSONAS
+      const personas = rehydratePrompts(preset.personas)
+
+      // Guard: empty roster would brick the session
+      if (personas.length === 0) {
+        res.status(400).json({ error: `preset "${name}" has no personas — would brick the session` })
+        return
+      }
+
+      // Validate: all model refs must be available
+      const missingModels: string[] = []
+      for (const p of personas) {
+        if (p.model && !isAllowedModel(resolved, p.model, explicitlyEnabledProviders)) {
+          const reason = config.allowCloud
+            ? `model "${p.model}" not found`
+            : `model "${p.model}" unavailable — cloud is disabled (set PIPELINE_ALLOW_CLOUD=1)`
+          missingModels.push(reason)
+        }
+      }
+      if (missingModels.length > 0) {
+        res.status(400).json({ error: "unavailable models in preset:", details: missingModels })
+        return
+      }
+
+      const meta = await room.applyPreset(personas)
       res.json({ ok: true, conversation: meta })
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
@@ -356,9 +432,197 @@ async function main(): Promise<void> {
     res.json(registry.roster())
   })
 
-  // Models offered for per-agent selection (local-only unless PIPELINE_ALLOW_CLOUD).
+  // Models offered for per-agent selection (local-only unless PIPELINE_ALLOW_CLOUD,
+  // or the provider has been explicitly enabled by the user via /api/providers).
   app.get("/api/models", (_req, res) => {
-    res.json({ models: listModels(resolved), allowCloud: config.allowCloud })
+    const models = listModels(resolved, explicitlyEnabledProviders)
+    res.json({ models, allowCloud: config.allowCloud })
+  })
+
+  // ── Providers ──────────────────────────────────────────────────────────────
+
+  // List all known providers with their auth status (no secrets exposed).
+  app.get("/api/providers", (_req, res) => {
+    const allModels = resolved.modelRegistry.getAll()
+    const providerSet = new Set(allModels.map((m) => m.provider))
+    const providers = Array.from(providerSet).map((name) => {
+      const authStatus = resolved.modelRegistry.getProviderAuthStatus(name)
+      const models = allModels
+        .filter((m) => m.provider === name)
+        .map((m) => ({ id: m.id, name: (m as { name?: string }).name ?? m.id }))
+      return {
+        name,
+        displayName: resolved.modelRegistry.getProviderDisplayName(name),
+        ...authStatus,
+        explicitlyEnabled: explicitlyEnabledProviders.has(name),
+        models,
+      }
+    })
+    res.json({ providers, explicitlyEnabled: Array.from(explicitlyEnabledProviders) })
+  })
+
+  // Set an API key for a provider (persisted to auth.json).
+  app.post("/api/providers/:name", async (req, res) => {
+    const name = req.params.name
+    const body = req.body ?? {}
+
+    if (!body.key || typeof body.key !== "string") {
+      res.status(400).json({ error: "`key` is required (string)" })
+      return
+    }
+    if (room.isBusy()) {
+      res.status(409).json({ error: "a turn is running — press Stop before changing provider credentials" })
+      return
+    }
+
+    // Verify the provider exists in the registry
+    const allModels = resolved.modelRegistry.getAll()
+    const providerExists = allModels.some((m) => m.provider === name)
+    if (!providerExists && !body.baseUrl) {
+      res.status(404).json({ error: `provider "${name}" not found in model registry` })
+      return
+    }
+
+    try {
+      resolved.authStorage.set(name, { type: "api_key", key: body.key })
+      explicitlyEnabledProviders.add(name)
+      // Refresh so getAvailable() picks up the new models immediately
+      resolved.modelRegistry.refresh()
+
+      // Broadcast updated provider list to SSE clients
+      hub.broadcast("providers", {
+        providers: await getProviderList(resolved, explicitlyEnabledProviders),
+        explicitlyEnabled: Array.from(explicitlyEnabledProviders),
+      })
+
+      // Return only the auth status — never the key
+      const status = resolved.modelRegistry.getProviderAuthStatus(name)
+      res.status(200).json({ name, ...status })
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : String(err) })
+    }
+  })
+
+  // Start OAuth login flow for a provider (device-code or auth URL).
+  app.post("/api/providers/:name/login", async (req, res) => {
+    const name = req.params.name
+    const oauthProviders = resolved.authStorage.getOAuthProviders()
+    const oauthProvider = oauthProviders.find((p) => p.id === name)
+    if (!oauthProvider) {
+      res.status(404).json({ error: `provider "${name}" does not support OAuth login` })
+      return
+    }
+    if (room.isBusy()) {
+      res.status(409).json({ error: "a turn is running — press Stop before starting OAuth login" })
+      return
+    }
+
+    // Start the login flow in the background — communicate progress via SSE.
+    // Return 202 immediately so the client can wait for SSE events.
+    const providerName = name // capture for closure
+    setImmediate(async () => {
+      try {
+        await resolved.authStorage.login(name, {
+          onDeviceCode: (info) => {
+            hub.broadcast("oauth_progress", {
+              provider: providerName,
+              type: "device_code",
+              userCode: info.userCode,
+              verificationUri: info.verificationUri,
+            })
+          },
+          onAuth: (info) => {
+            hub.broadcast("oauth_progress", {
+              provider: providerName,
+              type: "auth_url",
+              url: info.url,
+              instructions: info.instructions,
+            })
+          },
+          onProgress: (message) => {
+            hub.broadcast("oauth_progress", {
+              provider: providerName,
+              type: "progress",
+              message,
+            })
+          },
+          onPrompt: async (prompt) => {
+            // For headless: reject prompts that require user input
+            hub.broadcast("oauth_progress", {
+              provider: providerName,
+              type: "error",
+              message: `OAuth requires interactive prompt: "${prompt.message}" — use the pi CLI for this provider.`,
+            })
+            throw new Error("interactive prompt not supported in headless mode")
+          },
+          onSelect: async () => {
+            hub.broadcast("oauth_progress", {
+              provider: providerName,
+              type: "error",
+              message: "OAuth requires a selection — use the pi CLI for this provider.",
+            })
+            throw new Error("interactive selection not supported in headless mode")
+          },
+        })
+
+        // Success — broadcast updated provider list
+        resolved.modelRegistry.refresh()
+        hub.broadcast("providers", {
+          providers: await getProviderList(resolved, explicitlyEnabledProviders),
+          explicitlyEnabled: Array.from(explicitlyEnabledProviders),
+        })
+        hub.broadcast("oauth_progress", {
+          provider: providerName,
+          type: "success",
+          message: `Authenticated with ${providerName}.`,
+        })
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        hub.broadcast("oauth_progress", {
+          provider: providerName,
+          type: "error",
+          message: msg,
+        })
+      }
+    })
+
+    res.status(202).json({ accepted: true, provider: name })
+  })
+
+  // Remove credentials for a provider.
+  app.delete("/api/providers/:name", async (req, res) => {
+    const name = req.params.name
+    if (name === "local") {
+      res.status(400).json({ error: "cannot remove the local provider" })
+      return
+    }
+    if (room.isBusy()) {
+      res.status(409).json({ error: "a turn is running — press Stop before changing provider credentials" })
+      return
+    }
+
+    // Check if any active participant uses this provider
+    const roster = registry.roster()
+    const agentsUsing = roster.filter((p) => {
+      const model = p.model
+      return model && model.startsWith(`${name}/`)
+    }).map((p) => p.name)
+
+    try {
+      resolved.authStorage.remove(name)
+      explicitlyEnabledProviders.delete(name)
+      resolved.modelRegistry.refresh()
+
+      hub.broadcast("providers", {
+        providers: await getProviderList(resolved, explicitlyEnabledProviders),
+        explicitlyEnabled: Array.from(explicitlyEnabledProviders),
+      })
+
+      const status = resolved.modelRegistry.getProviderAuthStatus(name)
+      res.status(200).json({ name, ...status, agentsUsing })
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : String(err) })
+    }
   })
 
   app.post("/api/participants", async (req, res) => {
@@ -431,7 +695,7 @@ async function main(): Promise<void> {
       const mv = body.model
       if (mv === null || mv === "") {
         patch.model = undefined // reset to the process default model
-      } else if (typeof mv === "string" && isAllowedModel(resolved, mv)) {
+      } else if (typeof mv === "string" && isAllowedModel(resolved, mv, explicitlyEnabledProviders)) {
         patch.model = mv
       } else {
         res.status(400).json({

@@ -4,6 +4,7 @@ import type {
   ModelInfo,
   PersonaDetail,
   PresetFile,
+  ProviderInfo,
   RosterItem,
   WorkspaceFile,
 } from "./types"
@@ -198,5 +199,36 @@ export const api = {
   loadPreset: (name: string) =>
     fetch(`${API_BASE}/api/presets/${name}/load`, { method: "POST" }).then((r) =>
       json<{ ok: boolean; conversation: ConversationMeta }>(r),
+    ),
+
+  applyPreset: (name: string) =>
+    fetch(`${API_BASE}/api/presets/${name}/apply`, { method: "POST" }).then((r) =>
+      json<{ ok: boolean; conversation: ConversationMeta }>(r),
+    ),
+
+  // ── Providers ──────────────────────────────────────────────────────────────
+
+  providers: () =>
+    fetch(`${API_BASE}/api/providers`).then((r) =>
+      json<{ providers: ProviderInfo[]; explicitlyEnabled: string[] }>(r),
+    ),
+
+  addProvider: (name: string, key: string) =>
+    fetch(`${API_BASE}/api/providers/${name}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ key }),
+    }).then((r) =>
+      json<{ name: string; configured: boolean; source?: string; label?: string }>(r),
+    ),
+
+  removeProvider: (name: string) =>
+    fetch(`${API_BASE}/api/providers/${name}`, { method: "DELETE" }).then((r) =>
+      json<{ name: string; configured: boolean; agentsUsing?: string[] }>(r),
+    ),
+
+  loginProvider: (name: string) =>
+    fetch(`${API_BASE}/api/providers/${name}/login`, { method: "POST" }).then((r) =>
+      json<{ accepted: boolean; provider: string }>(r),
     ),
 }

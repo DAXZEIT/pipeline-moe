@@ -34,12 +34,19 @@ body {
   overflow: hidden;
 }
 
-/* ---------- Roster (left) ---------- */
-.roster {
+/* ---------- Sidebar (left) ---------- */
+.sidebar {
   display: flex;
   flex-direction: column;
   background: var(--bg2);
   border-right: 1px solid var(--border);
+  min-height: 0;
+}
+/* ---------- Roster (inside sidebar) ---------- */
+.roster {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
   min-height: 0;
 }
 .roster-head {
@@ -1144,4 +1151,132 @@ body {
   font-size: 11px;
   letter-spacing: 0.04em;
   margin-bottom: 2px;
+}
+
+/* ---------- Providers Panel ---------- */
+.providers-panel {
+  border-top: 1px solid var(--border);
+  padding: 10px 12px;
+  font-size: 12px;
+}
+.providers-panel h3 {
+  margin: 0 0 8px;
+  font-size: 11px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+.provider-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 0;
+  gap: 8px;
+}
+
+.provider-row.local {
+  color: var(--muted);
+}
+.provider-name {
+  font-weight: 600;
+  font-size: 12px;
+}
+.provider-info {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+}
+.provider-badge {
+  font-size: 9px;
+  background: var(--bg3);
+  color: var(--muted);
+  padding: 1px 5px;
+  border-radius: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.provider-models {
+  font-size: 10px;
+  color: var(--muted);
+}
+.provider-status {
+  font-size: 11px;
+}
+.provider-status.configured {
+  color: var(--accent);
+}
+.provider-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.confirm-remove {
+  display: flex;
+  gap: 4px;
+}
+.add-key-row {
+  padding: 4px 0;
+}
+.api-key-input {
+  flex: 1;
+  min-width: 0;
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 5px 10px;
+  color: var(--text);
+  font-size: 12px;
+  font-family: inherit;
+  outline: none;
+}
+.api-key-input:focus {
+  border-color: var(--accent);
+}
+.api-key-input::placeholder {
+  color: var(--muted);
+}
+.btn-small {
+  border: none;
+  border-radius: 6px;
+  padding: 4px 10px;
+  font-size: 11px;
+  cursor: pointer;
+  background: var(--bg3);
+  color: var(--text);
+  font-family: inherit;
+  white-space: nowrap;
+}
+.btn-small:hover {
+  background: var(--border);
+}
+.btn-small.primary {
+  background: var(--accent);
+  color: #06281f;
+}
+.btn-small.danger {
+  color: var(--danger);
+}
+.btn-small.danger:hover {
+  background: rgba(240, 114, 106, 0.1);
+}
+.add-provider-toggle {
+  width: 100%;
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  font-size: 11px;
+  font-family: inherit;
+  cursor: pointer;
+  padding: 4px 0;
+  text-align: left;
+}
+.add-provider-toggle:hover {
+  color: var(--text);
+}
+.unconfigured-list {
+  margin-top: 2px;
+  max-height: 40vh;
+  overflow-y: auto;
 }

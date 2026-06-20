@@ -69,11 +69,14 @@ function splitRef(ref: string): { provider: string; id: string } {
 }
 
 /** Models offered for per-agent selection: those with auth configured, filtered
- *  to local unless cloud is explicitly allowed (PIPELINE_ALLOW_CLOUD). */
-export function listModels(resolved: ResolvedModel): ModelInfo[] {
+ *  to local unless cloud is explicitly allowed (PIPELINE_ALLOW_CLOUD), or the
+ *  provider has been explicitly enabled by the user via /api/providers. */
+export function listModels(resolved: ResolvedModel, explicitlyEnabled?: Set<string>): ModelInfo[] {
   return resolved.modelRegistry
     .getAvailable()
-    .filter((m) => config.allowCloud || m.provider === "local")
+    .filter((m) =>
+      config.allowCloud || m.provider === "local" || (explicitlyEnabled?.has(m.provider) ?? false),
+    )
     .map((m) => ({
       provider: m.provider,
       id: m.id,
@@ -84,8 +87,8 @@ export function listModels(resolved: ResolvedModel): ModelInfo[] {
 }
 
 /** True if a "provider/id" ref is a model the UI is allowed to assign. */
-export function isAllowedModel(resolved: ResolvedModel, ref: string): boolean {
-  return listModels(resolved).some((m) => m.ref === ref)
+export function isAllowedModel(resolved: ResolvedModel, ref: string, explicitlyEnabled?: Set<string>): boolean {
+  return listModels(resolved, explicitlyEnabled).some((m) => m.ref === ref)
 }
 
 /** Resolve a persona's "provider/id" ref to a concrete model. Enforces the

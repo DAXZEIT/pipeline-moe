@@ -12,6 +12,7 @@ export function PresetMenu({ turnActive }: Props) {
   const [savingName, setSavingName] = useState("")
   const [confirmId, setConfirmId] = useState<string | null>(null)
   const [loadingName, setLoadingName] = useState<string | null>(null)
+  const [applyingName, setApplyingName] = useState<string | null>(null)
   const wrapRef = useRef<HTMLDivElement>(null)
 
   // Fetch presets on open.
@@ -57,6 +58,17 @@ export function PresetMenu({ turnActive }: Props) {
       setLoadingName(null)
     }).catch((err) => {
       setLoadingName(null)
+      alert(String(err.message ?? err))
+    })
+  }
+
+  const handleApply = (name: string) => {
+    setApplyingName(name)
+    api.applyPreset(name).then(() => {
+      setOpen(false)
+      setApplyingName(null)
+    }).catch((err) => {
+      setApplyingName(null)
       alert(String(err.message ?? err))
     })
   }
@@ -127,11 +139,23 @@ export function PresetMenu({ turnActive }: Props) {
                   ) : (
                     <button
                       className="mini"
-                      title="Load preset"
+                      title="Load preset (new conversation)"
                       disabled={turnActive}
                       onClick={() => handleLoad(p.name)}
                     >
                       ▶
+                    </button>
+                  )}
+                  {applyingName === p.name ? (
+                    <span className="preset-loading">applying…</span>
+                  ) : (
+                    <button
+                      className="mini"
+                      title="Apply preset (in-place)"
+                      disabled={turnActive}
+                      onClick={() => handleApply(p.name)}
+                    >
+                      ↻
                     </button>
                   )}
                   {confirmId === p.name ? (
