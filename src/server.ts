@@ -16,7 +16,8 @@ import { isAllowedModel, listModels, resolveModel, type ResolvedModel } from "./
 import { listWorkspace } from "./receipts.js"
 import { BASE_PROMPT, BUILDER_OVERLAY, PLANNER_OVERLAY, SEED_PERSONAS } from "./personas.js"
 import { Room } from "./room.js"
-import { RoomManager } from "./room-manager.js"
+import { RoomManager, type RoomDetails } from "./room-manager.js"
+import type { RoomOrchestrator } from "./orchestrator.js"
 import { SseHub } from "./sse.js"
 import { isSshTarget, mountSshfs, unmountSshfs, type RoomMount } from "./sshfs.js"
 import type { Persona, PersonaState } from "./types.js"
@@ -242,6 +243,19 @@ async function getProviderList(resolved: ResolvedModel, explicitlyEnabled: Set<s
   })
 }
 
+/** Error carrying an HTTP-style status so a route can map it to a response and
+ *  a tool can map it to error text. Thrown by provisionRoom(). */
+class RoomProvisionError extends Error {
+  constructor(
+    public readonly status: number,
+    message: string,
+    public readonly details?: unknown,
+  ) {
+    super(message)
+    this.name = "RoomProvisionError"
+  }
+}
+
 async function main(): Promise<void> {
   await mkdir(config.workspaceDir, { recursive: true })
   await mkdir(mediaDir(), { recursive: true })
@@ -254,6 +268,139 @@ async function main(): Promise<void> {
   const explicitlyEnabledProviders = new Set<string>()
 
   const roomManager = new RoomManager(resolved, hub, explicitlyEnabledProviders, SEED_PERSONAS)
+
+  // Shared room-provisioning path used by both the POST /api/rooms route and the
+  // sub-room orchestrator (spawn_room tool). Single source of truth so the two
+  // entry points cannot drift on validation, mounting, preset resolution, or
+  // rollback. Throws RoomProvisionError(status, msg) on any failure.
+  async function provisionRoom(opts: {
+    roomId?: string
+    name: string
+    preset?: string
+    goal?: string
+    workspaceDir?: string
+  }): Promise<RoomDetails> {
+    const name = opts.name.trim()
+    if (!name) throw new RoomProvisionError(400, "`name` is required")
+
+    const rawId = (opts.roomId ?? "").trim().replace(/[^a-zA-Z0-9_-]/g, "")
+    const roomId = rawId || `room-${Date.now().toString(36)}`
+    // Reject a duplicate roomId *before* any sshfs mount. The mountpoint is
+    // derived from roomId, so mounting for a duplicate would collide with the
+    // existing room's mountpoint and leak. Fail fast here instead.
+    if (roomManager.getRoom(roomId)) {
+      throw new RoomProvisionError(409, `Room "${roomId}" already exists`)
+    }
+
+    const presetName = opts.preset?.trim() || undefined
+    const goal = opts.goal?.trim() || undefined
+    const workspaceDir = opts.workspaceDir?.trim() || undefined
+
+    // Per-room scope: local path or sshfs target. Empty = pipeline workspace.
+    let effectiveWorkspaceDir = workspaceDir
+    let mount: RoomMount | undefined
+    if (workspaceDir && isSshTarget(workspaceDir)) {
+      // Remote scope: mount now. Mounting can fail (auth, unreachable, bad path,
+      // sshfs missing) — surface a 400 before the room exists.
+      try {
+        const mountpoint = await mountSshfs(roomId, workspaceDir)
+        effectiveWorkspaceDir = mountpoint
+        mount = { mountpoint, sshTarget: workspaceDir }
+      } catch (err) {
+        throw new RoomProvisionError(400, err instanceof Error ? err.message : String(err))
+      }
+    } else if (workspaceDir) {
+      // Local scope: require an existing directory. A typo would silently make a
+      // broken room (empty listing, nonexistent bash cwd).
+      const scope = resolve(workspaceDir)
+      try {
+        const st = await stat(scope)
+        if (!st.isDirectory()) {
+          throw new RoomProvisionError(400, `workspaceDir "${scope}" is not a directory`)
+        }
+      } catch (err) {
+        if (err instanceof RoomProvisionError) throw err
+        throw new RoomProvisionError(400, `workspaceDir "${scope}" does not exist`)
+      }
+    }
+
+    try {
+      // Resolve preset roster if requested.
+      let overridePersonas: PersonaState[] | undefined
+      if (presetName) {
+        const presetFile = await readPreset(presetName)
+        if (!presetFile) throw new RoomProvisionError(404, `preset "${presetName}" not found`)
+        const personas = rehydratePrompts(presetFile.personas)
+        if (personas.length === 0) {
+          throw new RoomProvisionError(400, `preset "${presetName}" has no personas`)
+        }
+        const missingModels: string[] = []
+        for (const p of personas) {
+          if (p.model && !isAllowedModel(resolved, p.model, explicitlyEnabledProviders)) {
+            missingModels.push(config.allowCloud
+              ? `model "${p.model}" not found`
+              : `model "${p.model}" unavailable — cloud is disabled (set PIPELINE_ALLOW_CLOUD=1)`)
+          }
+        }
+        if (missingModels.length > 0) {
+          throw new RoomProvisionError(400, "unavailable models in preset", missingModels)
+        }
+        overridePersonas = personas
+      }
+
+      const newRoom = roomManager.createRoom(roomId, name, overridePersonas, effectiveWorkspaceDir, mount)
+      await newRoom.init()
+      hub.broadcast("room", { type: "created", roomId, name, participantCount: newRoom.rosterLength() })
+
+      // Fire goal asynchronously — caller returns immediately with status "running".
+      if (goal) newRoom.submitGoal(goal)
+
+      return roomManager.getRoomDetails(roomId)!
+    } catch (err) {
+      // Roll back after a successful mount. If the room reached the map (init
+      // threw), destroyRoom unmounts + removes it; otherwise unmount directly.
+      if (roomManager.getRoom(roomId)) {
+        await roomManager.destroyRoom(roomId).catch(() => {})
+      } else if (mount) {
+        await unmountSshfs(mount.mountpoint).catch(() => {})
+      }
+      if (err instanceof RoomProvisionError) throw err
+      const msg = err instanceof Error ? err.message : String(err)
+      throw new RoomProvisionError(msg.includes("already exists") ? 409 : 500, msg)
+    }
+  }
+
+  // Wire the sub-room orchestrator BEFORE any room is created, so participants
+  // built during room.init() receive spawn/check/destroy_room tools. The
+  // orchestrator closes over provisionRoom (preset + mount logic lives here).
+  const orchestrator: RoomOrchestrator = {
+    async spawnRoom(o) {
+      const d = await provisionRoom({ name: o.name, goal: o.goal, preset: o.preset, workspaceDir: o.workspaceDir })
+      return { roomId: d.roomId, name: d.name, goalStatus: d.goalStatus }
+    },
+    checkRoom(roomId) {
+      const r = roomManager.getRoom(roomId)
+      if (!r) return { found: false, roomId }
+      const details = roomManager.getRoomDetails(roomId)
+      const lastMessages = r.getTranscript().slice(-5).map((e) => `${e.authorName}: ${e.text}`)
+      return {
+        found: true,
+        roomId,
+        name: details?.name,
+        goalStatus: r.getGoalStatus(),
+        goalText: r.getGoalText(),
+        lastMessages,
+      }
+    },
+    async destroyRoom(roomId) {
+      if (roomId === "default") return false
+      const removed = await roomManager.destroyRoom(roomId)
+      if (removed) hub.broadcast("room", { type: "destroyed", roomId })
+      return removed
+    },
+  }
+  roomManager.setOrchestrator(orchestrator)
+
   const room = roomManager.createDefaultRoom()
   const registry = room.getRegistry()
 
@@ -1020,113 +1167,23 @@ async function main(): Promise<void> {
   })
 
   app.post("/api/rooms", async (req, res) => {
-    const name = String(req.body?.name ?? "").trim()
-    if (!name) {
-      res.status(400).json({ error: "`name` is required" })
-      return
-    }
-    const rawId = String(req.body?.roomId ?? "").trim().replace(/[^a-zA-Z0-9_-]/g, "")
-    const roomId = rawId || `room-${Date.now().toString(36)}`
-    // Reject a duplicate roomId *before* any sshfs mount. The mountpoint is
-    // derived from roomId, so mounting for a duplicate would collide with the
-    // existing room's mountpoint and leak (createRoom would then throw with the
-    // mount already live and unrecorded). Fail fast here instead.
-    if (roomManager.getRoom(roomId)) {
-      res.status(409).json({ error: `Room "${roomId}" already exists` })
-      return
-    }
-    const presetName = req.body?.preset ? String(req.body.preset).trim() : undefined
-    const goal = req.body?.goal ? String(req.body.goal).trim() : undefined
-    // Optional per-room scope: a directory the room's agents are confined to.
-    // Empty/absent = the pipeline workspace (default, backward-compatible).
-    // May be a local path OR an sshfs target (user@host:/path).
-    const workspaceDir = req.body?.workspaceDir ? String(req.body.workspaceDir).trim() : undefined
-    // For sshfs rooms: the local mountpoint passed to createRoom, plus the mount
-    // metadata so destroyRoom() can unmount. Undefined for local-path rooms.
-    let effectiveWorkspaceDir = workspaceDir
-    let mount: RoomMount | undefined
-    if (workspaceDir && isSshTarget(workspaceDir)) {
-      // Remote scope: mount it now. Mounting can fail (auth, unreachable host,
-      // bad remote path, sshfs missing) — surface a 400 before the room exists.
-      try {
-        const mountpoint = await mountSshfs(roomId, workspaceDir)
-        effectiveWorkspaceDir = mountpoint
-        mount = { mountpoint, sshTarget: workspaceDir }
-      } catch (err) {
-        res.status(400).json({ error: err instanceof Error ? err.message : String(err) })
-        return
-      }
-    } else if (workspaceDir) {
-      // Local scope: fail fast on a bad path. A typo'd or non-directory path
-      // would silently produce a broken room (empty listing, bash cwd that
-      // doesn't exist). We require the directory to already exist rather than
-      // creating it — creating a mistyped path litters the filesystem.
-      const scope = resolve(workspaceDir)
-      try {
-        const st = await stat(scope)
-        if (!st.isDirectory()) {
-          res.status(400).json({ error: `workspaceDir "${scope}" is not a directory` })
-          return
-        }
-      } catch {
-        res.status(400).json({ error: `workspaceDir "${scope}" does not exist` })
-        return
-      }
-    }
     try {
-      // Resolve preset roster if requested.
-      let overridePersonas: PersonaState[] | undefined
-      if (presetName) {
-        const presetFile = await readPreset(presetName)
-        if (!presetFile) {
-          res.status(404).json({ error: `preset "${presetName}" not found` })
-          return
-        }
-        const personas = rehydratePrompts(presetFile.personas)
-        if (personas.length === 0) {
-          res.status(400).json({ error: `preset "${presetName}" has no personas` })
-          return
-        }
-        // Validate model availability.
-        const missingModels: string[] = []
-        for (const p of personas) {
-          if (p.model && !isAllowedModel(resolved, p.model, explicitlyEnabledProviders)) {
-            const reason = config.allowCloud
-              ? `model "${p.model}" not found`
-              : `model "${p.model}" unavailable — cloud is disabled (set PIPELINE_ALLOW_CLOUD=1)`
-            missingModels.push(reason)
-          }
-        }
-        if (missingModels.length > 0) {
-          res.status(400).json({ error: "unavailable models in preset", details: missingModels })
-          return
-        }
-        overridePersonas = personas
-      }
-
-      const newRoom = roomManager.createRoom(roomId, name, overridePersonas, effectiveWorkspaceDir, mount)
-      await newRoom.init()
-      hub.broadcast("room", { type: "created", roomId, name, participantCount: newRoom.rosterLength() })
-
-      // Fire goal asynchronously — HTTP responds immediately with status "running".
-      if (goal) {
-        newRoom.submitGoal(goal)
-      }
-
-      const summary = roomManager.getRoomDetails(roomId)!
+      const summary = await provisionRoom({
+        roomId: req.body?.roomId ? String(req.body.roomId) : undefined,
+        name: String(req.body?.name ?? "").trim(),
+        preset: req.body?.preset ? String(req.body.preset).trim() : undefined,
+        goal: req.body?.goal ? String(req.body.goal).trim() : undefined,
+        workspaceDir: req.body?.workspaceDir ? String(req.body.workspaceDir).trim() : undefined,
+      })
       res.status(201).json(summary)
     } catch (err) {
-      // Roll back on any failure after a successful sshfs mount. If the room
-      // made it into the map (init threw), destroyRoom unmounts + removes it
-      // cleanly; otherwise unmount the handler-scoped mount directly. Duplicate
-      // ids are pre-checked above, so a room found here is the one we created.
-      if (roomManager.getRoom(roomId)) {
-        await roomManager.destroyRoom(roomId).catch(() => {})
-      } else if (mount) {
-        await unmountSshfs(mount.mountpoint).catch(() => {})
+      if (err instanceof RoomProvisionError) {
+        const body: { error: string; details?: unknown } = { error: err.message }
+        if (err.details !== undefined) body.details = err.details
+        res.status(err.status).json(body)
+        return
       }
-      const msg = err instanceof Error ? err.message : String(err)
-      res.status(msg.includes("already exists") ? 409 : 500).json({ error: msg })
+      res.status(500).json({ error: err instanceof Error ? err.message : String(err) })
     }
   })
 

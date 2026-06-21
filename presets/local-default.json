@@ -5,7 +5,7 @@
       "id": "scout",
       "name": "Scout",
       "color": "#5DCAA5",
-      "icon": "🔍",
+      "icon": "\ud83d\udd0d",
       "tools": [
         "read",
         "grep",
@@ -24,7 +24,7 @@
       "id": "builder",
       "name": "Builder",
       "color": "#EF9F27",
-      "icon": "🔨",
+      "icon": "\ud83d\udd28",
       "tools": [
         "read",
         "bash",
@@ -41,7 +41,7 @@
       "id": "auditor",
       "name": "Auditor",
       "color": "#AFA9EC",
-      "icon": "🛡️",
+      "icon": "\ud83d\udee1\ufe0f",
       "tools": [
         "read",
         "grep",
@@ -55,7 +55,7 @@
       "id": "scribe",
       "name": "Scribe",
       "color": "#F09975",
-      "icon": "✏️",
+      "icon": "\u270f\ufe0f",
       "tools": [
         "read",
         "write",
@@ -71,12 +71,15 @@
       "id": "planner",
       "name": "Planner",
       "color": "#4A90D9",
-      "icon": "📋",
+      "icon": "\ud83d\udccb",
       "tools": [
         "read",
         "grep",
         "find",
-        "ls"
+        "ls",
+        "spawn_room",
+        "check_room",
+        "destroy_room"
       ],
       "active": true,
       "parallel": false
@@ -85,7 +88,7 @@
       "id": "tester",
       "name": "Tester",
       "color": "#97C459",
-      "icon": "🧪",
+      "icon": "\ud83e\uddea",
       "tools": [
         "read",
         "bash",
@@ -100,7 +103,7 @@
       "id": "fetcher",
       "name": "Fetcher",
       "color": "#5DADE2",
-      "icon": "🌐",
+      "icon": "\ud83c\udf10",
       "tools": [
         "web_read",
         "bash",

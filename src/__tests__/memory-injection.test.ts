@@ -16,19 +16,22 @@ describe("memory injection", () => {
   // ── File existence and size ──────────────────────────────────────────
 
   it("agent memory files exist for all active personas", () => {
-    const expectedAgents = ["Auditor", "Builder", "Fetcher", "Planner", "Scribe", "Scout", "Tester"]
+    const expectedAgents = ["auditor", "builder", "fetcher", "planner", "scribe", "scout", "tester"]
     for (const agent of expectedAgents) {
       const path = join(MEMORY_DIR, `${agent}.md`)
       expect(existsSync(path), `${agent}.md should exist`).toBe(true)
     }
   })
 
-  it("each memory file is under 4KB (injection guard)", () => {
-    const agents = ["Auditor", "Builder", "Fetcher", "Planner", "Scribe", "Scout", "Tester"]
+  it("each memory file is under 32KB (anti-ballooning guard)", () => {
+    // The 4KB injection truncation is tested separately in 'injection truncates files over 4KB'.
+    // This test guards against runaway growth — files naturally grow past 4KB as the scribe
+    // accumulates history, but should never balloon to multi-MB size.
+    const agents = ["auditor", "builder", "fetcher", "planner", "scribe", "scout", "tester"]
     for (const agent of agents) {
       const path = join(MEMORY_DIR, `${agent}.md`)
       const content = readFileSync(path, "utf-8")
-      expect(content.length, `${agent}.md should be under 4KB`).toBeLessThan(4096)
+      expect(content.length, `${agent}.md should be under 32KB`).toBeLessThan(32768)
     }
   })
 
@@ -58,13 +61,13 @@ describe("memory injection", () => {
   }
 
   it("injection produces correct format for existing file", () => {
-    const note = buildMemoryNote("Builder", MEMORY_DIR)
-    expect(note).toContain("YOUR MEMORY (agent_memory/Builder.md):")
+    const note = buildMemoryNote("builder", MEMORY_DIR)
+    expect(note).toContain("YOUR MEMORY (agent_memory/builder.md):")
     expect(note).toContain("---")
     expect(note).toContain("End of memory — updated by the scribe")
     expect(note).toContain("After compaction, this is refreshed")
     // Should contain actual content from the file, not empty
-    const fileContent = readFileSync(join(MEMORY_DIR, "Builder.md"), "utf-8")
+    const fileContent = readFileSync(join(MEMORY_DIR, "builder.md"), "utf-8")
     expect(note).toContain(fileContent.trim().split("\n")[0])
   })
 
@@ -93,7 +96,7 @@ describe("memory injection", () => {
   // ── Content verification ─────────────────────────────────────────────
 
   it("memory files contain meaningful content (not empty)", () => {
-    const agents = ["Auditor", "Builder", "Fetcher", "Planner", "Scribe", "Scout", "Tester"]
+    const agents = ["auditor", "builder", "fetcher", "planner", "scribe", "scout", "tester"]
     for (const agent of agents) {
       const path = join(MEMORY_DIR, `${agent}.md`)
       const content = readFileSync(path, "utf-8").trim()

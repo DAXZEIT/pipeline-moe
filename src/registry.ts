@@ -5,6 +5,7 @@ import { config } from "./config.js"
 import { isAllowedModel as isAllowedModel_ } from "./model.js"
 import { Participant } from "./participant.js"
 import type { ResolvedModel } from "./model.js"
+import type { RoomOrchestrator } from "./orchestrator.js"
 import type { SseHub } from "./sse.js"
 import type { Persona, PersonaState } from "./types.js"
 
@@ -40,6 +41,10 @@ export class Registry {
     /** Logical room this registry belongs to. Tags roster + participant SSE
      *  events so room-filtered clients don't receive another room's roster. */
     private readonly roomId: string = "default",
+    /** Capability surface for spawning sub-rooms. Passed to each participant so
+     *  orchestrator personas (the planner) get spawn/check/destroy_room tools.
+     *  Undefined in tests and before the server wires it up. */
+    private readonly orchestrator?: RoomOrchestrator,
   ) {}
 
   /** Participants that should take part in the loop, in insertion order. */
@@ -87,11 +92,13 @@ export class Registry {
     if (this.participants.has(persona.id)) {
       throw new Error(`participant "${persona.id}" already exists`)
     }
+    console.log(`[Registry.create] persona=${persona.id} has orchestrator=${!!this.orchestrator}`)
     const participant = await Participant.create(
       persona,
       this.resolved,
       (event, data) => this.hub.broadcast(event, data, this.roomId),
       this.workspaceDir,
+      this.orchestrator,
     )
     // Catch a new participant up on everything said so far before its first turn.
     participant.cursor = 0
@@ -123,6 +130,7 @@ export class Registry {
       this.resolved,
       (event, data) => this.hub.broadcast(event, data, this.roomId),
       this.workspaceDir,
+      this.orchestrator,
     )
     replacement.cursor = 0
     replacement.active = wasActive

@@ -15,6 +15,7 @@ import { LocalModelLock } from "./local-model-lock.js"
 import { mountSshfs, unmountSshfs } from "./sshfs.js"
 import type { RoomMount } from "./sshfs.js"
 import type { ResolvedModel } from "./model.js"
+import type { RoomOrchestrator } from "./orchestrator.js"
 import type { Persona } from "./types.js"
 
 export interface RoomSummary {
@@ -60,6 +61,11 @@ export class RoomManager {
   >()
   /** Process-global semaphore for serializing local-model inference across all rooms. */
   private readonly localLock = new LocalModelLock()
+  /** Capability surface for sub-room spawning, injected by the server after
+   *  construction (it closes over preset/mount logic that lives in server.ts).
+   *  Passed to each room's Registry so orchestrator personas get the tools.
+   *  Must be set before createRoom() is called for the tools to be available. */
+  private orchestrator?: RoomOrchestrator
   /** Serializes manifest writes so concurrent room mutations never interleave
    *  two writeFile-to-tmp operations. Each write snapshots the current Map. */
   private saveQueue: Promise<void> = Promise.resolve()
@@ -70,6 +76,11 @@ export class RoomManager {
     private readonly explicitlyEnabledProviders: Set<string>,
     private readonly seedPersonas: Persona[],
   ) {}
+
+  /** Inject the sub-room orchestrator. Call once at startup, before createRoom. */
+  setOrchestrator(orchestrator: RoomOrchestrator): void {
+    this.orchestrator = orchestrator
+  }
 
   /**
    * Create the default room.  Called once at startup in server.ts.
@@ -113,7 +124,7 @@ export class RoomManager {
       ? resolve(workspaceDir.trim())
       : config.workspaceDir
 
-    const registry = new Registry(this.resolved, this.hub, this.explicitlyEnabledProviders, scope, roomId)
+    const registry = new Registry(this.resolved, this.hub, this.explicitlyEnabledProviders, scope, roomId, this.orchestrator)
     const store = new ConversationStore(resolve(config.sessionsDir, roomId))
     const personas = overridePersonas ?? this.seedPersonas
     const room = new Room(

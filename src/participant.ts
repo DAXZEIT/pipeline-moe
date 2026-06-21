@@ -19,6 +19,7 @@ import { config } from "./config.js"
 import { buildConfinedTools } from "./sandbox-tools.js"
 import { buildCustomTools } from "./custom-tools/index.js"
 import { resolveModelRef, type ResolvedModel } from "./model.js"
+import type { RoomOrchestrator } from "./orchestrator.js"
 import type { Persona, ParticipantStatus, ToolActivity } from "./types.js"
 
 /** Cap a tool result/arg to keep SSE frames and persisted transcripts small. */
@@ -109,6 +110,7 @@ export class Participant {
     resolved: ResolvedModel,
     emit: Emit,
     workspaceDir: string = config.workspaceDir,
+    orchestrator?: RoomOrchestrator,
   ): Promise<Participant> {
     const p = new Participant(persona, emit, workspaceDir)
 
@@ -154,10 +156,12 @@ export class Participant {
       // Disable built-in file tools and supply workspace-confined replacements,
       // gated to this persona's allowlist. Keeps all file work inside the workspace.
       noTools: "builtin",
-      customTools: [
-        ...buildConfinedTools(workspaceDir, persona.tools),
-        ...buildCustomTools(persona.tools),
-      ],
+      customTools: (() => {
+        const confined = buildConfinedTools(workspaceDir, persona.tools)
+        const custom = buildCustomTools(persona.tools, { orchestrator })
+        console.log(`[Participant.create] persona=${persona.id} orchestrator=${!!orchestrator} confined=${confined.length} custom=${custom.length} customNames=${custom.map(t => t.name).join(",")}`)
+        return [...confined, ...custom]
+      })(),
       thinkingLevel: persona.thinkingLevel ?? config.thinkingLevel,
       resourceLoader: loader,
       sessionManager: SessionManager.inMemory(workspaceDir),
