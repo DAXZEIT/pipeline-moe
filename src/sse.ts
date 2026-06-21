@@ -56,18 +56,19 @@ export class SseHub {
     res.on("close", () => this.clients.delete(res))
   }
 
-  broadcast(event: SseEventName, data: unknown): void {
+  /**
+   * Broadcast an event to subscribers.
+   * @param roomId  Optional originating room. If set, only clients subscribed to
+   *                that room (or global, unfiltered clients) receive it. If omitted,
+   *                the event reaches everyone — used for process-global events like
+   *                room lifecycle (created/destroyed/renamed).
+   */
+  broadcast(event: SseEventName, data: unknown, roomId?: string): void {
     const frame = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`
-    // Extract roomId from payload if present (only objects carry it — not arrays or primitives).
-    const dataRoomId: string | undefined =
-      data !== null && typeof data === "object" && !Array.isArray(data)
-        ? ((data as Record<string, unknown>).roomId as string | undefined)
-        : undefined
-
     for (const [res, clientRoomId] of this.clients) {
-      // Skip if this client has a room filter AND the event is for a different room.
-      // Events with no roomId in the data (global events, array payloads) go to everyone.
-      if (clientRoomId !== undefined && dataRoomId !== undefined && clientRoomId !== dataRoomId) {
+      // Skip if this client has a room filter AND the event targets a different room.
+      // Events with no roomId (global lifecycle events) reach everyone.
+      if (clientRoomId !== undefined && roomId !== undefined && clientRoomId !== roomId) {
         continue
       }
       try {

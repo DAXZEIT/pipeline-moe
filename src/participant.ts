@@ -35,10 +35,17 @@ function clip(value: unknown, max = 2000): string {
   return s.length > max ? `${s.slice(0, max)}… (+${s.length - max} chars)` : s
 }
 
-const WORKSPACE_NOTE =
-  "Your working directory is the shared workspace. Use workspace-relative paths only " +
-  "(e.g. `notes.md`, `src/app.ts`). Never read or write outside it — absolute paths " +
-  "pointing elsewhere (like your home directory) are denied."
+/** The workspace-scope note, parameterised by the room's actual root directory.
+ *  A room scoped to the pipeline workspace gets the shared-workspace wording;
+ *  a room scoped elsewhere (e.g. another project, or the machine root) is told
+ *  exactly which directory its file tools are confined to. */
+function workspaceNote(root: string): string {
+  return (
+    `Your working directory is ${root}. Use paths relative to it ` +
+    "(e.g. `notes.md`, `src/app.ts`). Never read or write outside it — absolute paths " +
+    "pointing outside this root are denied."
+  )
+}
 
 const ROOM_NOTE =
   "You are one agent in a shared multi-agent chat room. Other agents are addressed by " +
@@ -88,18 +95,26 @@ export class Participant {
   /** Reasoning accumulated during the current turn. */
   private reasoningBuffer = ""
   private readonly emit: Emit
+  /** The directory this participant's file tools are confined to. */
+  private readonly workspaceDir: string
 
-  private constructor(persona: Persona, emit: Emit) {
+  private constructor(persona: Persona, emit: Emit, workspaceDir: string) {
     this.persona = persona
     this.emit = emit
+    this.workspaceDir = workspaceDir
   }
 
-  static async create(persona: Persona, resolved: ResolvedModel, emit: Emit): Promise<Participant> {
-    const p = new Participant(persona, emit)
+  static async create(
+    persona: Persona,
+    resolved: ResolvedModel,
+    emit: Emit,
+    workspaceDir: string = config.workspaceDir,
+  ): Promise<Participant> {
+    const p = new Participant(persona, emit, workspaceDir)
 
     // Read agent memory (if it exists) — injected after the persona prompt.
     // Capped at 4KB to avoid consuming excessive context tokens.
-    const memoryPath = join(config.workspaceDir, "agent_memory", `${persona.id}.md`)
+    const memoryPath = join(workspaceDir, "agent_memory", `${persona.id}.md`)
     let memoryNote = ""
     try {
       await access(memoryPath, constants.R_OK)
@@ -112,13 +127,13 @@ export class Participant {
     }
 
     const loader = new DefaultResourceLoader({
-      cwd: config.workspaceDir,
+      cwd: workspaceDir,
       agentDir: getAgentDir(),
       // Append the persona to pi's default prompt so we keep tool-usage guidance.
       appendSystemPromptOverride: (base: string[]) => [
         ...base,
         persona.systemPrompt,
-        WORKSPACE_NOTE,
+        workspaceNote(workspaceDir),
         ROOM_NOTE,
         ...(memoryNote ? [memoryNote] : []),
       ],
@@ -135,17 +150,17 @@ export class Participant {
     })
 
     const { session } = await createAgentSession({
-      cwd: config.workspaceDir,
+      cwd: workspaceDir,
       // Disable built-in file tools and supply workspace-confined replacements,
       // gated to this persona's allowlist. Keeps all file work inside the workspace.
       noTools: "builtin",
       customTools: [
-        ...buildConfinedTools(config.workspaceDir, persona.tools),
+        ...buildConfinedTools(workspaceDir, persona.tools),
         ...buildCustomTools(persona.tools),
       ],
       thinkingLevel: persona.thinkingLevel ?? config.thinkingLevel,
       resourceLoader: loader,
-      sessionManager: SessionManager.inMemory(config.workspaceDir),
+      sessionManager: SessionManager.inMemory(workspaceDir),
       settingsManager: settings,
       authStorage: resolved.authStorage,
       modelRegistry: resolved.modelRegistry,
@@ -269,7 +284,7 @@ export class Participant {
     const images: Array<{ type: "image"; data: string; mimeType: string }> = []
     for (const relPath of paths) {
       try {
-        const fullPath = join(config.workspaceDir, relPath)
+        const fullPath = join(this.workspaceDir, relPath)
         const buf = readFileSync(fullPath)
         const ext = relPath.split(".").pop()?.toLowerCase()
         const mimeType = ext === "png" ? "image/png" : ext === "gif" ? "image/gif" : ext === "webp" ? "image/webp" : "image/jpeg"

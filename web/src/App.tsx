@@ -1,16 +1,8 @@
 import { useEffect, useRef, useState } from "react"
 import { api, API_BASE } from "./api"
-import { Composer } from "./components/Composer"
-import { ConversationBar } from "./components/ConversationBar"
 import { CreateRoomDialog } from "./components/CreateRoomDialog"
-import { PresetMenu } from "./components/PresetMenu"
-import { ProvidersPanel } from "./components/ProvidersPanel"
-import { Roster } from "./components/Roster"
-import { RoomTabs } from "./components/RoomTabs"
-import { Transcript } from "./components/Transcript"
-import { WorkspacePanel } from "./components/WorkspacePanel"
+import { RoomView } from "./components/RoomView"
 import type { RoomSummary } from "./types"
-import { useRoom } from "./useRoom"
 
 export default function App() {
   const [activeRoomId, setActiveRoomId] = useState("default")
@@ -89,100 +81,22 @@ export default function App() {
     setShowCreateDialog(false)
   }
 
-  // The active room's hook — key={activeRoomId} in the container forces full remount on switch.
-  const room = useRoom(activeRoomId)
-
   return (
     <div className="app">
-      <aside className="sidebar">
-        <Roster
-          roster={room.roster}
-          connected={room.connected}
-          defaultAgent={room.defaultAgent}
-          turnActive={room.turnActive}
-          onSetActive={room.setActive}
-          onSetParallel={room.setParallel}
-          onSetDefault={room.setDefaultAgent}
-          onKick={room.kick}
-          onCompact={room.compactAgent}
-          onCreate={room.createParticipant}
-          onReorder={room.reorderParticipants}
-        />
-
-        <ProvidersPanel
-          providers={room.providers}
-          _explicitlyEnabled={room.explicitlyEnabled}
-          onAdd={room.addProvider}
-          onRemove={room.removeProvider}
-          onLogin={room.loginProvider}
-        />
-      </aside>
-
-      <main className="center" key={activeRoomId}>
-        <RoomTabs
-          rooms={rooms}
-          activeRoomId={activeRoomId}
-          onSwitch={setActiveRoomId}
-          onCreateRoom={() => setShowCreateDialog(true)}
-          onDestroyRoom={handleDestroyRoom}
-          onRenameRoom={handleRenameRoom}
-        />
-
-        <header className="topbar">
-          <span className="brand">Pipeline-MoE</span>
-          <ConversationBar
-            conversations={room.conversations}
-            currentId={room.currentConversationId}
-            turnActive={room.turnActive}
-            onSwitch={room.loadConversation}
-            onNew={room.newConversation}
-            onRename={room.renameConversation}
-            onDelete={room.deleteConversation}
-          />
-          <PresetMenu turnActive={room.turnActive} />
-          <span className="topbar-sub">{room.turnActive ? "agents running…" : "ready"}</span>
-          <button
-            className={`chain-toggle ${room.chaining ? "on" : ""}`}
-            onClick={() => room.setChaining(!room.chaining)}
-            title="When on, agents can summon each other via @mentions"
-          >
-            ⟳ chaining {room.chaining ? "on" : "off"}
-          </button>
-          {room.chaining && (
-            <label className="chain-hops" title="Max chain hops per turn (1–100)">
-              hops
-              <input
-                type="number"
-                min={1}
-                max={100}
-                value={room.maxChainHops}
-                onChange={(e) => room.setMaxChainHops(Number(e.target.value))}
-              />
-            </label>
-          )}
-        </header>
-        <Transcript
-          messages={room.messages}
-          streaming={room.streaming}
-          liveActivity={room.liveActivity}
-          liveReasoning={room.liveReasoning}
-          receipts={room.receipts}
-          roster={room.roster}
-        />
-        <Composer
-          roster={room.roster}
-          turnActive={room.turnActive}
-          runningAgentId={room.runningAgentId}
-          paused={room.paused}
-          pausedQuestion={room.pausedQuestion ?? null}
-          pausedAskerId={room.pausedAskerId ?? null}
-          onSend={room.send}
-          onAbort={room.abort}
-          onSteer={room.steer}
-        />
-      </main>
-
-      <WorkspacePanel files={room.workspace} />
+      {/* key={activeRoomId} forces a full unmount/remount on room switch: the
+          old room's useRoom hook (SSE stream, state, callbacks) is torn down
+          and a fresh one mounts. No shared hook instance = no cross-room turn
+          relaunch. App itself never remounts, so global SSE + rooms state and
+          the create dialog persist across switches. */}
+      <RoomView
+        key={activeRoomId}
+        roomId={activeRoomId}
+        rooms={rooms}
+        onSwitch={setActiveRoomId}
+        onCreateRoom={() => setShowCreateDialog(true)}
+        onDestroyRoom={handleDestroyRoom}
+        onRenameRoom={handleRenameRoom}
+      />
 
       {showCreateDialog && (
         <CreateRoomDialog
@@ -190,14 +104,6 @@ export default function App() {
           onCreated={handleRoomCreated}
         />
       )}
-
-      <div className="notices">
-        {room.notices.map((n) => (
-          <div key={n.id} className={`notice notice-${n.level}`}>
-            {n.msg}
-          </div>
-        ))}
-      </div>
     </div>
   )
 }

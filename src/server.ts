@@ -5,9 +5,9 @@
 // them via a serial queue, and streams everything to the UI over SSE.
 
 import { createHash } from "node:crypto"
-import { access, mkdir, readdir, readFile, unlink, writeFile } from "node:fs/promises"
+import { access, mkdir, readdir, readFile, stat, unlink, writeFile } from "node:fs/promises"
 import { readFileSync } from "node:fs"
-import { extname, join } from "node:path"
+import { extname, join, resolve } from "node:path"
 import cors from "cors"
 import rateLimit from "express-rate-limit"
 import express, { Router } from "express"
@@ -18,6 +18,7 @@ import { BASE_PROMPT, BUILDER_OVERLAY, PLANNER_OVERLAY, SEED_PERSONAS } from "./
 import { Room } from "./room.js"
 import { RoomManager } from "./room-manager.js"
 import { SseHub } from "./sse.js"
+import { isSshTarget, mountSshfs, unmountSshfs, type RoomMount } from "./sshfs.js"
 import type { Persona, PersonaState } from "./types.js"
 import { parsePersona, VALID_TOOLS } from "./validation.js"
 
@@ -261,6 +262,12 @@ async function main(): Promise<void> {
   await seedDefaultPresets()
   console.log(`[room] roster: ${registry.roster().length} participants`)
 
+  // Re-create rooms that were created in a previous run. The Map is in-memory;
+  // the manifest (sessions/rooms.json) is the durable record. Default room is
+  // already created above — restoreRooms only adds the others (and restores a
+  // renamed default name). sshfs rooms are re-mounted here.
+  await roomManager.restoreRooms()
+
   const app = express()
   app.use(cors({ origin: config.corsOrigins }))
   app.use(express.json({ limit: "5mb" }))
@@ -421,10 +428,16 @@ async function main(): Promise<void> {
   })
 
   // SSE stream of all room events.
+  // Global (unfiltered) SSE stream. Consumed by App.tsx for process-wide `room`
+  // lifecycle events (created/destroyed/renamed/goal-*), which are broadcast
+  // without a roomId and so must reach a non-room-filtered subscriber. Per-room
+  // UI state uses /api/rooms/:roomId/events instead.
   app.get("/api/events", (_req, res) => {
     hub.addClient(res)
-    // Send the current roster immediately so a fresh client can render.
-    hub.broadcast("roster", registry.roster())
+    // Write the current roster directly to *this* connecting client. Using
+    // hub.broadcast() here would push the default room's roster to every
+    // room-filtered client, clobbering their roster on any new connection.
+    res.write(`event: roster\ndata: ${JSON.stringify(registry.roster())}\n\n`)
   })
 
   app.get("/api/participants", (_req, res) => {
@@ -1014,8 +1027,52 @@ async function main(): Promise<void> {
     }
     const rawId = String(req.body?.roomId ?? "").trim().replace(/[^a-zA-Z0-9_-]/g, "")
     const roomId = rawId || `room-${Date.now().toString(36)}`
+    // Reject a duplicate roomId *before* any sshfs mount. The mountpoint is
+    // derived from roomId, so mounting for a duplicate would collide with the
+    // existing room's mountpoint and leak (createRoom would then throw with the
+    // mount already live and unrecorded). Fail fast here instead.
+    if (roomManager.getRoom(roomId)) {
+      res.status(409).json({ error: `Room "${roomId}" already exists` })
+      return
+    }
     const presetName = req.body?.preset ? String(req.body.preset).trim() : undefined
     const goal = req.body?.goal ? String(req.body.goal).trim() : undefined
+    // Optional per-room scope: a directory the room's agents are confined to.
+    // Empty/absent = the pipeline workspace (default, backward-compatible).
+    // May be a local path OR an sshfs target (user@host:/path).
+    const workspaceDir = req.body?.workspaceDir ? String(req.body.workspaceDir).trim() : undefined
+    // For sshfs rooms: the local mountpoint passed to createRoom, plus the mount
+    // metadata so destroyRoom() can unmount. Undefined for local-path rooms.
+    let effectiveWorkspaceDir = workspaceDir
+    let mount: RoomMount | undefined
+    if (workspaceDir && isSshTarget(workspaceDir)) {
+      // Remote scope: mount it now. Mounting can fail (auth, unreachable host,
+      // bad remote path, sshfs missing) — surface a 400 before the room exists.
+      try {
+        const mountpoint = await mountSshfs(roomId, workspaceDir)
+        effectiveWorkspaceDir = mountpoint
+        mount = { mountpoint, sshTarget: workspaceDir }
+      } catch (err) {
+        res.status(400).json({ error: err instanceof Error ? err.message : String(err) })
+        return
+      }
+    } else if (workspaceDir) {
+      // Local scope: fail fast on a bad path. A typo'd or non-directory path
+      // would silently produce a broken room (empty listing, bash cwd that
+      // doesn't exist). We require the directory to already exist rather than
+      // creating it — creating a mistyped path litters the filesystem.
+      const scope = resolve(workspaceDir)
+      try {
+        const st = await stat(scope)
+        if (!st.isDirectory()) {
+          res.status(400).json({ error: `workspaceDir "${scope}" is not a directory` })
+          return
+        }
+      } catch {
+        res.status(400).json({ error: `workspaceDir "${scope}" does not exist` })
+        return
+      }
+    }
     try {
       // Resolve preset roster if requested.
       let overridePersonas: PersonaState[] | undefined
@@ -1047,7 +1104,7 @@ async function main(): Promise<void> {
         overridePersonas = personas
       }
 
-      const newRoom = roomManager.createRoom(roomId, name, overridePersonas)
+      const newRoom = roomManager.createRoom(roomId, name, overridePersonas, effectiveWorkspaceDir, mount)
       await newRoom.init()
       hub.broadcast("room", { type: "created", roomId, name, participantCount: newRoom.rosterLength() })
 
@@ -1059,18 +1116,28 @@ async function main(): Promise<void> {
       const summary = roomManager.getRoomDetails(roomId)!
       res.status(201).json(summary)
     } catch (err) {
+      // Roll back on any failure after a successful sshfs mount. If the room
+      // made it into the map (init threw), destroyRoom unmounts + removes it
+      // cleanly; otherwise unmount the handler-scoped mount directly. Duplicate
+      // ids are pre-checked above, so a room found here is the one we created.
+      if (roomManager.getRoom(roomId)) {
+        await roomManager.destroyRoom(roomId).catch(() => {})
+      } else if (mount) {
+        await unmountSshfs(mount.mountpoint).catch(() => {})
+      }
       const msg = err instanceof Error ? err.message : String(err)
       res.status(msg.includes("already exists") ? 409 : 500).json({ error: msg })
     }
   })
 
-  app.delete("/api/rooms/:roomId", (req, res) => {
+  app.delete("/api/rooms/:roomId", async (req, res) => {
     const { roomId } = req.params
     if (roomId === "default") {
       res.status(400).json({ error: "cannot delete the default room" })
       return
     }
-    const removed = roomManager.destroyRoom(roomId)
+    // destroyRoom unmounts the room's sshfs mount (if any) before removal.
+    const removed = await roomManager.destroyRoom(roomId)
     if (!removed) {
       res.status(404).json({ error: `room "${roomId}" not found` })
       return
@@ -1217,6 +1284,12 @@ async function main(): Promise<void> {
     res.json(roomOf(req).getTranscript())
   })
 
+  // Room-scoped workspace listing: initial snapshot for the WorkspacePanel.
+  // Live updates arrive over SSE; this serves the first paint per room.
+  roomRouter.get("/workspace", async (req, res) => {
+    res.json(await listWorkspace(roomOf(req).getWorkspaceDir()))
+  })
+
   roomRouter.get("/settings", (req, res) => {
     const r = roomOf(req)
     res.json({ chaining: r.getChaining(), defaultAgent: r.getDefaultAgent(), fallbackAgent: r.getFallbackAgent(), maxChainHops: r.getMaxChainHops() })
@@ -1359,9 +1432,11 @@ async function main(): Promise<void> {
     }
   })
 
-  // Per-room SSE stream — filtered to only this room's events.
-  // Array-typed events (roster, transcript) carry no roomId tag and are sent to all subscribers;
-  // for the initial state we write directly to the response.
+  // Per-room SSE stream — filtered to only this room's events via the roomId
+  // passed to addClient(). Every room-scoped broadcast carries its roomId param
+  // (object and array payloads alike), so the hub delivers only this room's
+  // events here, plus global events that carry no roomId (room lifecycle, etc.).
+  // The initial roster/transcript snapshot is written directly to this response.
   roomRouter.get("/events", (req, res) => {
     const r = roomOf(req)
     hub.addClient(res, r.roomId) // register with room filter
@@ -1425,9 +1500,12 @@ async function main(): Promise<void> {
     console.log(`[server] workspace: ${config.workspaceDir}`)
   })
 
-  const shutdown = () => {
+  const shutdown = async () => {
     console.log("\n[server] shutting down…")
     registry.disposeAll()
+    // Unmount any sshfs-scoped rooms so a normal shutdown leaves no orphaned
+    // FUSE mounts. Best-effort — never block shutdown on a failed unmount.
+    await roomManager.cleanupAllMounts().catch(() => {})
     server.close(() => process.exit(0))
     setTimeout(() => process.exit(0), 2000).unref()
   }

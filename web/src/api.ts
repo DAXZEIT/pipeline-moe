@@ -253,7 +253,7 @@ export const api = {
   listRooms: () =>
     fetch(`${API_BASE}/api/rooms`).then((r) => json<RoomSummary[]>(r)),
 
-  createRoom: (body: { name: string; roomId?: string; preset?: string; goal?: string }) =>
+  createRoom: (body: { name: string; roomId?: string; preset?: string; goal?: string; workspaceDir?: string }) =>
     fetch(`${API_BASE}/api/rooms`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },

@@ -14,6 +14,10 @@ export const config = {
   /** This stack is local-only by policy. Cloud models are hidden from the model
    *  picker and rejected on personas unless this is explicitly turned on. */
   allowCloud: /^(1|true|yes)$/i.test(process.env.PIPELINE_ALLOW_CLOUD ?? ""),
+  /** Circuit breaker (repetition + tool-loop detection). Defaults ON. Set
+   *  PIPELINE_CIRCUIT_BREAKER=0 to disable — useful with cloud models that
+   *  legitimately repeat output, where the breaker stops loops for no reason. */
+  circuitBreaker: !/^(0|false|no)$/i.test(process.env.PIPELINE_CIRCUIT_BREAKER ?? "true"),
   thinkingLevel: (process.env.PIPELINE_THINKING ?? "medium") as
     | "off"
     | "minimal"

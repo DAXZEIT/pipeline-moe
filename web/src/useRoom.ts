@@ -21,7 +21,11 @@ export function useRoom(roomId?: string) {
   // so this must recompute when the prefix changes — otherwise every API call
   // would stay pinned to the first room's prefix while SSE alone tracks the switch.
   const rApi = useMemo(() => makeRoomApi(prefix), [prefix])
-  const sseUrl = `${API_BASE}${prefix}/events`
+  // SSE must always be room-scoped — even the default room. /api/events is the
+  // unfiltered global stream; subscribing the default room there leaks every
+  // other room's roster/status events into it. The /api/rooms/:id/events route
+  // resolves "default" too (the default room is registered under that id).
+  const sseUrl = `${API_BASE}/api/rooms/${roomId || "default"}/events`
   const [roster, setRoster] = useState<RosterItem[]>([])
   const [messages, setMessages] = useState<Message[]>([])
   const [streaming, setStreaming] = useState<Record<string, string>>({})
@@ -92,7 +96,9 @@ export function useRoom(roomId?: string) {
     }).catch(() => {})
   }, [rApi])
 
-  // SSE stream — connects to the room-scoped endpoint or global /api/events for the default room.
+  // SSE stream — always the room-scoped endpoint (sseUrl is /api/rooms/:id/events
+  // for every room, including "default"). Global /api/events is consumed only by
+  // App.tsx, for room-lifecycle events.
   useEffect(() => {
     const es = new EventSource(sseUrl)
     es.onopen = () => setConnected(true)

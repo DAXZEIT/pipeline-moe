@@ -1,6 +1,7 @@
 // The participant registry: the live roster of agents. Create / activate /
 // deactivate / kick all happen here. Emits a "roster" SSE event on any change.
 
+import { config } from "./config.js"
 import { isAllowedModel as isAllowedModel_ } from "./model.js"
 import { Participant } from "./participant.js"
 import type { ResolvedModel } from "./model.js"
@@ -33,6 +34,12 @@ export class Registry {
     private readonly hub: SseHub,
     /** Providers the user has explicitly enabled via /api/providers. */
     private readonly explicitlyEnabledProviders: Set<string> = new Set(),
+    /** Directory each participant's file tools are confined to. Defaults to the
+     *  pipeline workspace; per-room scopes override it. */
+    private readonly workspaceDir: string = config.workspaceDir,
+    /** Logical room this registry belongs to. Tags roster + participant SSE
+     *  events so room-filtered clients don't receive another room's roster. */
+    private readonly roomId: string = "default",
   ) {}
 
   /** Participants that should take part in the loop, in insertion order. */
@@ -73,15 +80,18 @@ export class Registry {
   }
 
   broadcastRoster(): void {
-    this.hub.broadcast("roster", this.roster())
+    this.hub.broadcast("roster", this.roster(), this.roomId)
   }
 
   async create(persona: Persona, active = true, parallel = false): Promise<Participant> {
     if (this.participants.has(persona.id)) {
       throw new Error(`participant "${persona.id}" already exists`)
     }
-    const participant = await Participant.create(persona, this.resolved, (event, data) =>
-      this.hub.broadcast(event, data),
+    const participant = await Participant.create(
+      persona,
+      this.resolved,
+      (event, data) => this.hub.broadcast(event, data, this.roomId),
+      this.workspaceDir,
     )
     // Catch a new participant up on everything said so far before its first turn.
     participant.cursor = 0
@@ -108,8 +118,11 @@ export class Registry {
     // rather than mutating the running one. cursor=0 → it replays the room
     // transcript on its next turn with the new persona.
     existing.dispose()
-    const replacement = await Participant.create(persona, this.resolved, (event, data) =>
-      this.hub.broadcast(event, data),
+    const replacement = await Participant.create(
+      persona,
+      this.resolved,
+      (event, data) => this.hub.broadcast(event, data, this.roomId),
+      this.workspaceDir,
     )
     replacement.cursor = 0
     replacement.active = wasActive

@@ -95,6 +95,13 @@ export class Room {
     readonly roomId: string = "default",
     /** Optional process-global lock for serializing local-model inference across rooms. */
     private readonly localLock?: LocalModelLock,
+    /** Whether the repetition/tool-loop circuit breaker is active. Defaults to
+     *  config.circuitBreaker (ON). Disabled for cloud models that legitimately repeat. */
+    private readonly circuitBreakerEnabled: boolean = config.circuitBreaker,
+    /** Directory this room is scoped to: where file tools are confined, bash runs,
+     *  work receipts snapshot, and the workspace listing looks. Defaults to the
+     *  pipeline workspace. */
+    private readonly workspaceDir: string = config.workspaceDir,
   ) {}
 
   /** Broadcast wrapper: tags object payloads with roomId; arrays pass through unmodified. */
@@ -103,11 +110,16 @@ export class Room {
       data !== null && typeof data === "object" && !Array.isArray(data)
         ? { roomId: this.roomId, ...(data as Record<string, unknown>) }
         : data
-    this.hub.broadcast(event, payload)
+    this.hub.broadcast(event, payload, this.roomId)
   }
 
   getTranscript(): TranscriptEntry[] {
     return this.transcript
+  }
+
+  /** The directory this room's agents are scoped to (file tools, bash cwd, receipts). */
+  getWorkspaceDir(): string {
+    return this.workspaceDir
   }
 
   /** Number of participants (active + inactive) in this room's registry. */
@@ -396,7 +408,7 @@ export class Room {
     this.transcript.push(entry)
 
     // Circuit breaker — only for agents, not user
-    if (author !== "user" && this.checkRepetition(author, text)) {
+    if (this.circuitBreakerEnabled && author !== "user" && this.checkRepetition(author, text)) {
       this.aborted = true
       this.circuitBreakerAgentId = author
       const msg = `Circuit breaker: @${authorName} repeated similar output ${REPEAT_THRESHOLD} times — stopping.`
@@ -405,7 +417,7 @@ export class Room {
     }
 
     // Tool-call loop breaker — detect repeated identical tool calls
-    if (author !== "user" && activity && activity.length > 0 && !this.aborted) {
+    if (this.circuitBreakerEnabled && author !== "user" && activity && activity.length > 0 && !this.aborted) {
       const result = checkToolLoop(this.transcript, author, activity)
       if (result.tripped) {
         this.aborted = true
@@ -460,7 +472,7 @@ export class Room {
       this.emit("room", { type: "goal-completed", goalText: this.goalText })
     }
     this.emit("turn", { phase: "end" })
-    this.emit("workspace", await listWorkspace(config.workspaceDir))
+    this.emit("workspace", await listWorkspace(this.workspaceDir))
   }
 
   /** Steer a running agent mid-turn. Posts a (steered) notice to the transcript
@@ -575,7 +587,7 @@ export class Room {
       this.aborted = false
       const paused = await this.drainQueue()
       if (paused) {
-        this.emit("workspace", await listWorkspace(config.workspaceDir))
+        this.emit("workspace", await listWorkspace(this.workspaceDir))
         await this.saveCurrent()
         return
       }
@@ -603,7 +615,7 @@ export class Room {
         this.queue = pq.heldQueue
         const paused = await this.drainQueue()
         if (paused) {
-          this.emit("workspace", await listWorkspace(config.workspaceDir))
+          this.emit("workspace", await listWorkspace(this.workspaceDir))
           await this.saveCurrent()
           return
         }
@@ -628,7 +640,7 @@ export class Room {
         if (result.question) {
           this.pendingQuestion = { askerId: asker.persona.id, heldQueue: pq.heldQueue }
           this.emit("turn", { phase: "pause", askerId: asker.persona.id, question: result.question })
-          this.emit("workspace", await listWorkspace(config.workspaceDir))
+          this.emit("workspace", await listWorkspace(this.workspaceDir))
           await this.saveCurrent()
           return
         }
@@ -672,7 +684,7 @@ export class Room {
       this.queue = pq.heldQueue
       const paused = await this.drainQueue()
       if (paused) {
-        this.emit("workspace", await listWorkspace(config.workspaceDir))
+        this.emit("workspace", await listWorkspace(this.workspaceDir))
         await this.saveCurrent()
         return
       }
@@ -700,7 +712,7 @@ export class Room {
     // Drain the queue — shared method handles questions, chaining, and parallel waves.
     const paused = await this.drainQueue()
     if (paused) {
-      this.emit("workspace", await listWorkspace(config.workspaceDir))
+      this.emit("workspace", await listWorkspace(this.workspaceDir))
       await this.saveCurrent()
       return
     }
@@ -740,7 +752,7 @@ export class Room {
       this.runningAgentId = fb.persona.id
       const recovered = await this.drainQueue()
       if (recovered) {
-        this.emit("workspace", await listWorkspace(config.workspaceDir))
+        this.emit("workspace", await listWorkspace(this.workspaceDir))
         await this.saveCurrent()
         return
       }
@@ -810,7 +822,7 @@ export class Room {
     context: { text: string; images?: string[] },
     mode: "prompt" | "followUp",
   ): Promise<RunOutput | null> {
-    const before = await snapshot(config.workspaceDir)
+    const before = await snapshot(this.workspaceDir)
     this.running.add(target)
     // Acquire the local-model lock only for local agents (cloud agents bypass).
     const isLocal = this.laneOf(target) === "local"
@@ -824,7 +836,7 @@ export class Room {
         ? await target.run(context.text, context.images)
         : await target.followUp(context.text, context.images)
       if (this.aborted) return null
-      const after = await snapshot(config.workspaceDir)
+      const after = await snapshot(this.workspaceDir)
 
       // Broadcast context usage and session stats after the turn — piggyback on status event.
       // The idle status already fires from Participant.run() finally block;

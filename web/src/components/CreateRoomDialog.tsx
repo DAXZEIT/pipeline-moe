@@ -11,6 +11,7 @@ export function CreateRoomDialog({ onClose, onCreated }: Props) {
   const [name, setName] = useState("")
   const [presetName, setPresetName] = useState("")
   const [goal, setGoal] = useState("")
+  const [workspaceDir, setWorkspaceDir] = useState("")
   const [presets, setPresets] = useState<PresetFile[]>([])
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -30,6 +31,7 @@ export function CreateRoomDialog({ onClose, onCreated }: Props) {
         name: trimmedName,
         ...(presetName ? { preset: presetName } : {}),
         ...(goal.trim() ? { goal: goal.trim() } : {}),
+        ...(workspaceDir.trim() ? { workspaceDir: workspaceDir.trim() } : {}),
       })
       onCreated(room)
     } catch (err) {
@@ -76,6 +78,21 @@ export function CreateRoomDialog({ onClose, onCreated }: Props) {
                 <option key={p.name} value={p.name}>{p.name}</option>
               ))}
             </select>
+          </label>
+
+          <label className="dialog-field">
+            <span>Working directory <span className="muted">(optional — default: pipeline workspace)</span></span>
+            <input
+              type="text"
+              className="dialog-input"
+              placeholder="/home/dax/projects/foo  or  dax@10.0.0.1:/home/dax/foo"
+              value={workspaceDir}
+              onChange={(e) => setWorkspaceDir(e.target.value)}
+            />
+            <span className="dialog-hint muted">
+              Local path, or a remote <code>user@host:/path</code> (mounted over SSHFS —
+              files are remote, but commands still run locally).
+            </span>
           </label>
 
           <label className="dialog-field">

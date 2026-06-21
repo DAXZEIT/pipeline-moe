@@ -1,7 +1,11 @@
 import { afterEach, beforeEach, describe, expect, test } from "vitest"
+import { resolve } from "node:path"
+import { mkdtempSync, rmSync } from "node:fs"
+import { tmpdir } from "node:os"
 import { Room } from "../room.js"
 import { RoomManager } from "../room-manager.js"
 import { SseHub } from "../sse.js"
+import { config } from "../config.js"
 import { REPEAT_THRESHOLD } from "../circuit-breaker.js"
 import type { Persona, PersonaState } from "../types.js"
 
@@ -209,6 +213,8 @@ describe("Room goal state machine", () => {
 describe("RoomManager — goal support", () => {
   let hub: SseHub
   let manager: RoomManager
+  let suiteTmp: string
+  const realSessionsDir = config.sessionsDir
 
   function makeResolvedModel() {
     return {
@@ -224,8 +230,15 @@ describe("RoomManager — goal support", () => {
   }
 
   beforeEach(() => {
+    suiteTmp = mkdtempSync(resolve(tmpdir(), "room-goals-"))
+    ;(config as { sessionsDir: string }).sessionsDir = suiteTmp
     hub = new SseHub(1)
     manager = new RoomManager(makeResolvedModel(), hub, new Set(), [])
+  })
+
+  afterEach(() => {
+    ;(config as { sessionsDir: string }).sessionsDir = realSessionsDir
+    rmSync(suiteTmp, { recursive: true, force: true })
   })
 
   test("overridePersonas replaces seedPersonas entirely", () => {

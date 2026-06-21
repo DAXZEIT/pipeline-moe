@@ -1544,6 +1544,19 @@ body {
   border-color: var(--accent);
 }
 
+.dialog-hint {
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.dialog-hint code {
+  font-family: var(--mono, monospace);
+  font-size: 10.5px;
+  background: var(--bg3);
+  padding: 1px 4px;
+  border-radius: 3px;
+}
+
 .dialog-textarea {
   resize: vertical;
   min-height: 60px;

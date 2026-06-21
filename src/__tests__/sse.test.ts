@@ -149,13 +149,18 @@ function makeMockRes() {
   return { res, writes }
 }
 
+// Filtering is driven by the explicit roomId *parameter* on broadcast(), not by
+// inspecting the payload. Payloads here deliberately omit roomId to prove the
+// param alone decides delivery — array payloads (roster) used to bypass the old
+// payload-inspection filter entirely, which was the cross-room leak bug.
+
 test("global subscriber receives all events regardless of roomId", () => {
   const hub = new SseHub()
   const { res, writes } = makeMockRes()
   hub.addClient(res) // no roomId — global
 
-  hub.broadcast("message", { roomId: "room-a", text: "hello" })
-  hub.broadcast("message", { roomId: "room-b", text: "world" })
+  hub.broadcast("message", { text: "hello" }, "room-a")
+  hub.broadcast("message", { text: "world" }, "room-b")
 
   expect(writes).toHaveLength(2)
 })
@@ -165,11 +170,27 @@ test("room-filtered subscriber only receives matching roomId events", () => {
   const { res, writes } = makeMockRes()
   hub.addClient(res, "room-a") // filter to room-a
 
-  hub.broadcast("message", { roomId: "room-a", text: "for room-a" })
-  hub.broadcast("message", { roomId: "room-b", text: "for room-b" })
+  hub.broadcast("message", { text: "for room-a" }, "room-a")
+  hub.broadcast("message", { text: "for room-b" }, "room-b")
 
   expect(writes).toHaveLength(1)
   expect(writes[0]).toContain("for room-a")
+})
+
+test("array payload (roster) is filtered by the roomId param, not bypassed", () => {
+  // Regression: roster broadcasts are arrays. The old filter extracted roomId
+  // from object payloads only, so arrays leaked to every room-filtered client,
+  // clobbering one room's roster with another's. The explicit param fixes this.
+  const hub = new SseHub()
+  const { res, writes } = makeMockRes()
+  hub.addClient(res, "room-a")
+
+  hub.broadcast("roster", [{ id: "planner" }], "room-a") // arrives
+  hub.broadcast("roster", [{ id: "builder" }], "room-b") // filtered out
+
+  expect(writes).toHaveLength(1)
+  expect(writes[0]).toContain("planner")
+  expect(writes[0]).not.toContain("builder")
 })
 
 test("room-filtered subscriber receives events with no roomId (global events)", () => {
@@ -177,12 +198,12 @@ test("room-filtered subscriber receives events with no roomId (global events)", 
   const { res, writes } = makeMockRes()
   hub.addClient(res, "room-a")
 
-  // Event with no roomId (e.g. providers, oauth_progress)
+  // Event with no roomId param (e.g. providers, oauth_progress, room lifecycle)
   hub.broadcast("providers", { providers: [] })
   // Event for a different room — should be filtered out
-  hub.broadcast("message", { roomId: "room-b", text: "other room" })
+  hub.broadcast("message", { text: "other room" }, "room-b")
   // Event for this room — should arrive
-  hub.broadcast("turn", { roomId: "room-a", phase: "end" })
+  hub.broadcast("turn", { phase: "end" }, "room-a")
 
   expect(writes).toHaveLength(2) // providers + room-a turn
   expect(writes[0]).toContain("providers")
@@ -196,8 +217,8 @@ test("multiple room-filtered subscribers are isolated from each other", () => {
   hub.addClient(resA, "room-a")
   hub.addClient(resB, "room-b")
 
-  hub.broadcast("status", { roomId: "room-a", id: "planner", status: "idle" })
-  hub.broadcast("status", { roomId: "room-b", id: "builder", status: "working" })
+  hub.broadcast("status", { id: "planner", status: "idle" }, "room-a")
+  hub.broadcast("status", { id: "builder", status: "working" }, "room-b")
 
   expect(writesA).toHaveLength(1)
   expect(writesA[0]).toContain("planner")
@@ -212,8 +233,8 @@ test("global and room-filtered subscribers coexist", () => {
   hub.addClient(globalRes)           // global
   hub.addClient(roomRes, "room-a")   // room-filtered
 
-  hub.broadcast("message", { roomId: "room-a", text: "A" })
-  hub.broadcast("message", { roomId: "room-b", text: "B" })
+  hub.broadcast("message", { text: "A" }, "room-a")
+  hub.broadcast("message", { text: "B" }, "room-b")
 
   // Global subscriber gets both
   expect(globalWrites).toHaveLength(2)
