@@ -122,6 +122,15 @@ export interface PresetFile {
   personas: PresetPersona[]
 }
 
+/** A room listed by GET /api/rooms. */
+export interface RoomSummary {
+  roomId: string
+  name: string
+  participantCount: number
+  goalStatus: string
+  goalText: string | null
+}
+
 /** A provider listed by GET /api/providers. */
 export interface ProviderInfo {
   name: string

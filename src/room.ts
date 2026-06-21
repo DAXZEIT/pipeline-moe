@@ -8,7 +8,8 @@ import type { Registry } from "./registry.js"
 import type { Participant } from "./participant.js"
 import type { ConversationStore } from "./store.js"
 import { conversationMeta } from "./store.js"
-import type { SseHub } from "./sse.js"
+import type { SseHub, SseEventName } from "./sse.js"
+import type { LocalModelLock } from "./local-model-lock.js"
 import { REPEAT_THRESHOLD, SIMILARITY_FLOOR, textSimilarity, LOOKBACK_WINDOW, checkToolLoop, TOOL_REPEAT_THRESHOLD } from "./circuit-breaker.js"
 import type {
   Conversation,
@@ -72,6 +73,12 @@ export class Room {
   private defaultAgentId: string | null = null
   /** Agent that receives routing fallback when no agent is @-mentioned in a reply. null = disabled. */
   private fallbackAgentId: string | null = "planner"
+  /** Agent whose circuit breaker tripped — used for fallback recovery routing. null = no breaker event. */
+  private circuitBreakerAgentId: string | null = null
+  /** Goal prompt if this room was started with a goal; null for interactive rooms. */
+  private goalText: string | null = null
+  /** Lifecycle status for goal-driven rooms. */
+  private goalStatus: "idle" | "running" | "completed" | "failed" = "idle"
 
   // ── Current conversation identity ──────────────────────────────────────────
   private convId = newConvId()
@@ -84,10 +91,43 @@ export class Room {
     private readonly hub: SseHub,
     private readonly store: ConversationStore,
     private readonly seedPersonas: Persona[],
+    /** Logical room identifier — included in all SSE broadcasts for future room-scoped filtering. */
+    readonly roomId: string = "default",
+    /** Optional process-global lock for serializing local-model inference across rooms. */
+    private readonly localLock?: LocalModelLock,
   ) {}
+
+  /** Broadcast wrapper: tags object payloads with roomId; arrays pass through unmodified. */
+  private emit(event: SseEventName, data: unknown): void {
+    const payload =
+      data !== null && typeof data === "object" && !Array.isArray(data)
+        ? { roomId: this.roomId, ...(data as Record<string, unknown>) }
+        : data
+    this.hub.broadcast(event, payload)
+  }
 
   getTranscript(): TranscriptEntry[] {
     return this.transcript
+  }
+
+  /** Number of participants (active + inactive) in this room's registry. */
+  rosterLength(): number {
+    return this.registry.roster().length
+  }
+
+  getGoalText(): string | null { return this.goalText }
+  getGoalStatus(): "idle" | "running" | "completed" | "failed" { return this.goalStatus }
+
+  /** Start a goal-driven pipeline run. Sets goalText/status and fires the first turn. */
+  submitGoal(text: string): void {
+    this.goalText = text
+    this.goalStatus = "running"
+    this.submit(text)
+  }
+
+  /** Expose the registry for server-side route handlers. */
+  getRegistry(): Registry {
+    return this.registry
   }
 
   getChaining(): boolean {
@@ -135,7 +175,7 @@ export class Room {
   }
 
   private broadcastSettings(): void {
-    this.hub.broadcast("settings", { chaining: this.chaining, defaultAgent: this.defaultAgentId, fallbackAgent: this.fallbackAgentId, maxChainHops: this.maxChainHops })
+    this.emit("settings", { chaining: this.chaining, defaultAgent: this.defaultAgentId, fallbackAgent: this.fallbackAgentId, maxChainHops: this.maxChainHops })
   }
 
   // ── Conversation lifecycle ──────────────────────────────────────────────────
@@ -195,7 +235,7 @@ export class Room {
   }
 
   private async broadcastConversations(): Promise<void> {
-    this.hub.broadcast("conversations", {
+    this.emit("conversations", {
       currentId: this.convId,
       list: await this.store.list(),
     })
@@ -221,7 +261,7 @@ export class Room {
     this.transcript = []
     this.defaultAgentId = null // fresh discussion → first active is the default
     await this.registry.reset(personas)
-    this.hub.broadcast("transcript", this.transcript)
+    this.emit("transcript", this.transcript)
     this.broadcastSettings()
     await this.saveCurrent()
   }
@@ -250,7 +290,7 @@ export class Room {
     // transcript on its next turn — its fresh session has no prior memory.
     this.transcript = conv.transcript.map((e) => ({ ...e }))
     this.broadcastSettings()
-    this.hub.broadcast("transcript", this.transcript)
+    this.emit("transcript", this.transcript)
     if (healed) {
       this.notice(`"${conv.title}" had an empty roster — restored the seed agents.`, "info")
       await this.saveCurrent() // make the repair stick on disk
@@ -358,9 +398,10 @@ export class Room {
     // Circuit breaker — only for agents, not user
     if (author !== "user" && this.checkRepetition(author, text)) {
       this.aborted = true
+      this.circuitBreakerAgentId = author
       const msg = `Circuit breaker: @${authorName} repeated similar output ${REPEAT_THRESHOLD} times — stopping.`
       this.notice(msg, "error")
-      this.hub.broadcast("circuit_breaker", { agentId: author, agentName: authorName, count: REPEAT_THRESHOLD })
+      this.emit("circuit_breaker", { agentId: author, agentName: authorName, count: REPEAT_THRESHOLD })
     }
 
     // Tool-call loop breaker — detect repeated identical tool calls
@@ -368,14 +409,15 @@ export class Room {
       const result = checkToolLoop(this.transcript, author, activity)
       if (result.tripped) {
         this.aborted = true
+        this.circuitBreakerAgentId = author
         const sig = result.signature ?? "unknown"
         const msg = `Circuit breaker: @${authorName} repeated tool call "${sig}" ${result.count} times — stopping.`
         this.notice(msg, "error")
-        this.hub.broadcast("circuit_breaker", { agentId: author, agentName: authorName, count: result.count, type: "tool_loop", signature: sig })
+        this.emit("circuit_breaker", { agentId: author, agentName: authorName, count: result.count, type: "tool_loop", signature: sig })
       }
     }
 
-    this.hub.broadcast("message", entry)
+    this.emit("message", entry)
     return entry
   }
 
@@ -406,14 +448,19 @@ export class Room {
   }
 
   private notice(msg: string, level: "info" | "error" = "info"): void {
-    this.hub.broadcast("notice", { msg, level })
+    this.emit("notice", { msg, level })
   }
 
   /** End the current turn — clears runningAgentId and broadcasts turn end. */
   private async endTurn(): Promise<void> {
     this.runningAgentId = null
-    this.hub.broadcast("turn", { phase: "end" })
-    this.hub.broadcast("workspace", await listWorkspace(config.workspaceDir))
+    // Natural turn completion: if a goal was running, mark it completed.
+    if (this.goalText !== null && this.goalStatus === "running") {
+      this.goalStatus = "completed"
+      this.emit("room", { type: "goal-completed", goalText: this.goalText })
+    }
+    this.emit("turn", { phase: "end" })
+    this.emit("workspace", await listWorkspace(config.workspaceDir))
   }
 
   /** Steer a running agent mid-turn. Posts a (steered) notice to the transcript
@@ -528,7 +575,7 @@ export class Room {
       this.aborted = false
       const paused = await this.drainQueue()
       if (paused) {
-        this.hub.broadcast("workspace", await listWorkspace(config.workspaceDir))
+        this.emit("workspace", await listWorkspace(config.workspaceDir))
         await this.saveCurrent()
         return
       }
@@ -546,7 +593,7 @@ export class Room {
       this.pendingQuestion = null
 
       this.post("user", "You", trimmed, undefined, undefined, images)
-      this.hub.broadcast("turn", { phase: "resume", askerId: pq.askerId })
+      this.emit("turn", { phase: "resume", askerId: pq.askerId })
       this.aborted = false
 
       // Force-route to the agent that asked the question.
@@ -556,7 +603,7 @@ export class Room {
         this.queue = pq.heldQueue
         const paused = await this.drainQueue()
         if (paused) {
-          this.hub.broadcast("workspace", await listWorkspace(config.workspaceDir))
+          this.emit("workspace", await listWorkspace(config.workspaceDir))
           await this.saveCurrent()
           return
         }
@@ -574,14 +621,14 @@ export class Room {
       if (result && !this.aborted) {
         // Post with question field if the asker asked another question.
         this.post(asker.persona.id, asker.persona.name, result.reply || "(no response)", result.activity, result.reasoning, undefined, result.question)
-        if (receiptHasChanges(result.receipt)) this.hub.broadcast("receipt", result.receipt)
+        if (receiptHasChanges(result.receipt)) this.emit("receipt", result.receipt)
         asker.cursor = this.transcript.length
 
         // If the asker asked ANOTHER question, re-pause.
         if (result.question) {
           this.pendingQuestion = { askerId: asker.persona.id, heldQueue: pq.heldQueue }
-          this.hub.broadcast("turn", { phase: "pause", askerId: asker.persona.id, question: result.question })
-          this.hub.broadcast("workspace", await listWorkspace(config.workspaceDir))
+          this.emit("turn", { phase: "pause", askerId: asker.persona.id, question: result.question })
+          this.emit("workspace", await listWorkspace(config.workspaceDir))
           await this.saveCurrent()
           return
         }
@@ -593,7 +640,7 @@ export class Room {
             if (this.chainBudget < this.maxChainHops) {
               this.chainBudget += next.length
               this.queue.push(...next)
-              this.hub.broadcast("turn", { phase: "chain", from: asker.persona.id, targets: next.map((t) => t.persona.id) })
+              this.emit("turn", { phase: "chain", from: asker.persona.id, targets: next.map((t) => t.persona.id) })
             } else {
               this.notice(`Chain budget exhausted (${this.maxChainHops} hops) — stopping.`, "info")
             }
@@ -607,7 +654,7 @@ export class Room {
               this.chainBudget += 1
               pq.heldQueue.push(fb)
               this.notice(`No handoff detected — routing to @${this.fallbackAgentId}`, "info")
-              this.hub.broadcast("turn", { phase: "chain", from: asker.persona.id, targets: [this.fallbackAgentId] })
+              this.emit("turn", { phase: "chain", from: asker.persona.id, targets: [this.fallbackAgentId] })
               await fb.sendCustomMessage(
                 {
                   customType: "routing_fallback",
@@ -625,7 +672,7 @@ export class Room {
       this.queue = pq.heldQueue
       const paused = await this.drainQueue()
       if (paused) {
-        this.hub.broadcast("workspace", await listWorkspace(config.workspaceDir))
+        this.emit("workspace", await listWorkspace(config.workspaceDir))
         await this.saveCurrent()
         return
       }
@@ -646,17 +693,66 @@ export class Room {
 
     this.queue = [...initial]
     this.aborted = false
+    this.circuitBreakerAgentId = null
     this.runningAgentId = initial[0]?.persona.id ?? null
-    this.hub.broadcast("turn", { phase: "start", targets: initial.map((t) => t.persona.id), agentId: this.runningAgentId })
+    this.emit("turn", { phase: "start", targets: initial.map((t) => t.persona.id), agentId: this.runningAgentId })
 
     // Drain the queue — shared method handles questions, chaining, and parallel waves.
     const paused = await this.drainQueue()
     if (paused) {
-      this.hub.broadcast("workspace", await listWorkspace(config.workspaceDir))
+      this.emit("workspace", await listWorkspace(config.workspaceDir))
       await this.saveCurrent()
       return
     }
 
+    // Circuit breaker recovery: if the breaker tripped and a fallback agent
+    // is configured (and is not the looping agent), route to it instead of
+    // silently dying. Loop up to MAX_RECOVERY_DEPTH times to handle cases where
+    // the looping agent re-enters after the fallback hands back to it.
+    const MAX_RECOVERY_DEPTH = 2
+    let recoveryDepth = 0
+    while (
+      this.aborted &&
+      this.circuitBreakerAgentId &&
+      this.fallbackAgentId &&
+      this.circuitBreakerAgentId !== this.fallbackAgentId &&
+      recoveryDepth < MAX_RECOVERY_DEPTH
+    ) {
+      recoveryDepth++
+      const fb = this.registry.get(this.fallbackAgentId)
+      if (!fb || !fb.active) break
+      const depthNote = MAX_RECOVERY_DEPTH > 1 ? ` (recovery ${recoveryDepth}/${MAX_RECOVERY_DEPTH})` : ""
+      this.notice(`Circuit breaker tripped on @${this.circuitBreakerAgentId} — routing to @${this.fallbackAgentId} for recovery${depthNote}.`, "info")
+      this.emit("turn", { phase: "chain", from: this.circuitBreakerAgentId, targets: [this.fallbackAgentId] })
+      // Inject recovery context so the fallback agent knows why it's being called.
+      await fb.sendCustomMessage(
+        {
+          customType: "circuit_breaker_recovery",
+          content: `(Circuit breaker tripped on @${this.circuitBreakerAgentId} — it looped. Take over: assess the situation, assign work to another agent by @-mentioning them in your last paragraph, or declare the work done if appropriate. Do not attempt the same action that caused the loop.)`,
+          display: false,
+        },
+        { deliverAs: "nextTurn" },
+      )
+      // Reset abort state and resume draining with the fallback agent.
+      this.aborted = false
+      this.circuitBreakerAgentId = null
+      this.queue = [fb]
+      this.runningAgentId = fb.persona.id
+      const recovered = await this.drainQueue()
+      if (recovered) {
+        this.emit("workspace", await listWorkspace(config.workspaceDir))
+        await this.saveCurrent()
+        return
+      }
+      // If drainQueue exited without pause, loop to check if another circuit breaker fired.
+    }
+
+    // Goal failure: circuit breaker tripped without recovery. Set before endTurn so
+    // endTurn's completion guard doesn't overwrite the failure status.
+    if (this.aborted && this.goalText !== null && this.goalStatus === "running") {
+      this.goalStatus = "failed"
+      this.emit("room", { type: "goal-failed", goalText: this.goalText })
+    }
     this.queue = []
     await this.endTurn()
     await this.saveCurrent()
@@ -716,7 +812,14 @@ export class Room {
   ): Promise<RunOutput | null> {
     const before = await snapshot(config.workspaceDir)
     this.running.add(target)
+    // Acquire the local-model lock only for local agents (cloud agents bypass).
+    const isLocal = this.laneOf(target) === "local"
+    let lockAcquired = false
     try {
+      if (isLocal && this.localLock) {
+        await this.localLock.acquire()
+        lockAcquired = true
+      }
       const result = mode === "prompt"
         ? await target.run(context.text, context.images)
         : await target.followUp(context.text, context.images)
@@ -732,7 +835,7 @@ export class Room {
         const payload: Record<string, unknown> = { id: target.persona.id, status: "idle" }
         if (usage) payload.contextUsage = usage
         if (stats) payload.sessionStats = stats
-        this.hub.broadcast("status", payload)
+        this.emit("status", payload)
       }
 
       return {
@@ -751,6 +854,7 @@ export class Room {
       target.cursor = this.transcript.length
       return null
     } finally {
+      if (lockAcquired) this.localLock?.release()
       this.running.delete(target)
     }
   }
@@ -1031,7 +1135,7 @@ export class Room {
       const group = this.nextGroup()
       if (group.length > 1) {
         this.notice(`running ${group.length} in parallel: ${group.map((g) => `@${g.persona.id}`).join(" ")}`)
-        this.hub.broadcast("turn", { phase: "parallel", targets: group.map((g) => g.persona.id) })
+        this.emit("turn", { phase: "parallel", targets: group.map((g) => g.persona.id) })
       }
 
       const results = await this.runWave(group)
@@ -1054,7 +1158,7 @@ export class Room {
 
         // Post the result (with question field if applicable).
         this.post(out.target.persona.id, out.target.persona.name, out.reply || "(no response)", out.activity, out.reasoning, undefined, out.question)
-        if (receiptHasChanges(out.receipt)) this.hub.broadcast("receipt", out.receipt)
+        if (receiptHasChanges(out.receipt)) this.emit("receipt", out.receipt)
         out.target.cursor = this.transcript.length
 
         // Chain from this reply (even if it had a question — the question is
@@ -1065,7 +1169,7 @@ export class Room {
             if (this.chainBudget < this.maxChainHops) {
               this.chainBudget += next.length
               this.queue.push(...next)
-              this.hub.broadcast("turn", { phase: "chain", from: out.target.persona.id, targets: next.map((t) => t.persona.id) })
+              this.emit("turn", { phase: "chain", from: out.target.persona.id, targets: next.map((t) => t.persona.id) })
             } else {
               this.notice(`Chain budget exhausted (${this.maxChainHops} hops) — stopping.`, "info")
             }
@@ -1080,7 +1184,7 @@ export class Room {
               this.chainBudget += 1
               this.queue.push(fb)
               this.notice(`No handoff detected — routing to @${this.fallbackAgentId}`, "info")
-              this.hub.broadcast("turn", { phase: "chain", from: out.target.persona.id, targets: [this.fallbackAgentId] })
+              this.emit("turn", { phase: "chain", from: out.target.persona.id, targets: [this.fallbackAgentId] })
               // Inject routing context so the fallback agent knows why it's being called.
               await fb.sendCustomMessage(
                 {
@@ -1108,7 +1212,7 @@ export class Room {
       if (paused) {
         this.pendingQuestion = { askerId: pauseAskerId!, heldQueue: [...this.queue] }
         this.queue = []
-        this.hub.broadcast("turn", { phase: "pause", askerId: pauseAskerId!, question: pauseQuestion! })
+        this.emit("turn", { phase: "pause", askerId: pauseAskerId!, question: pauseQuestion! })
         return true
       }
     }

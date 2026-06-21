@@ -352,7 +352,14 @@ export class Participant {
     this.setStatus("active")
     try {
       const images = await this.resolveImages(imagePaths)
-      await this.session.followUp(text, images.length > 0 ? images : undefined)
+      // session.followUp() only delivers when the agent is currently streaming.
+      // After ask_user (terminate=true) the session is idle — the followUp message
+      // would be queued but never processed. Use prompt() for idle sessions instead.
+      if (!this.session.isStreaming) {
+        await this.session.prompt(text, images.length > 0 ? { images } : undefined)
+      } else {
+        await this.session.followUp(text, images.length > 0 ? images : undefined)
+      }
       const result: TurnResult = {
         text: this.buffer.trim(),
         activity: [...this.activity.values()],

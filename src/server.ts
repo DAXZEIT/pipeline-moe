@@ -10,15 +10,14 @@ import { readFileSync } from "node:fs"
 import { extname, join } from "node:path"
 import cors from "cors"
 import rateLimit from "express-rate-limit"
-import express from "express"
+import express, { Router } from "express"
 import { config } from "./config.js"
 import { isAllowedModel, listModels, resolveModel, type ResolvedModel } from "./model.js"
 import { listWorkspace } from "./receipts.js"
 import { BASE_PROMPT, BUILDER_OVERLAY, PLANNER_OVERLAY, SEED_PERSONAS } from "./personas.js"
-import { Registry } from "./registry.js"
 import { Room } from "./room.js"
+import { RoomManager } from "./room-manager.js"
 import { SseHub } from "./sse.js"
-import { ConversationStore } from "./store.js"
 import type { Persona, PersonaState } from "./types.js"
 import { parsePersona, VALID_TOOLS } from "./validation.js"
 
@@ -253,9 +252,9 @@ async function main(): Promise<void> {
   // appear in listModels() even when PIPELINE_ALLOW_CLOUD is false.
   const explicitlyEnabledProviders = new Set<string>()
 
-  const registry = new Registry(resolved, hub, explicitlyEnabledProviders)
-  const store = new ConversationStore()
-  const room = new Room(registry, hub, store, SEED_PERSONAS)
+  const roomManager = new RoomManager(resolved, hub, explicitlyEnabledProviders, SEED_PERSONAS)
+  const room = roomManager.createDefaultRoom()
+  const registry = room.getRegistry()
 
   // Load the most recent saved discussion, or seed a fresh one.
   await room.init()
@@ -961,6 +960,465 @@ async function main(): Promise<void> {
       }
     }
   })
+
+  // ── Room management API ─────────────────────────────────────────────────
+
+  /** Resolve the room for this request — falls back to "default" if roomId absent. */
+  function roomOf(req: any): Room {
+    const id = (req.params?.roomId as string | undefined) ?? "default"
+    const r = roomManager.getRoom(id)
+    if (!r) throw new Error(`room "${id}" not found`)
+    return r
+  }
+
+  /** Middleware: verify room exists before handing off to a route handler. */
+  function requireRoom(req: any, res: any, next: any): void {
+    try { roomOf(req); next() } catch { res.status(404).json({ error: `room "${req.params?.roomId}" not found` }) }
+  }
+
+  // Room CRUD — process-global (not room-scoped)
+  app.get("/api/rooms", (_req, res) => {
+    res.json(roomManager.listRooms())
+  })
+
+  app.get("/api/rooms/:roomId", (req, res) => {
+    const details = roomManager.getRoomDetails(req.params.roomId)
+    if (!details) {
+      res.status(404).json({ error: `room "${req.params.roomId}" not found` })
+      return
+    }
+    res.json(details)
+  })
+
+  app.patch("/api/rooms/:roomId", (req, res) => {
+    const { roomId } = req.params
+    const name = String(req.body?.name ?? "").trim()
+    if (!name) {
+      res.status(400).json({ error: "`name` is required" })
+      return
+    }
+    const renamed = roomManager.renameRoom(roomId, name)
+    if (!renamed) {
+      res.status(404).json({ error: `room "${roomId}" not found` })
+      return
+    }
+    hub.broadcast("room", { type: "renamed", roomId, name })
+    res.json({ roomId, name })
+  })
+
+  app.post("/api/rooms", async (req, res) => {
+    const name = String(req.body?.name ?? "").trim()
+    if (!name) {
+      res.status(400).json({ error: "`name` is required" })
+      return
+    }
+    const rawId = String(req.body?.roomId ?? "").trim().replace(/[^a-zA-Z0-9_-]/g, "")
+    const roomId = rawId || `room-${Date.now().toString(36)}`
+    const presetName = req.body?.preset ? String(req.body.preset).trim() : undefined
+    const goal = req.body?.goal ? String(req.body.goal).trim() : undefined
+    try {
+      // Resolve preset roster if requested.
+      let overridePersonas: PersonaState[] | undefined
+      if (presetName) {
+        const presetFile = await readPreset(presetName)
+        if (!presetFile) {
+          res.status(404).json({ error: `preset "${presetName}" not found` })
+          return
+        }
+        const personas = rehydratePrompts(presetFile.personas)
+        if (personas.length === 0) {
+          res.status(400).json({ error: `preset "${presetName}" has no personas` })
+          return
+        }
+        // Validate model availability.
+        const missingModels: string[] = []
+        for (const p of personas) {
+          if (p.model && !isAllowedModel(resolved, p.model, explicitlyEnabledProviders)) {
+            const reason = config.allowCloud
+              ? `model "${p.model}" not found`
+              : `model "${p.model}" unavailable — cloud is disabled (set PIPELINE_ALLOW_CLOUD=1)`
+            missingModels.push(reason)
+          }
+        }
+        if (missingModels.length > 0) {
+          res.status(400).json({ error: "unavailable models in preset", details: missingModels })
+          return
+        }
+        overridePersonas = personas
+      }
+
+      const newRoom = roomManager.createRoom(roomId, name, overridePersonas)
+      await newRoom.init()
+      hub.broadcast("room", { type: "created", roomId, name, participantCount: newRoom.rosterLength() })
+
+      // Fire goal asynchronously — HTTP responds immediately with status "running".
+      if (goal) {
+        newRoom.submitGoal(goal)
+      }
+
+      const summary = roomManager.getRoomDetails(roomId)!
+      res.status(201).json(summary)
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      res.status(msg.includes("already exists") ? 409 : 500).json({ error: msg })
+    }
+  })
+
+  app.delete("/api/rooms/:roomId", (req, res) => {
+    const { roomId } = req.params
+    if (roomId === "default") {
+      res.status(400).json({ error: "cannot delete the default room" })
+      return
+    }
+    const removed = roomManager.destroyRoom(roomId)
+    if (!removed) {
+      res.status(404).json({ error: `room "${roomId}" not found` })
+      return
+    }
+    hub.broadcast("room", { type: "destroyed", roomId })
+    res.status(204).end()
+  })
+
+  // ── Room-scoped router (/api/rooms/:roomId/*) ─────────────────────────────
+  // Mirrors the legacy /api/* routes but resolves room dynamically via roomOf().
+  // Existing /api/* routes are unchanged — backward compat is preserved.
+
+  const roomRouter = Router({ mergeParams: true })
+
+  roomRouter.get("/participants", (req, res) => {
+    res.json(roomOf(req).getRegistry().roster())
+  })
+
+  roomRouter.post("/participants", async (req, res) => {
+    const reg = roomOf(req).getRegistry()
+    try {
+      const persona = parsePersona(req.body ?? {})
+      if (reg.has(persona.id)) {
+        res.status(409).json({ error: `participant "${persona.id}" already exists` })
+        return
+      }
+      await reg.create(persona)
+      res.status(201).json(reg.roster().find((r) => r.id === persona.id))
+    } catch (err) {
+      res.status(400).json({ error: err instanceof Error ? err.message : String(err) })
+    }
+  })
+
+  roomRouter.post("/participants/reorder", (req, res) => {
+    const order = req.body?.order
+    if (!Array.isArray(order) || !order.every((x: unknown) => typeof x === "string")) {
+      res.status(400).json({ error: "`order` must be an array of participant ids" })
+      return
+    }
+    const reg = roomOf(req).getRegistry()
+    reg.reorder(order as string[])
+    res.json(reg.roster())
+  })
+
+  roomRouter.get("/participants/:id", (req, res) => {
+    const p = roomOf(req).getRegistry().get(req.params.id)
+    if (!p) {
+      res.status(404).json({ error: `unknown participant "${req.params.id}"` })
+      return
+    }
+    res.json({ ...p.persona, availableThinkingLevels: p.getAvailableThinkingLevels() })
+  })
+
+  roomRouter.patch("/participants/:id", async (req, res) => {
+    const r = roomOf(req)
+    const reg = r.getRegistry()
+    const { id } = req.params
+    if (!reg.has(id)) {
+      res.status(404).json({ error: `unknown participant "${id}"` })
+      return
+    }
+    const body = req.body ?? {}
+    const patch: Record<string, unknown> = {}
+    if (typeof body.name === "string" && body.name.trim()) patch.name = body.name.trim()
+    if (typeof body.systemPrompt === "string" && body.systemPrompt.trim())
+      patch.systemPrompt = body.systemPrompt.trim()
+    if (typeof body.color === "string") patch.color = body.color
+    if (typeof body.icon === "string") patch.icon = body.icon
+    if (Array.isArray(body.tools))
+      patch.tools = body.tools.map(String).filter((t: string) => VALID_TOOLS.has(t))
+    const VALID_THINKING = new Set(["off", "minimal", "low", "medium", "high", "xhigh"])
+    if ("thinkingLevel" in body) {
+      const tv = body.thinkingLevel
+      if (tv === null || tv === "") {
+        patch.thinkingLevel = undefined
+      } else if (typeof tv === "string" && VALID_THINKING.has(tv)) {
+        patch.thinkingLevel = tv
+      } else {
+        res.status(400).json({ error: `invalid thinkingLevel "${String(tv)}" — must be one of: off, minimal, low, medium, high, xhigh` })
+        return
+      }
+    }
+    if ("model" in body) {
+      const mv = body.model
+      if (mv === null || mv === "") {
+        patch.model = undefined
+      } else if (typeof mv === "string" && isAllowedModel(resolved, mv, explicitlyEnabledProviders)) {
+        patch.model = mv
+      } else {
+        res.status(400).json({
+          error: config.allowCloud
+            ? `unknown model "${String(mv)}"`
+            : `model "${String(mv)}" unavailable — cloud is disabled (set PIPELINE_ALLOW_CLOUD=1 to enable)`,
+        })
+        return
+      }
+    }
+    if ("compactionInstructions" in body) {
+      const ci = body.compactionInstructions
+      if (ci === null || ci === "") {
+        patch.compactionInstructions = undefined
+      } else if (typeof ci === "string" && ci.length <= 500) {
+        patch.compactionInstructions = ci
+      } else if (typeof ci === "string") {
+        res.status(400).json({ error: `compactionInstructions too long (${ci.length} chars, max 500)` })
+        return
+      } else {
+        res.status(400).json({ error: "compactionInstructions must be a string" })
+        return
+      }
+    }
+    try {
+      if (typeof body.active === "boolean") reg.setActive(id, body.active)
+      if (typeof body.parallel === "boolean") reg.setParallel(id, body.parallel)
+      if (Object.keys(patch).length > 0) {
+        if (Object.keys(patch).length === 1 && "thinkingLevel" in patch && patch.thinkingLevel !== undefined) {
+          await reg.setThinkingLevel(id, patch.thinkingLevel as "off" | "minimal" | "low" | "medium" | "high" | "xhigh")
+        } else {
+          if (r.isBusy()) {
+            res.status(409).json({ error: "a turn is running — press Stop before editing an agent" })
+            return
+          }
+          await reg.update(id, patch)
+        }
+      }
+      res.json(reg.roster().find((ri) => ri.id === id))
+    } catch (err) {
+      res.status(400).json({ error: err instanceof Error ? err.message : String(err) })
+    }
+  })
+
+  roomRouter.delete("/participants/:id", (req, res) => {
+    const reg = roomOf(req).getRegistry()
+    const { id } = req.params
+    if (!reg.has(id)) {
+      res.status(404).json({ error: `unknown participant "${id}"` })
+      return
+    }
+    reg.kick(id)
+    res.status(204).end()
+  })
+
+  roomRouter.get("/transcript", (req, res) => {
+    res.json(roomOf(req).getTranscript())
+  })
+
+  roomRouter.get("/settings", (req, res) => {
+    const r = roomOf(req)
+    res.json({ chaining: r.getChaining(), defaultAgent: r.getDefaultAgent(), fallbackAgent: r.getFallbackAgent(), maxChainHops: r.getMaxChainHops() })
+  })
+
+  roomRouter.patch("/settings", (req, res) => {
+    const r = roomOf(req)
+    const body = req.body ?? {}
+    if ("chaining" in body) {
+      if (typeof body.chaining !== "boolean") {
+        res.status(400).json({ error: "`chaining` must be a boolean" })
+        return
+      }
+      r.setChaining(body.chaining)
+    }
+    if ("defaultAgent" in body) {
+      const da = body.defaultAgent
+      if (da !== null && typeof da !== "string") {
+        res.status(400).json({ error: "`defaultAgent` must be a string id or null" })
+        return
+      }
+      try { r.setDefaultAgent(da) } catch (err) {
+        res.status(404).json({ error: err instanceof Error ? err.message : String(err) })
+        return
+      }
+    }
+    if ("fallbackAgent" in body) {
+      const fa = body.fallbackAgent
+      if (fa !== null && typeof fa !== "string") {
+        res.status(400).json({ error: "`fallbackAgent` must be a string id or null" })
+        return
+      }
+      try { r.setFallbackAgent(fa) } catch (err) {
+        res.status(404).json({ error: err instanceof Error ? err.message : String(err) })
+        return
+      }
+    }
+    if ("maxChainHops" in body) {
+      const n = body.maxChainHops
+      if (typeof n !== "number" || n < 1 || n > 100) {
+        res.status(400).json({ error: "`maxChainHops` must be a number between 1 and 100" })
+        return
+      }
+      r.setMaxChainHops(n)
+    }
+    res.json({ chaining: r.getChaining(), defaultAgent: r.getDefaultAgent(), fallbackAgent: r.getFallbackAgent(), maxChainHops: r.getMaxChainHops() })
+  })
+
+  roomRouter.post("/messages", rateLimit({ windowMs: 60_000, max: 60, standardHeaders: true, legacyHeaders: false }), async (req, res) => {
+    const text = String(req.body?.text ?? "").trim()
+    if (!text) {
+      res.status(400).json({ error: "`text` is required" })
+      return
+    }
+    const images = await saveIncomingImages(req.body?.images)
+    roomOf(req).submit(text, images.length > 0 ? images : undefined)
+    res.status(202).json({ accepted: true })
+  })
+
+  roomRouter.post("/messages/steer", async (req, res) => {
+    const { text, target } = req.body
+    if (!text || !target) {
+      res.status(400).json({ error: "`text` and `target` are required" })
+      return
+    }
+    try {
+      await roomOf(req).steer(target, String(text).trim())
+      res.json({ ok: true, target, text: String(text).trim() })
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      if (msg.includes("not running") || msg.includes("cannot steer")) {
+        res.status(409).json({ error: msg })
+      } else if (msg.includes("unknown participant")) {
+        res.status(404).json({ error: msg })
+      } else {
+        res.status(500).json({ error: msg })
+      }
+    }
+  })
+
+  roomRouter.post("/abort", async (req, res) => {
+    const aborted = await roomOf(req).abortCurrent()
+    res.json({ aborted })
+  })
+
+  roomRouter.post("/participants/:id/compact", async (req, res) => {
+    const r = roomOf(req)
+    const p = r.getRegistry().get(req.params.id)
+    if (!p) {
+      res.status(404).json({ error: `unknown participant "${req.params.id}"` })
+      return
+    }
+    if (r.isBusy()) {
+      res.status(409).json({ error: "a turn is running — press Stop before compacting" })
+      return
+    }
+    try {
+      const result = await p.compact()
+      res.json(result)
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : String(err) })
+    }
+  })
+
+  roomRouter.get("/participants/:id/export", async (req, res) => {
+    const p = roomOf(req).getRegistry().get(req.params.id)
+    if (!p) {
+      res.status(404).json({ error: `unknown participant "${req.params.id}"` })
+      return
+    }
+    try {
+      const filePath = await p.exportToHtml()
+      const html = readFileSync(filePath, "utf-8")
+      const timestamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, -5)
+      const filename = `${req.params.id}-${timestamp}.html`
+      res.setHeader("Content-Type", "text/html; charset=utf-8")
+      res.setHeader("Content-Disposition", `attachment; filename="${filename}"`)
+      res.send(html)
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : String(err) })
+    }
+  })
+
+  roomRouter.get("/participants/:id/export-jsonl", (req, res) => {
+    const p = roomOf(req).getRegistry().get(req.params.id)
+    if (!p) {
+      res.status(404).json({ error: `unknown participant "${req.params.id}"` })
+      return
+    }
+    try {
+      const filePath = p.exportToJsonl()
+      const jsonl = readFileSync(filePath, "utf-8")
+      const timestamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, -5)
+      const filename = `${req.params.id}-${timestamp}.jsonl`
+      res.setHeader("Content-Type", "application/x-ndjson; charset=utf-8")
+      res.setHeader("Content-Disposition", `attachment; filename="${filename}"`)
+      res.send(jsonl)
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : String(err) })
+    }
+  })
+
+  // Per-room SSE stream — filtered to only this room's events.
+  // Array-typed events (roster, transcript) carry no roomId tag and are sent to all subscribers;
+  // for the initial state we write directly to the response.
+  roomRouter.get("/events", (req, res) => {
+    const r = roomOf(req)
+    hub.addClient(res, r.roomId) // register with room filter
+    // Deliver initial state directly to this client (bypasses broadcast filter)
+    const roster = r.getRegistry().roster()
+    res.write(`event: roster\ndata: ${JSON.stringify(roster)}\n\n`)
+    res.write(`event: transcript\ndata: ${JSON.stringify(r.getTranscript())}\n\n`)
+  })
+
+  roomRouter.get("/conversations", async (req, res) => {
+    res.json(await roomOf(req).getConversations())
+  })
+
+  roomRouter.post("/conversations", async (req, res) => {
+    try {
+      const title = req.body?.title ? String(req.body.title) : undefined
+      res.status(201).json(await roomOf(req).newConversation(title))
+    } catch (err) {
+      res.status(409).json({ error: err instanceof Error ? err.message : String(err) })
+    }
+  })
+
+  roomRouter.post("/conversations/:id/load", async (req, res) => {
+    try {
+      await roomOf(req).switchConversation(req.params.id)
+      res.json({ ok: true })
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      res.status(msg.includes("unknown") ? 404 : 409).json({ error: msg })
+    }
+  })
+
+  roomRouter.patch("/conversations/:id", async (req, res) => {
+    const title = String(req.body?.title ?? "").trim()
+    if (!title) {
+      res.status(400).json({ error: "`title` is required" })
+      return
+    }
+    try {
+      await roomOf(req).renameConversation(req.params.id, title)
+      res.json({ ok: true })
+    } catch (err) {
+      res.status(404).json({ error: err instanceof Error ? err.message : String(err) })
+    }
+  })
+
+  roomRouter.delete("/conversations/:id", async (req, res) => {
+    try {
+      await roomOf(req).deleteConversation(req.params.id)
+      res.status(204).end()
+    } catch (err) {
+      res.status(409).json({ error: err instanceof Error ? err.message : String(err) })
+    }
+  })
+
+  // Mount the room-scoped router. CRUD routes above must come before this.
+  app.use("/api/rooms/:roomId", requireRoom, roomRouter)
 
   const server = app.listen(config.port, "127.0.0.1", () => {
     console.log(`[server] Pipeline-MoE listening on http://localhost:${config.port}`)

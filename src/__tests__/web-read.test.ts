@@ -38,7 +38,7 @@ describe("web_read tool", () => {
     expect(tool.name).toBe("web_read")
     expect(tool.label).toBe("Web Read")
     expect(tool.description).toContain("Jina Reader")
-    expect(tool.description).toContain("8000 chars")
+    expect(tool.description).toContain("16000 chars")
   })
 
   test("returns formatted markdown content", async () => {
@@ -52,16 +52,16 @@ describe("web_read tool", () => {
     expect((result.content[0] as { text: string }).text).toContain("Some content here")
   })
 
-  test("truncates content over 8000 chars", async () => {
-    const longContent = "A".repeat(9000)
+  test("truncates content over 16000 chars", async () => {
+    const longContent = "A".repeat(17000)
     mockJinaResponse("Long Page", longContent, "https://example.com/long")
 
     const result = await tool.execute("tc1", { url: "https://example.com/long" }, undefined, undefined, {} as any)
     expect((result.content[0] as { text: string }).text).toContain("[content truncated")
-    expect((result.content[0] as { text: string }).text).toContain("9000 chars total")
+    expect((result.content[0] as { text: string }).text).toContain("17000 chars total")
   })
 
-  test("does not truncate content under 8000 chars", async () => {
+  test("does not truncate content under 16000 chars", async () => {
     mockJinaResponse("Short Page", "Just some content", "https://example.com/short")
 
     const result = await tool.execute("tc1", { url: "https://example.com/short" }, undefined, undefined, {} as any)

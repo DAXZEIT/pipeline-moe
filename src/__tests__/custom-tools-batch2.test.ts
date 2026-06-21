@@ -90,8 +90,8 @@ describe("web_read tool", () => {
     expect((result.content[0] as { text: string }).text).toContain("This is the article content")
   })
 
-  test("truncates content over 8000 chars with length note", async () => {
-    const longContent = "A".repeat(10000)
+  test("truncates content over 16000 chars with length note", async () => {
+    const longContent = "A".repeat(18000)
     mockFetch.mockResolvedValueOnce({
       ok: true,
       json: async () => ({
@@ -104,7 +104,7 @@ describe("web_read tool", () => {
     const result = await tool.execute("tc1", { url: "https://example.com" }, undefined, undefined, {} as any)
     const text = (result.content[0] as { text: string }).text
     expect(text).toContain("content truncated")
-    expect(text).toContain("10000 chars total")
+    expect(text).toContain("18000 chars total")
   })
 
   test("short content is not truncated", async () => {

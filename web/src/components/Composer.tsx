@@ -6,6 +6,9 @@ interface Props {
   roster: RosterItem[]
   turnActive: boolean
   runningAgentId: string | null
+  paused: boolean
+  pausedQuestion: string | null
+  pausedAskerId: string | null
   onSend: (text: string, images?: string[]) => void
   onAbort: () => void
   onSteer: (text: string, target: string) => void
@@ -40,7 +43,7 @@ function fileToDataUri(file: File): Promise<string> {
   })
 }
 
-export function Composer({ roster, turnActive, runningAgentId, onSend, onAbort, onSteer }: Props) {
+export function Composer({ roster, turnActive, runningAgentId, paused, pausedQuestion, pausedAskerId, onSend, onAbort, onSteer }: Props) {
   const [value, setValue] = useState("")
   const [trigger, setTrigger] = useState<"@" | "/" | null>(null)
   const [partial, setPartial] = useState<string | null>(null)
@@ -227,6 +230,17 @@ export function Composer({ roster, turnActive, runningAgentId, onSend, onAbort, 
         </div>
       )}
 
+      {/* ask_user banner — shown persistently while pipeline is paused */}
+      {paused && pausedQuestion && (
+        <div className="ask-banner">
+          <span className="ask-banner-icon">🤚</span>
+          <div className="ask-banner-body">
+            <span className="ask-banner-who">@{pausedAskerId} is asking:</span>
+            <span className="ask-banner-text">&ldquo;{pausedQuestion}&rdquo;</span>
+          </div>
+        </div>
+      )}
+
       {/* Image preview strip */}
       {pendingImages.length > 0 && (
         <div className="image-preview-strip">
@@ -251,7 +265,7 @@ export function Composer({ roster, turnActive, runningAgentId, onSend, onAbort, 
           className="composer-input"
           rows={3}
           value={value}
-          placeholder="Message the room — @ mentions, / commands, paste or drop images"
+          placeholder={paused ? "Type your answer…" : "Message the room — @ mentions, / commands, paste or drop images"}
           onPaste={handlePaste}
           onDragOver={handleDragOver}
           onDragLeave={handleDragLeave}

@@ -31,7 +31,7 @@ const webReadSchema = Type.Object({
 
 const JINA_URL = "https://r.jina.ai"
 const TIMEOUT_MS = 15_000
-const MAX_CONTENT_LENGTH = 8000
+const MAX_CONTENT_LENGTH = 16000
 
 async function readUrl(url: string): Promise<AgentToolResult<undefined>> {
   const jinaUrl = `${JINA_URL}/${url}`
@@ -93,7 +93,7 @@ export function createWebReadToolDefinition(): ToolDefinition<typeof webReadSche
       "Extract clean markdown content from any web page via Jina Reader. " +
       "Free, no API key, 100 req/min. The natural follow-up to web_search: " +
       "search finds URLs, web_read extracts their content. " +
-      "Content is truncated to ~8000 chars to avoid context explosion — " +
+      "Content is truncated to ~16000 chars to avoid context explosion — " +
       "ask for a specific section if you need more detail.",
     parameters: webReadSchema,
     execute: async (_toolCallId, params) => {

@@ -135,3 +135,102 @@ test("SseHub uses DEFAULT_SSE_MAX_CLIENTS when no limit given", () => {
   const hub = new SseHub()
   expect(hub.maxClients).toBe(10)
 })
+
+// ── Room-filtered clients ─────────────────────────────────────────────────────────
+
+function makeMockRes() {
+  const writes: string[] = []
+  const res = {
+    setHeader: () => {},
+    flushHeaders: () => {},
+    write: (data: string) => { if (typeof data === "string" && data.includes("event:")) writes.push(data) },
+    on: () => {},
+  } as unknown as Response
+  return { res, writes }
+}
+
+test("global subscriber receives all events regardless of roomId", () => {
+  const hub = new SseHub()
+  const { res, writes } = makeMockRes()
+  hub.addClient(res) // no roomId — global
+
+  hub.broadcast("message", { roomId: "room-a", text: "hello" })
+  hub.broadcast("message", { roomId: "room-b", text: "world" })
+
+  expect(writes).toHaveLength(2)
+})
+
+test("room-filtered subscriber only receives matching roomId events", () => {
+  const hub = new SseHub()
+  const { res, writes } = makeMockRes()
+  hub.addClient(res, "room-a") // filter to room-a
+
+  hub.broadcast("message", { roomId: "room-a", text: "for room-a" })
+  hub.broadcast("message", { roomId: "room-b", text: "for room-b" })
+
+  expect(writes).toHaveLength(1)
+  expect(writes[0]).toContain("for room-a")
+})
+
+test("room-filtered subscriber receives events with no roomId (global events)", () => {
+  const hub = new SseHub()
+  const { res, writes } = makeMockRes()
+  hub.addClient(res, "room-a")
+
+  // Event with no roomId (e.g. providers, oauth_progress)
+  hub.broadcast("providers", { providers: [] })
+  // Event for a different room — should be filtered out
+  hub.broadcast("message", { roomId: "room-b", text: "other room" })
+  // Event for this room — should arrive
+  hub.broadcast("turn", { roomId: "room-a", phase: "end" })
+
+  expect(writes).toHaveLength(2) // providers + room-a turn
+  expect(writes[0]).toContain("providers")
+  expect(writes[1]).toContain("turn")
+})
+
+test("multiple room-filtered subscribers are isolated from each other", () => {
+  const hub = new SseHub()
+  const { res: resA, writes: writesA } = makeMockRes()
+  const { res: resB, writes: writesB } = makeMockRes()
+  hub.addClient(resA, "room-a")
+  hub.addClient(resB, "room-b")
+
+  hub.broadcast("status", { roomId: "room-a", id: "planner", status: "idle" })
+  hub.broadcast("status", { roomId: "room-b", id: "builder", status: "working" })
+
+  expect(writesA).toHaveLength(1)
+  expect(writesA[0]).toContain("planner")
+  expect(writesB).toHaveLength(1)
+  expect(writesB[0]).toContain("builder")
+})
+
+test("global and room-filtered subscribers coexist", () => {
+  const hub = new SseHub()
+  const { res: globalRes, writes: globalWrites } = makeMockRes()
+  const { res: roomRes, writes: roomWrites } = makeMockRes()
+  hub.addClient(globalRes)           // global
+  hub.addClient(roomRes, "room-a")   // room-filtered
+
+  hub.broadcast("message", { roomId: "room-a", text: "A" })
+  hub.broadcast("message", { roomId: "room-b", text: "B" })
+
+  // Global subscriber gets both
+  expect(globalWrites).toHaveLength(2)
+  // Room-a subscriber gets only room-a
+  expect(roomWrites).toHaveLength(1)
+  expect(roomWrites[0]).toContain("\"A\"")
+})
+
+test("room lifecycle event is broadcast as 'room' SSE event type", () => {
+  const hub = new SseHub()
+  const { res, writes } = makeMockRes()
+  hub.addClient(res)
+
+  hub.broadcast("room", { type: "created", roomId: "cloud-sprint", name: "Cloud Sprint" })
+
+  expect(writes).toHaveLength(1)
+  expect(writes[0]).toContain("event: room")
+  expect(writes[0]).toContain("created")
+  expect(writes[0]).toContain("cloud-sprint")
+})

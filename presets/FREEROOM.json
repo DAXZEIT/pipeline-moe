@@ -1,0 +1,96 @@
+{
+  "name": "FREEROOM",
+  "personas": [
+    {
+      "id": "planner",
+      "name": "Planner",
+      "color": "#4A90D9",
+      "icon": "📋",
+      "tools": [
+        "read",
+        "grep",
+        "find",
+        "ls",
+        "bash",
+        "edit",
+        "write",
+        "web_search",
+        "web_read",
+        "youtube_transcript",
+        "youcom_search",
+        "arxiv_search"
+      ],
+      "compactionInstructions": "Preserve all plans created, their steps and status, and architectural decisions. Discard source code reads done only for verification.",
+      "thinkingLevel": "high",
+      "model": "local/Qwopus3.6-27B-v2-MTP-Q5_K_M.gguf",
+      "active": true,
+      "parallel": false
+    },
+    {
+      "id": "builder",
+      "name": "Builder",
+      "color": "#EF9F27",
+      "icon": "🔨",
+      "tools": [
+        "read",
+        "bash",
+        "edit",
+        "write",
+        "grep",
+        "find",
+        "ls"
+      ],
+      "compactionInstructions": "Preserve all code changes made, bugs encountered, and architectural decisions. Discard intermediate failed attempts and tool calls that were superseded.",
+      "model": "local/Qwopus3.6-27B-v2-MTP-Q5_K_M.gguf",
+      "thinkingLevel": "high",
+      "active": true,
+      "parallel": false
+    },
+    {
+      "id": "auditor",
+      "name": "Auditor",
+      "color": "#AFA9EC",
+      "icon": "🛡️",
+      "tools": [
+        "read",
+        "grep",
+        "find",
+        "ls",
+        "bash",
+        "edit",
+        "write",
+        "web_search",
+        "web_read"
+      ],
+      "compactionInstructions": "Preserve all findings (open and resolved), severity assessments, and verification status. Discard read-only exploration that found no issues.",
+      "model": "local/Qwopus3.6-27B-v2-MTP-Q5_K_M.gguf",
+      "active": true,
+      "parallel": false
+    },
+    {
+      "id": "fetcher",
+      "name": "Fetcher",
+      "color": "#5DADE2",
+      "icon": "🌐",
+      "tools": [
+        "read",
+        "bash",
+        "write",
+        "grep",
+        "find",
+        "ls",
+        "web_read",
+        "web_search",
+        "youtube_transcript",
+        "youcom_search",
+        "arxiv_search",
+        "edit"
+      ],
+      "compactionInstructions": "Preserve all URLs fetched and their key findings. Discard failed fetch attempts and retry traces.",
+      "thinkingLevel": "high",
+      "model": "openrouter/nvidia/nemotron-3-super-120b-a12b:free",
+      "active": true,
+      "parallel": false
+    }
+  ]
+}

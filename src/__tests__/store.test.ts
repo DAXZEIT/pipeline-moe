@@ -82,3 +82,30 @@ test("read with traversal id returns null (error swallowed by try/catch)", async
   const got = await store.read("../../../etc/passwd")
   expect(got).toBeNull()
 })
+
+// ── Room isolation: two stores share no conversations ──────────────────
+test("two rooms with separate dirs are fully isolated", async () => {
+  const room1Dir = join(dir, "room1")
+  const room2Dir = join(dir, "room2")
+  const store1 = new ConversationStore(room1Dir)
+  const store2 = new ConversationStore(room2Dir)
+  await store1.init()
+  await store2.init()
+
+  // Write a conversation to room1 only
+  const conv = makeConv("room-iso-conv")
+  await store1.write(conv)
+
+  // Room2 should not see it
+  const fromRoom2 = await store2.read("room-iso-conv")
+  expect(fromRoom2).toBeNull()
+
+  // Room2 list should be empty
+  const list2 = await store2.list()
+  expect(list2.find((m) => m.id === "room-iso-conv")).toBeUndefined()
+
+  // Room1 should still have it
+  const fromRoom1 = await store1.read("room-iso-conv")
+  expect(fromRoom1).not.toBeNull()
+  expect(fromRoom1!.id).toBe("room-iso-conv")
+})

@@ -102,6 +102,12 @@ export function Transcript({
             <div className="bubble bubble-agent" style={{ borderColor: color }}>
               {m.text}
             </div>
+            {m.question && (
+              <div className="ask-callout">
+                <span className="ask-callout-icon">🤚</span>
+                <span className="ask-callout-text">{m.question}</span>
+              </div>
+            )}
             {receipts[m.index] && <ReceiptView r={receipts[m.index]} />}
           </div>
         )

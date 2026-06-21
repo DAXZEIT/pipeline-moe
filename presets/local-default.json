@@ -102,13 +102,13 @@
       "color": "#5DADE2",
       "icon": "🌐",
       "tools": [
-        "read",
+        "web_read",
         "bash",
+        "read",
         "write",
         "grep",
         "find",
-        "ls",
-        "web_read"
+        "ls"
       ],
       "active": true,
       "parallel": false

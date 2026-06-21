@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from "react"
-import { api, API_BASE } from "./api"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { makeRoomApi, api, API_BASE } from "./api"
 import type {
   ConversationMeta,
   Message,
@@ -13,7 +13,15 @@ import type {
 
 let noticeSeq = 1
 
-export function useRoom() {
+export function useRoom(roomId?: string) {
+  // Route prefix: /api for the default room (backward compat), /api/rooms/:id for others.
+  const prefix = roomId && roomId !== "default" ? `/api/rooms/${roomId}` : "/api"
+  // Room-scoped API client. App never remounts on room switch (activeRoomId is
+  // App's own state; the key={activeRoomId} lives on a child <main>, not on App),
+  // so this must recompute when the prefix changes — otherwise every API call
+  // would stay pinned to the first room's prefix while SSE alone tracks the switch.
+  const rApi = useMemo(() => makeRoomApi(prefix), [prefix])
+  const sseUrl = `${API_BASE}${prefix}/events`
   const [roster, setRoster] = useState<RosterItem[]>([])
   const [messages, setMessages] = useState<Message[]>([])
   const [streaming, setStreaming] = useState<Record<string, string>>({})
@@ -28,6 +36,8 @@ export function useRoom() {
   const [turnActive, setTurnActive] = useState(false)
   const [runningAgentId, setRunningAgentId] = useState<string | null>(null)
   const [paused, setPaused] = useState(false)
+  const [pausedQuestion, setPausedQuestion] = useState<string | null>(null)
+  const [pausedAskerId, setPausedAskerId] = useState<string | null>(null)
   const [chaining, setChainingState] = useState(true)
   const [defaultAgent, setDefaultAgentState] = useState<string | null>(null)
   const [maxChainHops, setMaxChainHopsState] = useState(30)
@@ -46,18 +56,33 @@ export function useRoom() {
 
   // Initial snapshot (transcript + workspace; roster also arrives over SSE).
   useEffect(() => {
-    api.transcript().then((m) => {
+    // Reset transient per-room state before loading the new room. These are
+    // driven only by `turn`/`token`/`activity` SSE events, so a room switch
+    // would otherwise leave them pinned to the previous room: the new room
+    // never emits a `turn end` for a turn it didn't start, so a stale
+    // `turnActive`/`paused` would stick indefinitely ("agents running…" with
+    // the send button suppressed, or an ask_user prompt from the other room).
+    setTurnActive(false)
+    setRunningAgentId(null)
+    setPaused(false)
+    setPausedQuestion(null)
+    setPausedAskerId(null)
+    setStreaming({})
+    setLiveActivity({})
+    setLiveReasoning({})
+    setReceipts({})
+    rApi.transcript().then((m) => {
       messagesRef.current = m
       setMessages(m)
     }).catch(() => {})
-    api.workspace().then(setWorkspace).catch(() => {})
-    api.roster().then(setRoster).catch(() => {})
-    api.settings().then((s) => {
+    rApi.workspace().then(setWorkspace).catch(() => {})
+    rApi.roster().then(setRoster).catch(() => {})
+    rApi.settings().then((s) => {
       setChainingState(s.chaining)
       setDefaultAgentState(s.defaultAgent)
       if (s.maxChainHops !== undefined) setMaxChainHopsState(s.maxChainHops)
     }).catch(() => {})
-    api.conversations().then((c) => {
+    rApi.conversations().then((c) => {
       setConversations(c.list)
       setCurrentConversationId(c.currentId)
     }).catch(() => {})
@@ -65,11 +90,11 @@ export function useRoom() {
       setProviders(d.providers)
       setExplicitlyEnabled(d.explicitlyEnabled)
     }).catch(() => {})
-  }, [])
+  }, [rApi])
 
-  // SSE stream.
+  // SSE stream — connects to the room-scoped endpoint or global /api/events for the default room.
   useEffect(() => {
-    const es = new EventSource(`${API_BASE}/api/events`)
+    const es = new EventSource(sseUrl)
     es.onopen = () => setConnected(true)
     es.onerror = () => setConnected(false)
 
@@ -161,12 +186,18 @@ export function useRoom() {
         setTurnActive(false)
         setRunningAgentId(null)
         setPaused(false)
+        setPausedQuestion(null)
+        setPausedAskerId(null)
       } else if (data.phase === "pause") {
         setTurnActive(false)
         setPaused(true)
+        setPausedQuestion(data.question ?? null)
+        setPausedAskerId(data.askerId ?? null)
         pushNotice(`${data.askerId} is waiting for your answer.`)
       } else if (data.phase === "resume") {
         setPaused(false)
+        setPausedQuestion(null)
+        setPausedAskerId(null)
         setTurnActive(true)
         pushNotice(`Resuming — answering ${data.askerId}`)
       } else if (data.phase === "chain") {
@@ -221,52 +252,52 @@ export function useRoom() {
     })
 
     return () => es.close()
-  }, [pushNotice])
+  }, [pushNotice, sseUrl])
 
   const send = useCallback(
     (text: string, images?: string[]) => {
-      api.sendMessage(text, images).catch((err) => pushNotice(String(err.message ?? err), "error"))
+      rApi.sendMessage(text, images).catch((err) => pushNotice(String(err.message ?? err), "error"))
     },
-    [pushNotice],
+    [pushNotice, rApi],
   )
 
   const setActive = useCallback(
     (id: string, active: boolean) => {
-      api.setActive(id, active).catch((err) => pushNotice(String(err.message ?? err), "error"))
+      rApi.setActive(id, active).catch((err) => pushNotice(String(err.message ?? err), "error"))
     },
-    [pushNotice],
+    [pushNotice, rApi],
   )
 
   const setParallel = useCallback(
     (id: string, parallel: boolean) => {
-      api.setParallel(id, parallel).catch((err) => pushNotice(String(err.message ?? err), "error"))
+      rApi.setParallel(id, parallel).catch((err) => pushNotice(String(err.message ?? err), "error"))
     },
-    [pushNotice],
+    [pushNotice, rApi],
   )
 
   const kick = useCallback(
     (id: string) => {
-      api.kick(id).catch((err) => pushNotice(String(err.message ?? err), "error"))
+      rApi.kick(id).catch((err) => pushNotice(String(err.message ?? err), "error"))
     },
-    [pushNotice],
+    [pushNotice, rApi],
   )
 
   const createParticipant = useCallback(
-    (body: Parameters<typeof api.create>[0]) =>
-      api.create(body).catch((err) => {
+    (body: Parameters<typeof rApi.create>[0]) =>
+      rApi.create(body).catch((err) => {
         pushNotice(String(err.message ?? err), "error")
         throw err
       }),
-    [pushNotice],
+    [pushNotice, rApi],
   )
 
   const updateParticipant = useCallback(
-    (id: string, patch: Parameters<typeof api.updateAgent>[1]) =>
-      api.updateAgent(id, patch).catch((err) => {
+    (id: string, patch: Parameters<typeof rApi.updateAgent>[1]) =>
+      rApi.updateAgent(id, patch).catch((err) => {
         pushNotice(String(err.message ?? err), "error")
         throw err
       }),
-    [pushNotice],
+    [pushNotice, rApi],
   )
 
   const reorderParticipants = useCallback(
@@ -279,21 +310,21 @@ export function useRoom() {
         for (const p of r) if (!order.includes(p.id)) next.push(p)
         return next
       })
-      api.reorder(order).catch((err) => {
+      rApi.reorder(order).catch((err) => {
         pushNotice(String(err.message ?? err), "error")
-        api.roster().then(setRoster).catch(() => {}) // revert to server truth
+        rApi.roster().then(setRoster).catch(() => {}) // revert to server truth
       })
     },
-    [pushNotice],
+    [pushNotice, rApi],
   )
 
   const abort = useCallback(() => {
-    api.abort().catch(() => {})
-  }, [])
+    rApi.abort().catch(() => {})
+  }, [rApi])
 
   const steer = useCallback(
     (text: string, target: string) => {
-      api.steerMessage(text, target).catch((err) => {
+      rApi.steerMessage(text, target).catch((err) => {
         const msg = String(err.message ?? err)
         if (msg.includes("not running") || msg.includes("cannot steer")) {
           pushNotice(`@${target} is not running — cannot steer`, "error")
@@ -302,75 +333,75 @@ export function useRoom() {
         }
       })
     },
-    [pushNotice],
+    [pushNotice, rApi],
   )
 
   const compactAgent = useCallback(
     (id: string) => {
       pushNotice(`Compacting @${id}…`)
-      api.compact(id)
+      rApi.compact(id)
         .then((r) => pushNotice(`@${id} compacted: ${r.tokensBefore} tokens before → summary generated.`))
         .catch((err) => pushNotice(String(err.message ?? err), "error"))
     },
-    [pushNotice],
+    [pushNotice, rApi],
   )
 
   const setChaining = useCallback(
     (value: boolean) => {
-      api.setChaining(value).then((s) => setChainingState(s.chaining)).catch((err) =>
+      rApi.setChaining(value).then((s) => setChainingState(s.chaining)).catch((err) =>
         pushNotice(String(err.message ?? err), "error"),
       )
     },
-    [pushNotice],
+    [pushNotice, rApi],
   )
 
   const setDefaultAgent = useCallback(
     (id: string | null) => {
-      api.setDefaultAgent(id).then((s) => setDefaultAgentState(s.defaultAgent)).catch((err) =>
+      rApi.setDefaultAgent(id).then((s) => setDefaultAgentState(s.defaultAgent)).catch((err) =>
         pushNotice(String(err.message ?? err), "error"),
       )
     },
-    [pushNotice],
+    [pushNotice, rApi],
   )
 
   const setMaxChainHops = useCallback(
     (n: number) => {
-      api.setMaxChainHops(n).then((s) => setMaxChainHopsState(s.maxChainHops)).catch((err) =>
+      rApi.setMaxChainHops(n).then((s) => setMaxChainHopsState(s.maxChainHops)).catch((err) =>
         pushNotice(String(err.message ?? err), "error"),
       )
     },
-    [pushNotice],
+    [pushNotice, rApi],
   )
 
   const newConversation = useCallback(
     (title?: string) => {
-      api.newConversation(title).catch((err) => pushNotice(String(err.message ?? err), "error"))
+      rApi.newConversation(title).catch((err) => pushNotice(String(err.message ?? err), "error"))
     },
-    [pushNotice],
+    [pushNotice, rApi],
   )
 
   const loadConversation = useCallback(
     (id: string) => {
       if (id === currentConversationId) return
-      api.loadConversation(id).catch((err) => pushNotice(String(err.message ?? err), "error"))
+      rApi.loadConversation(id).catch((err) => pushNotice(String(err.message ?? err), "error"))
     },
-    [pushNotice, currentConversationId],
+    [pushNotice, rApi, currentConversationId],
   )
 
   const renameConversation = useCallback(
     (id: string, title: string) => {
-      api.renameConversation(id, title).catch((err) =>
+      rApi.renameConversation(id, title).catch((err) =>
         pushNotice(String(err.message ?? err), "error"),
       )
     },
-    [pushNotice],
+    [pushNotice, rApi],
   )
 
   const deleteConversation = useCallback(
     (id: string) => {
-      api.deleteConversation(id).catch((err) => pushNotice(String(err.message ?? err), "error"))
+      rApi.deleteConversation(id).catch((err) => pushNotice(String(err.message ?? err), "error"))
     },
-    [pushNotice],
+    [pushNotice, rApi],
   )
 
   const addProvider = useCallback(
@@ -419,6 +450,8 @@ export function useRoom() {
     turnActive,
     runningAgentId,
     paused,
+    pausedQuestion,
+    pausedAskerId,
     chaining,
     defaultAgent,
     maxChainHops,
