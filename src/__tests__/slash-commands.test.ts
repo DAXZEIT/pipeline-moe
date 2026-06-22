@@ -417,6 +417,50 @@ describe("slash commands", () => {
     })
   })
 
+  describe("routing mode", () => {
+    test("defaults to auto (chaining derived on)", () => {
+      expect(room.getRoutingMode()).toBe("auto")
+      expect(room.getChaining()).toBe(true)
+    })
+
+    test("setRoutingMode drives the derived chaining flag", () => {
+      room.setRoutingMode("manual")
+      expect(room.getChaining()).toBe(false)
+      room.setRoutingMode("semi")
+      expect(room.getRoutingMode()).toBe("semi")
+      expect(room.getChaining()).toBe(true) // semi still chains
+    })
+
+    test("setChaining maps back onto routingMode (back-compat)", () => {
+      room.setChaining(false)
+      expect(room.getRoutingMode()).toBe("manual")
+      room.setChaining(true)
+      expect(room.getRoutingMode()).toBe("auto")
+    })
+
+    test("broadcasts routingMode in the settings event", () => {
+      const settings: Array<Record<string, unknown>> = []
+      const orig = hub.broadcast.bind(hub)
+      hub.broadcast = (event, data) => {
+        if (event === "settings") settings.push(data as Record<string, unknown>)
+        orig(event, data)
+      }
+      room.setRoutingMode("semi")
+      expect(settings.at(-1)).toMatchObject({ routingMode: "semi", chaining: true })
+    })
+
+    test("loads an old conversation (no routingMode) by deriving from chaining", async () => {
+      store.read = async () =>
+        ({
+          id: "old", title: "Old", createdAt: 1, updatedAt: 1,
+          chaining: false, defaultAgent: null, fallbackAgent: null, personas: [], transcript: [],
+        }) as any
+      await room.switchConversation("old")
+      expect(room.getRoutingMode()).toBe("manual")
+      expect(room.getChaining()).toBe(false)
+    })
+  })
+
   describe("/default", () => {
     test("sets default agent", async () => {
       const agent = new MockParticipant(makePersona("builder"))

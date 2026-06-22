@@ -77,13 +77,23 @@ export interface PersonaState extends Persona {
 }
 
 /** A saved group conversation: its roster, transcript, and settings. */
+/** How agent→agent handoffs are routed within a room.
+ *  - `auto`   — @mentions chain directly (default).
+ *  - `semi`   — each proposed handoff pauses for human approval before dispatch.
+ *  - `manual` — no agent→agent chaining; the human routes every step. */
+export type RoutingMode = "auto" | "semi" | "manual"
+
 export interface Conversation {
   id: string
   title: string
   createdAt: number
   updatedAt: number
-  /** Whether agent→agent chaining was on for this discussion. */
+  /** Whether agent→agent chaining was on for this discussion. Derived from
+   *  `routingMode` (auto/semi → true, manual → false); kept for back-compat. */
   chaining: boolean
+  /** Routing mode for this discussion. Absent in older saved conversations —
+   *  derived from `chaining` on load. */
+  routingMode?: RoutingMode
   /** Agent that receives messages with no @mention. null = first active. */
   defaultAgent: string | null
   /** Agent that receives routing fallback when no @mention is found in an agent's reply. null = disabled. */

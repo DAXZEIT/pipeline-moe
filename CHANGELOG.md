@@ -28,6 +28,12 @@
   unbounded spawning from starving the single llama-server slot.
 - **Multi-provider runtime auth** — add/remove provider API keys at runtime (`/provider` slash
   command + Providers panel) and apply presets in place.
+- **Routing-mode setting (groundwork)** — `routingMode: 'auto' | 'semi' | 'manual'` per room,
+  exposed via `GET`/`PATCH /api/settings` (and the room-scoped equivalent) and persisted per
+  discussion. `auto` is today's behavior; the legacy `chaining` boolean is now *derived* from it
+  (auto/semi → on, manual → off), and older saved conversations derive their mode from `chaining`
+  on load. `semi` (human-approved handoffs) is plumbed but not yet active — the pause/approve flow
+  lands in the next change.
 - **Add agent from a template** — the roster's “+ New agent” is now “+ Add agent”: pick a
   built-in persona (e.g. a second Builder) to clone into the room with a unique id
   (`builder` → `builder-2`), keeping its tools, prompt, icon, and model — falling back to the

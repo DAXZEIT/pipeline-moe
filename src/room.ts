@@ -16,6 +16,7 @@ import type {
   Conversation,
   ConversationMeta,
   Persona,
+  RoutingMode,
   ToolActivity,
   TranscriptEntry,
   WorkReceipt,
@@ -63,8 +64,14 @@ export class Room {
   /** Pending agents to run in the current routing pass. Mutated as agents chain. */
   private queue: Participant[] = []
   private aborted = false
-  /** When true, agents' @mentions chain to other agents. */
-  private chaining = true
+  /** Routing mode. 'auto' chains @mentions directly (today's default); 'semi'
+   *  pauses each proposed handoff for human approval; 'manual' honors no
+   *  agent→agent chaining. The legacy `chaining` boolean is derived from this
+   *  (auto/semi → on, manual → off) so existing settings, persistence, and tests
+   *  keep working unchanged. */
+  private routingMode: RoutingMode = "auto"
+  private get chaining(): boolean { return this.routingMode !== "manual" }
+  private set chaining(value: boolean) { this.routingMode = value ? "auto" : "manual" }
   /** Anti-loop: max chain hops per turn. Prevents A→B→A infinite loops. */
   private maxChainHops = 30
   private chainBudget = 0
@@ -194,6 +201,16 @@ export class Room {
     void this.saveCurrent()
   }
 
+  getRoutingMode(): RoutingMode {
+    return this.routingMode
+  }
+
+  setRoutingMode(mode: RoutingMode): void {
+    this.routingMode = mode
+    this.broadcastSettings()
+    void this.saveCurrent()
+  }
+
   getDefaultAgent(): string | null {
     return this.defaultAgentId
   }
@@ -229,7 +246,7 @@ export class Room {
   }
 
   private broadcastSettings(): void {
-    this.emit("settings", { chaining: this.chaining, defaultAgent: this.defaultAgentId, fallbackAgent: this.fallbackAgentId, maxChainHops: this.maxChainHops })
+    this.emit("settings", { chaining: this.chaining, routingMode: this.routingMode, defaultAgent: this.defaultAgentId, fallbackAgent: this.fallbackAgentId, maxChainHops: this.maxChainHops })
   }
 
   // ── Conversation lifecycle ──────────────────────────────────────────────────
@@ -258,6 +275,7 @@ export class Room {
       createdAt: this.convCreatedAt,
       updatedAt: Date.now(),
       chaining: this.chaining,
+      routingMode: this.routingMode,
       defaultAgent: this.defaultAgentId,
       fallbackAgent: this.fallbackAgentId,
       personas: this.registry.personaStates(),
@@ -325,7 +343,7 @@ export class Room {
     this.convId = conv.id
     this.convTitle = conv.title
     this.convCreatedAt = conv.createdAt
-    this.chaining = conv.chaining
+    this.routingMode = conv.routingMode ?? (conv.chaining ? "auto" : "manual")
     this.defaultAgentId = conv.defaultAgent ?? null
     this.fallbackAgentId = conv.fallbackAgent ?? "planner"
 

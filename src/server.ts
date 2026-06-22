@@ -1061,8 +1061,16 @@ async function main(): Promise<void> {
     }
   })
 
+  const settingsPayload = (r: Room) => ({
+    chaining: r.getChaining(),
+    routingMode: r.getRoutingMode(),
+    defaultAgent: r.getDefaultAgent(),
+    fallbackAgent: r.getFallbackAgent(),
+    maxChainHops: r.getMaxChainHops(),
+  })
+
   app.get("/api/settings", (_req, res) => {
-    res.json({ chaining: room.getChaining(), defaultAgent: room.getDefaultAgent(), fallbackAgent: room.getFallbackAgent(), maxChainHops: room.getMaxChainHops() })
+    res.json(settingsPayload(room))
   })
 
   app.patch("/api/settings", (req, res) => {
@@ -1108,7 +1116,15 @@ async function main(): Promise<void> {
       }
       room.setMaxChainHops(n)
     }
-    res.json({ chaining: room.getChaining(), defaultAgent: room.getDefaultAgent(), fallbackAgent: room.getFallbackAgent(), maxChainHops: room.getMaxChainHops() })
+    if ("routingMode" in body) {
+      const m = body.routingMode
+      if (m !== "auto" && m !== "semi" && m !== "manual") {
+        res.status(400).json({ error: "`routingMode` must be 'auto', 'semi', or 'manual'" })
+        return
+      }
+      room.setRoutingMode(m)
+    }
+    res.json(settingsPayload(room))
   })
 
   // Post a message to the room. Returns immediately; results stream over SSE.
@@ -1498,7 +1514,7 @@ async function main(): Promise<void> {
 
   roomRouter.get("/settings", (req, res) => {
     const r = roomOf(req)
-    res.json({ chaining: r.getChaining(), defaultAgent: r.getDefaultAgent(), fallbackAgent: r.getFallbackAgent(), maxChainHops: r.getMaxChainHops() })
+    res.json(settingsPayload(r))
   })
 
   roomRouter.patch("/settings", (req, res) => {
@@ -1541,7 +1557,15 @@ async function main(): Promise<void> {
       }
       r.setMaxChainHops(n)
     }
-    res.json({ chaining: r.getChaining(), defaultAgent: r.getDefaultAgent(), fallbackAgent: r.getFallbackAgent(), maxChainHops: r.getMaxChainHops() })
+    if ("routingMode" in body) {
+      const m = body.routingMode
+      if (m !== "auto" && m !== "semi" && m !== "manual") {
+        res.status(400).json({ error: "`routingMode` must be 'auto', 'semi', or 'manual'" })
+        return
+      }
+      r.setRoutingMode(m)
+    }
+    res.json(settingsPayload(r))
   })
 
   roomRouter.post("/messages", rateLimit({ windowMs: 60_000, max: 60, standardHeaders: true, legacyHeaders: false }), async (req, res) => {
