@@ -28,6 +28,10 @@
   unbounded spawning from starving the single llama-server slot.
 - **Multi-provider runtime auth** — add/remove provider API keys at runtime (`/provider` slash
   command + Providers panel) and apply presets in place.
+- **Room tab Stop button + status badges** — each room tab shows a live goal-status dot + label
+  (running / done / failed / **stopped**) and, while a goal is running, a ⏹ Stop button that
+  cancels it (`POST /api/rooms/:id/abort`) without destroying the room. The `created` SSE event
+  now carries `goalStatus`, so the badge is correct from the moment a room appears.
 - **Right-side panel tabs (Workspace | Presets)** — the previously workspace-only right panel is
   now tabbed. The **Presets** tab is a detailed roster browser: each preset expands to show its
   members (icon, name, model, thinking level, parallel flag, tool chips) with Load / Apply

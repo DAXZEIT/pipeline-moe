@@ -1,8 +1,20 @@
 import { useState } from "react"
 import { api } from "../api"
 import type { RosterItem } from "../types"
+import { AgentMenu, type AgentMenuItem } from "./AgentMenu"
 import { CreateAgent } from "./CreateAgent"
 import { EditAgent } from "./EditAgent"
+
+/** Download an agent's session export (HTML or JSONL) as a file. */
+async function downloadAgent(id: string, kind: "html" | "jsonl"): Promise<void> {
+  const blob = kind === "html" ? await api.exportAgent(id) : await api.exportAgentJsonl(id)
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement("a")
+  a.href = url
+  a.download = `${id}.${kind}`
+  a.click()
+  URL.revokeObjectURL(url)
+}
 
 interface Props {
   roster: RosterItem[]
@@ -113,7 +125,18 @@ export function Roster({
       </div>
 
       <div className="roster-list">
-        {roster.map((r) => (
+        {roster.map((r) => {
+          const menuItems: AgentMenuItem[] = [
+            { icon: "✏", label: editingId === r.id ? "Close editor" : "Edit persona", disabled: turnActive, onClick: () => setEditingId((cur) => (cur === r.id ? null : r.id)) },
+            { icon: "★", label: r.id === explicit ? "Clear default" : "Set as default", checked: r.id === effective, disabled: !r.active, onClick: () => onSetDefault(r.id === explicit ? null : r.id) },
+            { icon: "∥", label: "Run in parallel", checked: r.parallel, onClick: () => onSetParallel(r.id, !r.parallel) },
+            { icon: r.active ? "◐" : "○", label: r.active ? "Deactivate" : "Activate", onClick: () => onSetActive(r.id, !r.active) },
+            { icon: "⟳", label: "Compact context", disabled: turnActive || r.status === "compacting", onClick: () => onCompact(r.id) },
+            { icon: "⬇", label: "Export HTML", onClick: () => void downloadAgent(r.id, "html") },
+            { icon: "⬇", label: "Export JSONL", onClick: () => void downloadAgent(r.id, "jsonl") },
+            { icon: "🗑", label: "Kick from room", danger: true, separatorBefore: true, onClick: () => onKick(r.id) },
+          ]
+          return (
           <div key={r.id}>
             <div
               className={`roster-item ${r.active ? "" : "inactive"} ${editingId === r.id ? "editing" : ""} ${dragId === r.id ? "dragging" : ""} ${overId === r.id ? "drag-over" : ""}`}
@@ -146,8 +169,23 @@ export function Roster({
                 {r.icon}
               </span>
               <div className="roster-meta">
-                <div className="roster-name" style={{ color: r.active ? r.color : undefined }}>
-                  {r.name}
+                <div className="roster-top">
+                  <button
+                    className="roster-name-btn"
+                    title={turnActive ? "Stop the turn to edit" : "Edit persona / system prompt"}
+                    onClick={() => { if (!turnActive) setEditingId((cur) => (cur === r.id ? null : r.id)) }}
+                  >
+                    <span className="roster-name" style={{ color: r.active ? r.color : undefined }}>
+                      {r.name}
+                    </span>
+                    {r.id === effective && (
+                      <span className="badge-default" title="Default for un-mentioned messages">★</span>
+                    )}
+                    {r.parallel && (
+                      <span className="badge-parallel" title="Runs in parallel">∥</span>
+                    )}
+                  </button>
+                  <AgentMenu items={menuItems} />
                 </div>
                 <div className={`roster-status status-${r.status}`}>
                   {STATUS_LABEL[r.status]}
@@ -184,89 +222,6 @@ export function Roster({
                     {statsLabel(r.sessionStats)}
                   </div>
                 )}
-                <div className="roster-actions">
-                  <button
-                    className={`mini ${r.id === effective ? "star-on" : ""}`}
-                    disabled={!r.active}
-                    title={
-                      r.id === explicit
-                        ? "Default for un-mentioned messages (click to clear)"
-                        : r.id === effective
-                          ? "Default (fallback: first active agent)"
-                          : "Make default for un-mentioned messages"
-                    }
-                    onClick={() => onSetDefault(r.id === explicit ? null : r.id)}
-                  >
-                    {r.id === effective ? "★" : "☆"}
-                  </button>
-                  <button
-                    className={`mini ${editingId === r.id ? "star-on" : ""}`}
-                    disabled={turnActive}
-                    title={turnActive ? "Stop the turn to edit" : "Edit persona / system prompt"}
-                    onClick={() => setEditingId((cur) => (cur === r.id ? null : r.id))}
-                  >
-                    {"{}"}
-                  </button>
-                  <button
-                    className={`mini ${r.parallel ? "par-on" : ""}`}
-                    title={
-                      r.parallel
-                        ? "Runs in parallel with adjacent parallel agents (click to make serial)"
-                        : "Run in parallel (local agents still serialize on the GPU)"
-                    }
-                    onClick={() => onSetParallel(r.id, !r.parallel)}
-                  >
-                    ∥
-                  </button>
-                  <button
-                    className="mini"
-                    disabled={turnActive || r.status === "compacting"}
-                    title={r.status === "compacting" ? "Compacting…" : turnActive ? "Stop the turn first" : "Compact context (free tokens)"}
-                    onClick={() => onCompact(r.id)}
-                  >
-                    ⟳
-                  </button>
-                  <button
-                    className="mini"
-                    title={r.active ? "Deactivate" : "Activate"}
-                    onClick={() => onSetActive(r.id, !r.active)}
-                  >
-                    {r.active ? "◐" : "○"}
-                  </button>
-                  <button
-                    className="mini"
-                    title="Export session as HTML"
-                    onClick={async () => {
-                      const blob = await api.exportAgent(r.id)
-                      const url = URL.createObjectURL(blob)
-                      const a = document.createElement("a")
-                      a.href = url
-                      a.download = `${r.id}.html`
-                      a.click()
-                      URL.revokeObjectURL(url)
-                    }}
-                  >
-                    ⬇
-                  </button>
-                  <button
-                    className="mini"
-                    title="Export session as JSONL"
-                    onClick={async () => {
-                      const blob = await api.exportAgentJsonl(r.id)
-                      const url = URL.createObjectURL(blob)
-                      const a = document.createElement("a")
-                      a.href = url
-                      a.download = `${r.id}.jsonl`
-                      a.click()
-                      URL.revokeObjectURL(url)
-                    }}
-                  >
-                    {`{`}
-                  </button>
-                  <button className="mini danger" title="Kick" onClick={() => onKick(r.id)}>
-                    ×
-                  </button>
-                </div>
               </div>
             </div>
             {editingId === r.id && (
@@ -277,7 +232,8 @@ export function Roster({
               />
             )}
           </div>
-        ))}
+          )
+        })}
       </div>
 
       <div className="roster-foot">

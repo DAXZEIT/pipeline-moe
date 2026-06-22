@@ -143,9 +143,122 @@ body {
   flex-direction: column;
   gap: 3px;
 }
+.roster-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+.roster-name-btn {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  background: transparent;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  font-family: inherit;
+  text-align: left;
+}
+.roster-name-btn:hover .roster-name {
+  text-decoration: underline;
+}
 .roster-name {
   font-weight: 600;
   font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.badge-default {
+  color: #f5c84b;
+  font-size: 11px;
+  flex-shrink: 0;
+}
+.badge-parallel {
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.3;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 0 3px;
+  flex-shrink: 0;
+}
+
+/* ---------- Agent overflow menu (⋯) ---------- */
+.agent-menu {
+  position: relative;
+  flex-shrink: 0;
+}
+.agent-menu-btn {
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+.agent-menu-btn:hover {
+  color: var(--text);
+  background: var(--bg3);
+}
+.agent-menu-dropdown {
+  position: fixed;
+  z-index: 200;
+  min-width: 184px;
+  padding: 4px;
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
+}
+.agent-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  background: transparent;
+  border: none;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 12px;
+  text-align: left;
+  padding: 6px 8px;
+  border-radius: 5px;
+  cursor: pointer;
+}
+.agent-menu-item:hover:not(:disabled) {
+  background: var(--bg3);
+}
+.agent-menu-item:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.agent-menu-item.danger {
+  color: var(--danger);
+}
+.agent-menu-item.danger:hover:not(:disabled) {
+  background: rgba(240, 114, 106, 0.12);
+}
+.agent-menu-icon {
+  width: 16px;
+  text-align: center;
+  flex-shrink: 0;
+}
+.agent-menu-label {
+  flex: 1;
+}
+.agent-menu-check {
+  color: var(--accent);
+  font-size: 11px;
+}
+.agent-menu-sep {
+  height: 1px;
+  background: var(--border);
+  margin: 4px 6px;
 }
 .roster-status {
   font-size: 10px;
