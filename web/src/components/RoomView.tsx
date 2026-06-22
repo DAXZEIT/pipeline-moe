@@ -5,7 +5,7 @@ import { ProvidersPanel } from "./ProvidersPanel"
 import { Roster } from "./Roster"
 import { RoomTabs } from "./RoomTabs"
 import { Transcript } from "./Transcript"
-import { WorkspacePanel } from "./WorkspacePanel"
+import { SidePanel } from "./SidePanel"
 import type { RoomSummary } from "../types"
 import { useRoom } from "../useRoom"
 
@@ -127,7 +127,7 @@ export function RoomView({
         />
       </main>
 
-      <WorkspacePanel files={room.workspace} />
+      <SidePanel files={room.workspace} turnActive={room.turnActive} />
 
       <div className="notices">
         {room.notices.map((n) => (
