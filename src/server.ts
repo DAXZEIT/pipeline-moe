@@ -400,6 +400,32 @@ async function main(): Promise<void> {
     }
   }
 
+  /** Clone a built-in seed persona into a room as a NEW participant with a unique
+   *  id ("builder" → "builder-2" → "builder-3") and a matching display name. Keeps
+   *  the template's tools, prompt, icon, color, and model — unless that model is
+   *  unavailable (e.g. cloud disabled), in which case it falls back to the room
+   *  default instead of failing the add. Returns the new roster item. */
+  async function addFromTemplate(room: Room, templateId: string) {
+    const tpl = SEED_PERSONAS.find((p) => p.id === templateId)
+    if (!tpl) throw new Error(`no persona template "${templateId}"`)
+    const reg = room.getRegistry()
+
+    let id = tpl.id
+    let n = 1
+    while (reg.has(id)) {
+      n++
+      id = `${tpl.id}-${n}`
+    }
+    const name = n === 1 ? tpl.name : `${tpl.name} ${n}`
+
+    const clone: Persona = { ...tpl, id, name }
+    if (clone.model && !isAllowedModel(resolved, clone.model, explicitlyEnabledProviders)) {
+      clone.model = undefined
+    }
+    await reg.create(clone)
+    return reg.roster().find((r) => r.id === id)
+  }
+
   // Wire the sub-room orchestrator BEFORE any room is created, so participants
   // built during room.init() receive spawn/check/destroy_room tools. The
   // orchestrator closes over provisionRoom (preset + mount logic lives here).
@@ -639,6 +665,16 @@ async function main(): Promise<void> {
     res.json(registry.roster())
   })
 
+  // Built-in persona templates for the "Add agent" picker — clone one into a room
+  // (e.g. a second builder) without rebuilding it or loading a whole preset.
+  app.get("/api/persona-templates", (_req, res) => {
+    res.json(
+      SEED_PERSONAS.map((p) => ({
+        id: p.id, name: p.name, color: p.color, icon: p.icon, tools: p.tools, model: p.model,
+      })),
+    )
+  })
+
   // Models offered for per-agent selection (local-only unless PIPELINE_ALLOW_CLOUD,
   // or the provider has been explicitly enabled by the user via /api/providers).
   app.get("/api/models", (_req, res) => {
@@ -841,6 +877,15 @@ async function main(): Promise<void> {
       }
       await registry.create(persona)
       res.status(201).json(registry.roster().find((r) => r.id === persona.id))
+    } catch (err) {
+      res.status(400).json({ error: err instanceof Error ? err.message : String(err) })
+    }
+  })
+
+  app.post("/api/participants/from-template", async (req, res) => {
+    try {
+      const item = await addFromTemplate(room, String(req.body?.templateId ?? ""))
+      res.status(201).json(item)
     } catch (err) {
       res.status(400).json({ error: err instanceof Error ? err.message : String(err) })
     }
@@ -1318,6 +1363,15 @@ async function main(): Promise<void> {
       }
       await reg.create(persona)
       res.status(201).json(reg.roster().find((r) => r.id === persona.id))
+    } catch (err) {
+      res.status(400).json({ error: err instanceof Error ? err.message : String(err) })
+    }
+  })
+
+  roomRouter.post("/participants/from-template", async (req, res) => {
+    try {
+      const item = await addFromTemplate(roomOf(req), String(req.body?.templateId ?? ""))
+      res.status(201).json(item)
     } catch (err) {
       res.status(400).json({ error: err instanceof Error ? err.message : String(err) })
     }

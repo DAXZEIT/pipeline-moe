@@ -297,6 +297,15 @@ export function useRoom(roomId?: string) {
     [pushNotice, rApi],
   )
 
+  const addFromTemplate = useCallback(
+    (templateId: string) =>
+      rApi.addFromTemplate(templateId).catch((err) => {
+        pushNotice(String(err.message ?? err), "error")
+        throw err
+      }),
+    [pushNotice, rApi],
+  )
+
   const updateParticipant = useCallback(
     (id: string, patch: Parameters<typeof rApi.updateAgent>[1]) =>
       rApi.updateAgent(id, patch).catch((err) => {
@@ -474,6 +483,7 @@ export function useRoom(roomId?: string) {
     kick,
     compactAgent,
     createParticipant,
+    addFromTemplate,
     updateParticipant,
     reorderParticipants,
     abort,

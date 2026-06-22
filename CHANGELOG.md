@@ -68,6 +68,15 @@
   per `trigger`). Narrowed at the gated render branches; the production build is green again.
   (The dev server was unaffected — Vite doesn't typecheck — which is why it went unnoticed.)
 
+### Changed
+
+- **Roster cards decluttered** — each agent card's row of 8 tiny icon buttons is replaced by a
+  clean header (name + at-a-glance **★ default** / **∥ parallel** badges) and a single **⋯**
+  overflow menu (Edit, Set as default, Run in parallel, Activate/Deactivate, Compact, Export
+  HTML/JSONL, and Kick behind a separator). Clicking a card opens its editor. The menu is a
+  `position: fixed` dropdown so it's never clipped by the sidebar's scroll. State (default /
+  parallel / active-dimmed) is now glanceable instead of encoded in icon buttons.
+
 ---
 
 ## 2026-06-19

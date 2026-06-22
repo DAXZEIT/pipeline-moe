@@ -122,6 +122,16 @@ export interface PresetFile {
   personas: PresetPersona[]
 }
 
+/** A built-in persona template (GET /api/persona-templates) for the Add-agent picker. */
+export interface PersonaTemplate {
+  id: string
+  name: string
+  color: string
+  icon: string
+  tools: string[]
+  model?: string
+}
+
 /** A room listed by GET /api/rooms. */
 export interface RoomSummary {
   roomId: string

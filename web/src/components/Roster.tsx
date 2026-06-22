@@ -1,8 +1,8 @@
 import { useState } from "react"
 import { api } from "../api"
 import type { RosterItem } from "../types"
+import { AddAgent } from "./AddAgent"
 import { AgentMenu, type AgentMenuItem } from "./AgentMenu"
-import { CreateAgent } from "./CreateAgent"
 import { EditAgent } from "./EditAgent"
 
 /** Download an agent's session export (HTML or JSONL) as a file. */
@@ -27,6 +27,7 @@ interface Props {
   onKick: (id: string) => void
   onCompact: (id: string) => void
   onCreate: (body: Parameters<typeof api.create>[0]) => Promise<unknown>
+  onAddTemplate: (templateId: string) => Promise<unknown>
   onReorder: (order: string[]) => void
 }
 
@@ -92,6 +93,7 @@ export function Roster({
   onKick,
   onCompact,
   onCreate,
+  onAddTemplate,
   onReorder,
 }: Props) {
   const [creating, setCreating] = useState(false)
@@ -238,16 +240,20 @@ export function Roster({
 
       <div className="roster-foot">
         {creating ? (
-          <CreateAgent
+          <AddAgent
             onCancel={() => setCreating(false)}
             onCreate={async (body) => {
               await onCreate(body)
               setCreating(false)
             }}
+            onAddTemplate={async (id) => {
+              await onAddTemplate(id)
+              setCreating(false)
+            }}
           />
         ) : (
           <button className="btn btn-ghost full" onClick={() => setCreating(true)}>
-            + New agent
+            + Add agent
           </button>
         )}
       </div>

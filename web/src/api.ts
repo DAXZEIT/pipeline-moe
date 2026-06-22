@@ -3,6 +3,7 @@ import type {
   Message,
   ModelInfo,
   PersonaDetail,
+  PersonaTemplate,
   PresetFile,
   ProviderInfo,
   ResumableRoom,
@@ -106,6 +107,13 @@ export function makeRoomApi(prefix: string) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
+      }).then((r) => json<RosterItem>(r)),
+
+    addFromTemplate: (templateId: string) =>
+      fetch(`${base}/participants/from-template`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ templateId }),
       }).then((r) => json<RosterItem>(r)),
 
     abort: () => fetch(`${base}/abort`, { method: "POST" }).then((r) => json(r)),
@@ -250,6 +258,9 @@ export const api = {
     ),
 
   // ── Room CRUD (process-global) ──────────────────────────────────────────
+
+  personaTemplates: () =>
+    fetch(`${API_BASE}/api/persona-templates`).then((r) => json<PersonaTemplate[]>(r)),
 
   listRooms: () =>
     fetch(`${API_BASE}/api/rooms`).then((r) => json<RoomSummary[]>(r)),

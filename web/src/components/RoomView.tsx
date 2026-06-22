@@ -53,6 +53,7 @@ export function RoomView({
           onKick={room.kick}
           onCompact={room.compactAgent}
           onCreate={room.createParticipant}
+          onAddTemplate={room.addFromTemplate}
           onReorder={room.reorderParticipants}
         />
 
