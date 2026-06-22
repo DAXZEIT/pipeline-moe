@@ -22,6 +22,7 @@ interface Props {
   onSwitch: (roomId: string) => void
   onCreateRoom: () => void
   onDestroyRoom: (roomId: string) => void
+  onStopRoom: (roomId: string) => void
   onRenameRoom: (roomId: string, name: string) => void
 }
 
@@ -31,6 +32,7 @@ export function RoomView({
   onSwitch,
   onCreateRoom,
   onDestroyRoom,
+  onStopRoom,
   onRenameRoom,
 }: Props) {
   // The single source of room-scoped state. Bound to THIS RoomView instance,
@@ -70,6 +72,7 @@ export function RoomView({
           onSwitch={onSwitch}
           onCreateRoom={onCreateRoom}
           onDestroyRoom={onDestroyRoom}
+          onStopRoom={onStopRoom}
           onRenameRoom={onRenameRoom}
         />
 

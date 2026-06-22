@@ -1594,6 +1594,21 @@ body {
   background: rgba(240, 114, 106, 0.12);
 }
 
+.room-tab-stop {
+  font-size: 11px;
+  line-height: 1;
+  color: var(--muted);
+  cursor: pointer;
+  border-radius: 3px;
+  padding: 1px 3px;
+  margin-left: 2px;
+}
+
+.room-tab-stop:hover {
+  color: #f0b86e;
+  background: rgba(240, 184, 110, 0.14);
+}
+
 .room-tab-new {
   padding: 3px 8px;
   border-radius: 6px;
@@ -1632,6 +1647,10 @@ body {
 
 .status-dot.failed {
   background: var(--danger);
+}
+
+.status-dot.cancelled {
+  background: #f0b86e;
 }
 
 @keyframes pulse-dot {

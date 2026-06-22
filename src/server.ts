@@ -364,9 +364,11 @@ async function main(): Promise<void> {
 
       const newRoom = roomManager.createRoom(roomId, name, overridePersonas, effectiveWorkspaceDir, mount)
       await newRoom.init()
-      hub.broadcast("room", { type: "created", roomId, name, participantCount: newRoom.rosterLength() })
 
-      // Fire goal asynchronously — caller returns immediately with status "running".
+      // Fire the goal BEFORE broadcasting "created": submitGoal sets the status to
+      // "running" synchronously, so the broadcast below carries an accurate
+      // goalStatus and the room tab shows the right badge from the start (a
+      // goal-less room stays "idle" instead of being mislabeled "running").
       if (goal) {
         newRoom.submitGoal(goal, {
           mode: opts.goalMode,
@@ -374,6 +376,14 @@ async function main(): Promise<void> {
           maxIterations: opts.maxGoalIterations,
         })
       }
+
+      hub.broadcast("room", {
+        type: "created",
+        roomId,
+        name,
+        participantCount: newRoom.rosterLength(),
+        goalStatus: newRoom.getGoalStatus(),
+      })
 
       return roomManager.getRoomDetails(roomId)!
     } catch (err) {

@@ -28,6 +28,11 @@
   unbounded spawning from starving the single llama-server slot.
 - **Multi-provider runtime auth** — add/remove provider API keys at runtime (`/provider` slash
   command + Providers panel) and apply presets in place.
+- **Right-side panel tabs (Workspace | Presets)** — the previously workspace-only right panel is
+  now tabbed. The **Presets** tab is a detailed roster browser: each preset expands to show its
+  members (icon, name, model, thinking level, parallel flag, tool chips) with Load / Apply
+  actions. No backend change — it reads the personas already returned by `GET /api/presets`. The
+  compact 🎯 menu stays for quick save/delete.
 - **Resume closed rooms** — a room's conversation data survives `destroy_room` / closing its tab
   (it was already on disk, just unreachable). Each room now writes a durable
   `sessions/<id>/meta.json` (name + workspace scope) that outlives the manifest entry. New

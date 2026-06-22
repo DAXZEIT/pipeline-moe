@@ -262,6 +262,12 @@ export const api = {
       json<RoomSummary>(r),
     ),
 
+  /** Stop a specific room's in-flight pipeline (cancels a running goal). */
+  abortRoom: (roomId: string) =>
+    fetch(`${API_BASE}/api/rooms/${roomId}/abort`, { method: "POST" }).then((r) =>
+      json<{ aborted: boolean }>(r),
+    ),
+
   createRoom: (body: { name: string; roomId?: string; preset?: string; goal?: string; workspaceDir?: string }) =>
     fetch(`${API_BASE}/api/rooms`, {
       method: "POST",

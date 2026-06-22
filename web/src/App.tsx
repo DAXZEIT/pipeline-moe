@@ -31,7 +31,7 @@ export default function App() {
             roomId: data.roomId,
             name: data.name,
             participantCount: data.participantCount ?? 0,
-            goalStatus: "running",
+            goalStatus: data.goalStatus ?? "idle",
             goalText: null,
           }]
         })
@@ -50,6 +50,10 @@ export default function App() {
         setRooms((r) => r.map((rm) =>
           rm.roomId === data.roomId ? { ...rm, goalStatus: "failed" } : rm,
         ))
+      } else if (data.type === "goal-cancelled" || data.type === "stopped") {
+        setRooms((r) => r.map((rm) =>
+          rm.roomId === data.roomId ? { ...rm, goalStatus: "cancelled" } : rm,
+        ))
       }
     })
     return () => es.close()
@@ -61,6 +65,17 @@ export default function App() {
       if (activeRoomId === roomId) setActiveRoomId("default")
     }).catch((err) => {
       console.error("Failed to destroy room:", err)
+    })
+  }
+
+  const handleStopRoom = (roomId: string) => {
+    // Optimistically reflect the stop; the room's goal-cancelled SSE confirms it.
+    // Only the tabs' Stop button calls this (gated on goalStatus === "running"),
+    // so "cancelled" is the correct resulting state.
+    api.abortRoom(roomId).then(() => {
+      setRooms((r) => r.map((rm) => (rm.roomId === roomId ? { ...rm, goalStatus: "cancelled" } : rm)))
+    }).catch((err) => {
+      console.error("Failed to stop room:", err)
     })
   }
 
@@ -95,6 +110,7 @@ export default function App() {
         onSwitch={setActiveRoomId}
         onCreateRoom={() => setShowCreateDialog(true)}
         onDestroyRoom={handleDestroyRoom}
+        onStopRoom={handleStopRoom}
         onRenameRoom={handleRenameRoom}
       />
 
