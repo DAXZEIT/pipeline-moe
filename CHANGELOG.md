@@ -28,6 +28,13 @@
   unbounded spawning from starving the single llama-server slot.
 - **Multi-provider runtime auth** — add/remove provider API keys at runtime (`/provider` slash
   command + Providers panel) and apply presets in place.
+- **Add agent from a template** — the roster's “+ New agent” is now “+ Add agent”: pick a
+  built-in persona (e.g. a second Builder) to clone into the room with a unique id
+  (`builder` → `builder-2`), keeping its tools, prompt, icon, and model — falling back to the
+  room default if that model is unavailable. No more loading a whole preset and pruning it. A
+  “Custom agent…” entry still opens the from-scratch form. New `GET /api/persona-templates` +
+  `POST …/participants/from-template` (clones server-side, so long system prompts aren't
+  round-tripped and the unique id / model validation happen in one place).
 - **Room tab Stop button + status badges** — each room tab shows a live goal-status dot + label
   (running / done / failed / **stopped**) and, while a goal is running, a ⏹ Stop button that
   cancels it (`POST /api/rooms/:id/abort`) without destroying the room. The `created` SSE event

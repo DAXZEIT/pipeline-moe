@@ -58,10 +58,18 @@ export function Transcript({
   roster,
 }: Props) {
   const endRef = useRef<HTMLDivElement>(null)
+  // Jump instantly to the bottom on the initial load of a room (room switches
+  // remount this component), and only animate for incremental updates afterwards.
+  // Otherwise every tab switch shows a jarring top→bottom smooth-scroll.
+  const settled = useRef(false)
   const byId = (id: string) => roster.find((r) => r.id === id)
 
   useEffect(() => {
-    endRef.current?.scrollIntoView({ behavior: "smooth", block: "end" })
+    endRef.current?.scrollIntoView({
+      behavior: settled.current ? "smooth" : "auto",
+      block: "end",
+    })
+    if (messages.length > 0) settled.current = true
   }, [messages, streaming, liveActivity, liveReasoning])
 
   // Agents currently producing something: streaming text, tool calls, or reasoning.

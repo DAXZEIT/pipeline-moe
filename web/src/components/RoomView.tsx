@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react"
 import { Composer } from "./Composer"
 import { ConversationBar } from "./ConversationBar"
 import { PresetMenu } from "./PresetMenu"
@@ -38,6 +39,18 @@ export function RoomView({
   // The single source of room-scoped state. Bound to THIS RoomView instance,
   // which exists only while this room is active (key={roomId} in App).
   const room = useRoom(roomId)
+
+  // Local draft for the hops field so typing doesn't fight the async server
+  // round-trip; applied explicitly on Enter / blur / the ✓ button.
+  const [hopsDraft, setHopsDraft] = useState(String(room.maxChainHops))
+  useEffect(() => { setHopsDraft(String(room.maxChainHops)) }, [room.maxChainHops])
+  const applyHops = () => {
+    const parsed = parseInt(hopsDraft, 10)
+    const n = Math.max(1, Math.min(100, Number.isFinite(parsed) ? parsed : room.maxChainHops))
+    setHopsDraft(String(n))
+    if (n !== room.maxChainHops) room.setMaxChainHops(n)
+  }
+  const hopsDirty = hopsDraft.trim() !== "" && Number(hopsDraft) !== room.maxChainHops
 
   return (
     <>
@@ -98,15 +111,27 @@ export function RoomView({
             ⟳ chaining {room.chaining ? "on" : "off"}
           </button>
           {room.chaining && (
-            <label className="chain-hops" title="Max chain hops per turn (1–100)">
+            <label className="chain-hops" title="Max chain hops per turn (1–100). Enter or ✓ to apply.">
               hops
               <input
                 type="number"
                 min={1}
                 max={100}
-                value={room.maxChainHops}
-                onChange={(e) => room.setMaxChainHops(Number(e.target.value))}
+                value={hopsDraft}
+                onChange={(e) => setHopsDraft(e.target.value)}
+                onBlur={applyHops}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    applyHops()
+                    ;(e.target as HTMLInputElement).blur()
+                  }
+                }}
               />
+              {hopsDirty && (
+                <button type="button" className="hops-apply" title="Apply hops" onMouseDown={(e) => e.preventDefault()} onClick={applyHops}>
+                  ✓
+                </button>
+              )}
             </label>
           )}
         </header>

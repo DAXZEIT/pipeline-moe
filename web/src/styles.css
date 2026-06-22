@@ -442,6 +442,23 @@ body {
   font: inherit;
   font-size: 11px;
 }
+.hops-apply {
+  background: var(--accent);
+  color: #06281f;
+  border: none;
+  border-radius: 4px;
+  width: 20px;
+  height: 20px;
+  line-height: 1;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  padding: 0;
+  flex-shrink: 0;
+}
+.hops-apply:hover {
+  filter: brightness(1.1);
+}
 /* ---------- Conversation switcher ---------- */
 .conv-bar {
   position: relative;
