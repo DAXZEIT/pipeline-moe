@@ -803,38 +803,11 @@ export class Room {
           return
         }
 
-        // Chain from asker's reply.
+        // Chain from the asker's reply onto the held queue (it resumes draining
+        // below). Routes identically to the main drain loop — a handoff made right
+        // after answering a question now continues instead of being dropped.
         if (this.chaining) {
-          const next = this.resolveAgentMentions(result.reply, asker.persona.id)
-          if (next.length > 0) {
-            if (this.chainBudget < this.maxChainHops) {
-              this.chainBudget += next.length
-              this.queue.push(...next)
-              this.emit("turn", { phase: "chain", from: asker.persona.id, targets: next.map((t) => t.persona.id) })
-            } else {
-              this.notice(`Chain budget exhausted (${this.maxChainHops} hops) — stopping.`, "info")
-            }
-          } else if (
-            this.fallbackAgentId &&
-            asker.persona.id !== this.fallbackAgentId &&
-            this.chainBudget < this.maxChainHops
-          ) {
-            const fb = this.registry.get(this.fallbackAgentId)
-            if (fb && fb.active) {
-              this.chainBudget += 1
-              pq.heldQueue.push(fb)
-              this.notice(`No handoff detected — routing to @${this.fallbackAgentId}`, "info")
-              this.emit("turn", { phase: "chain", from: asker.persona.id, targets: [this.fallbackAgentId] })
-              await fb.sendCustomMessage(
-                {
-                  customType: "routing_fallback",
-                  content: `(Routing fallback: @${asker.persona.id} finished without handing off. Based on the conversation state, decide who should go next — @-mention them in your last paragraph. If the work is complete, say so without mentioning anyone.)`,
-                  display: false,
-                },
-                { deliverAs: "nextTurn" },
-              )
-            }
-          }
+          await this.proposeChain(asker.persona.id, result.reply, pq.heldQueue)
         }
       }
 
@@ -1312,6 +1285,48 @@ export class Room {
    *  Returns true if the pipeline was paused by an ask_user (caller should return).
    *  Handles parallel-wave questions correctly: posts ALL results from the wave
    *  before pausing on the first question, so no agent output is silently dropped. */
+  /** Decide who runs next from `fromId`'s reply and append them onto `target`.
+   *  Honors the chain-hop budget; when no @mention is found and a fallback agent
+   *  is configured, routes there with a nudge to pick the next agent. Shared by
+   *  the main drain loop and the ask-user resume path so routing is identical in
+   *  both — the resume path previously pushed @mentions onto a queue it then
+   *  discarded, silently dropping a handoff made right after answering a question. */
+  private async proposeChain(fromId: string, reply: string, target: Participant[]): Promise<void> {
+    const next = this.resolveAgentMentions(reply, fromId)
+    if (next.length > 0) {
+      if (this.chainBudget < this.maxChainHops) {
+        this.chainBudget += next.length
+        target.push(...next)
+        this.emit("turn", { phase: "chain", from: fromId, targets: next.map((t) => t.persona.id) })
+      } else {
+        this.notice(`Chain budget exhausted (${this.maxChainHops} hops) — stopping.`, "info")
+      }
+      return
+    }
+    if (
+      this.fallbackAgentId &&
+      fromId !== this.fallbackAgentId &&
+      this.chainBudget < this.maxChainHops
+    ) {
+      const fb = this.registry.get(this.fallbackAgentId)
+      if (fb && fb.active) {
+        this.chainBudget += 1
+        target.push(fb)
+        this.notice(`No handoff detected — routing to @${this.fallbackAgentId}`, "info")
+        this.emit("turn", { phase: "chain", from: fromId, targets: [this.fallbackAgentId] })
+        // Inject routing context so the fallback agent knows why it's being called.
+        await fb.sendCustomMessage(
+          {
+            customType: "routing_fallback",
+            content: `(Routing fallback: @${fromId} finished without handing off. Based on the conversation state, decide who should go next — @-mention them in your last paragraph. If the work is complete, say so without mentioning anyone.)`,
+            display: false,
+          },
+          { deliverAs: "nextTurn" },
+        )
+      }
+    }
+  }
+
   private async drainQueue(): Promise<boolean> {
     while (this.queue.length > 0 && !this.aborted) {
       const group = this.nextGroup()
@@ -1346,38 +1361,7 @@ export class Room {
         // Chain from this reply (even if it had a question — the question is
         // posted as part of the message, so @mentions in the text still chain).
         if (this.chaining) {
-          const next = this.resolveAgentMentions(out.reply, out.target.persona.id)
-          if (next.length > 0) {
-            if (this.chainBudget < this.maxChainHops) {
-              this.chainBudget += next.length
-              this.queue.push(...next)
-              this.emit("turn", { phase: "chain", from: out.target.persona.id, targets: next.map((t) => t.persona.id) })
-            } else {
-              this.notice(`Chain budget exhausted (${this.maxChainHops} hops) — stopping.`, "info")
-            }
-          } else if (
-            this.fallbackAgentId &&
-            out.target.persona.id !== this.fallbackAgentId &&
-            this.chainBudget < this.maxChainHops
-          ) {
-            // No @mention found — route to fallback agent for routing decision.
-            const fb = this.registry.get(this.fallbackAgentId)
-            if (fb && fb.active) {
-              this.chainBudget += 1
-              this.queue.push(fb)
-              this.notice(`No handoff detected — routing to @${this.fallbackAgentId}`, "info")
-              this.emit("turn", { phase: "chain", from: out.target.persona.id, targets: [this.fallbackAgentId] })
-              // Inject routing context so the fallback agent knows why it's being called.
-              await fb.sendCustomMessage(
-                {
-                  customType: "routing_fallback",
-                  content: `(Routing fallback: @${out.target.persona.id} finished without handing off. Based on the conversation state, decide who should go next — @-mention them in your last paragraph. If the work is complete, say so without mentioning anyone.)`,
-                  display: false,
-                },
-                { deliverAs: "nextTurn" },
-              )
-            }
-          }
+          await this.proposeChain(out.target.persona.id, out.reply, this.queue)
         }
 
         // Inject work receipt into the next agent in queue (if there is one and there are changes).

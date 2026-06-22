@@ -244,6 +244,35 @@ describe("ask_user — pause/resume", () => {
     expect(secondMsg).toBeDefined()
   })
 
+  test("resume reply that @-mentions an agent chains to it (regression: was dropped)", async () => {
+    const builder = makeMockParticipant("builder")
+    const auditor = makeMockParticipant("auditor")
+    // First turn: builder asks the user a question → pauses.
+    builder.withResult({
+      text: "Need a detail before I continue",
+      activity: [{ toolCallId: "t1", toolName: "ask_user", args: { question: "Which target?" }, status: "ok", ts: Date.now() }],
+      question: "Which target?",
+    })
+    registry.addParticipant(builder)
+    registry.addParticipant(auditor)
+    // chaining is on by default.
+
+    room.submit("@builder start")
+    await new Promise((r) => setTimeout(r, 200))
+
+    // The user answers; builder's resume reply hands off to @auditor.
+    builder.withResult({ text: "Thanks.\n\n@auditor please review the result" })
+    auditor.withResult({ text: "Auditor reviewing" })
+
+    room.submit("use the staging target")
+    await new Promise((r) => setTimeout(r, 300))
+
+    // The handoff after answering must chain — the auditor should have run.
+    const auditorMsg = events.messages.find((m) => m.author === "auditor")
+    expect(auditorMsg).toBeDefined()
+    expect(auditorMsg!.text).toBe("Auditor reviewing")
+  })
+
   test("nested question — asker asks again on resume, pipeline re-pauses", async () => {
     const agent = makeMockParticipant("builder")
     agent.withResult({

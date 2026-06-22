@@ -54,6 +54,14 @@
 
 ### Fixed
 
+- **Dropped handoff after answering a question** — with chaining on, if an agent @-mentioned
+  another agent in the reply it produced right after the user answered its `ask_user` question,
+  that handoff was silently discarded: the resume path pushed the next agent onto a queue it then
+  overwrote with the held queue. The two chain-routing sites (the main drain loop and the
+  ask-user resume path) are now unified into a single `Room.proposeChain()` helper so routing is
+  identical in both — and the post-answer handoff now continues instead of vanishing. Regression
+  test added (verified failing before the fix). This also lays the groundwork for an upcoming
+  semi-automatic routing mode (human-approved handoffs).
 - **Sub-room teardown was a detach, not a stop** — `RoomManager.destroyRoom()` now aborts the
   in-flight pipeline (`await room.abortCurrent()`) BEFORE unmount+delete. Previously a
   destroyed-but-busy room kept running headless (a zombie): its agents continued inference,
@@ -74,6 +82,12 @@
   7 pre-existing type errors in `Composer.tsx` (the `/`-command suggestion union wasn't narrowed
   per `trigger`). Narrowed at the gated render branches; the production build is green again.
   (The dev server was unaffected — Vite doesn't typecheck — which is why it went unnoticed.)
+- **Room switch no longer animates a top→bottom scroll** — the transcript remounts on every room
+  switch and was smooth-scrolling from the top each time. It now jumps to the bottom instantly on
+  a room's initial load and only animates for incremental new messages.
+- **Chain-hops field is now editable** — it was a server-controlled value PATCHed on every
+  keystroke, so typing fought the async round-trip and an empty/`0` value 400'd. Now a local draft
+  applies explicitly on Enter / blur / a ✓ button (only shown when the value changed).
 
 ### Changed
 
