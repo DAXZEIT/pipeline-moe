@@ -68,6 +68,13 @@
 
 ### Fixed
 
+- **Switching rooms mid-turn dropped an agent's in-flight output** — `RoomView` remounted on every
+  room switch (`key={activeRoomId}`), tearing down that room's SSE stream and ephemeral streaming
+  state; peeking at another room and back lost the partial text until the turn committed to the
+  transcript. Every open room's `RoomView` now stays mounted (only the active one is shown, the
+  rest `display:none`), each with its own `useRoom` instance — so the stream and live state survive
+  switches. Bounded by the 4-room cap. Returning to a room also jumps to the bottom so content that
+  streamed in while it was hidden isn't left below the fold.
 - **Remote (sshfs) rooms ran ~1 minute per action** — every agent turn snapshotted the whole
   workspace twice (the before/after work-receipt diff) and re-listed it on each event. For a room
   scoped to a large remote directory (e.g. an entire `/home`), that meant `stat`-ing the full tree

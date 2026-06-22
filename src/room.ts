@@ -3,7 +3,7 @@
 // also matches llama-server running with --parallel 1.
 
 import { config } from "./config.js"
-import { diffSnapshots, listWorkspace, receiptHasChanges, snapshot } from "./receipts.js"
+import { diffSnapshots, listWorkspace, receiptFromActivity, receiptHasChanges, snapshot } from "./receipts.js"
 import type { Registry } from "./registry.js"
 import type { Participant } from "./participant.js"
 import type { ConversationStore } from "./store.js"
@@ -1026,8 +1026,9 @@ export class Room {
     context: { text: string; images?: string[] },
     mode: "prompt" | "followUp",
   ): Promise<RunOutput | null> {
-    // Remote rooms skip the full-tree diff (too slow over sshfs); receipt is empty.
-    const before = this.remote ? new Map<string, string>() : await snapshot(this.workspaceDir)
+    // Remote rooms skip the full-tree diff (too slow over sshfs) — the receipt is
+    // rebuilt from the agent's write/edit tool calls below instead.
+    const before = this.remote ? undefined : await snapshot(this.workspaceDir)
     this.running.add(target)
     // Acquire the local-model lock only for local agents (cloud agents bypass).
     const isLocal = this.laneOf(target) === "local"
@@ -1041,7 +1042,7 @@ export class Room {
         ? await target.run(context.text, context.images)
         : await target.followUp(context.text, context.images)
       if (this.aborted) return null
-      const after = this.remote ? new Map<string, string>() : await snapshot(this.workspaceDir)
+      const after = this.remote ? undefined : await snapshot(this.workspaceDir)
 
       // Broadcast context usage and session stats after the turn — piggyback on status event.
       // The idle status already fires from Participant.run() finally block;
@@ -1061,7 +1062,9 @@ export class Room {
         activity: result.activity,
         reasoning: result.reasoning,
         question: result.question,
-        receipt: diffSnapshots(before, after, target.persona.id),
+        receipt: before && after
+          ? diffSnapshots(before, after, target.persona.id)
+          : receiptFromActivity(result.activity, target.persona.id),
       }
     } catch (err) {
       this.notice(
