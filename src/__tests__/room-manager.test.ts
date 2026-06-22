@@ -41,7 +41,11 @@ describe("RoomManager", () => {
     manager = new RoomManager(makeResolvedModel(), hub, new Set(), [])
   })
 
-  afterEach(() => {
+  afterEach(async () => {
+    // Drain createRoom/renameRoom/destroyRoom's fire-and-forget manifest + meta
+    // writes before deleting the temp dir, otherwise an in-flight write can race
+    // the rmSync (ENOTEMPTY) or recreate the dir right after it's removed.
+    await manager.flushWrites()
     ;(config as { sessionsDir: string }).sessionsDir = realSessionsDir
     rmSync(suiteTmp, { recursive: true, force: true })
   })
@@ -348,7 +352,8 @@ describe("RoomManager", () => {
       ;(config as { sessionsDir: string }).sessionsDir = tmpDir
     })
 
-    afterEach(() => {
+    afterEach(async () => {
+      await manager.flushWrites()
       ;(config as { sessionsDir: string }).sessionsDir = prevSessionsDir
       rmSync(tmpDir, { recursive: true, force: true })
     })

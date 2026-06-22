@@ -332,6 +332,15 @@ export class RoomManager {
     return out
   }
 
+  /** Resolve once all queued manifest + room-meta writes have drained. createRoom,
+   *  renameRoom, and destroyRoom trigger these writes fire-and-forget (`void`), so
+   *  shutdown and tests use this to wait them out before tearing down the
+   *  sessions dir — otherwise an in-flight write can race the cleanup. */
+  async flushWrites(): Promise<void> {
+    await this.saveQueue
+    await this.metaQueue
+  }
+
   // ── Persistence ─────────────────────────────────────────────────────────────
 
   /** Absolute path of the manifest file, colocated with per-room session dirs. */
