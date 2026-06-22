@@ -425,4 +425,26 @@ describe("ask_user — pause/resume", () => {
     // Room should be idle now.
     expect(room.isBusy()).toBe(false)
   })
+
+  test("parallel handoffs to the same agent enqueue it once (no back-to-back repeat)", async () => {
+    const scout = makeMockParticipant("scout")
+    const builder = makeMockParticipant("builder")
+    const planner = makeMockParticipant("planner")
+    scout.parallel = true
+    builder.parallel = true
+    // Both finish by handing off to @planner in the same parallel wave.
+    scout.withResult({ text: "found things\n\n@planner please plan" })
+    builder.withResult({ text: "built things\n\n@planner please plan" })
+    planner.withResult({ text: "Plan ready" }) // no further handoff → ends
+    registry.addParticipant(scout)
+    registry.addParticipant(builder)
+    registry.addParticipant(planner)
+
+    room.submit("@scout @builder go")
+    await new Promise((r) => setTimeout(r, 400))
+
+    // De-duped: the planner runs exactly once, not twice back-to-back.
+    const plannerMsgs = events.messages.filter((m) => m.author === "planner")
+    expect(plannerMsgs.length).toBe(1)
+  })
 })

@@ -1310,8 +1310,13 @@ export class Room {
    *  both — the resume path previously pushed @mentions onto a queue it then
    *  discarded, silently dropping a handoff made right after answering a question. */
   private async proposeChain(fromId: string, reply: string, target: Participant[]): Promise<void> {
-    const next = this.resolveAgentMentions(reply, fromId)
-    if (next.length > 0) {
+    const mentioned = this.resolveAgentMentions(reply, fromId)
+    if (mentioned.length > 0) {
+      // De-dupe against the pending queue: if e.g. scout AND builder both hand
+      // off to @planner in the same pass, enqueue the planner once instead of
+      // running it back-to-back (the loop kept returning to it 2-3× in a row).
+      const next = mentioned.filter((p) => !target.includes(p))
+      if (next.length === 0) return
       if (this.chainBudget < this.maxChainHops) {
         this.chainBudget += next.length
         target.push(...next)
@@ -1327,7 +1332,7 @@ export class Room {
       this.chainBudget < this.maxChainHops
     ) {
       const fb = this.registry.get(this.fallbackAgentId)
-      if (fb && fb.active) {
+      if (fb && fb.active && !target.includes(fb)) {
         this.chainBudget += 1
         target.push(fb)
         this.notice(`No handoff detected — routing to @${this.fallbackAgentId}`, "info")
