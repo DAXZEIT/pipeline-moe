@@ -68,6 +68,13 @@
 
 ### Fixed
 
+- **Preset load no longer blocks on an unavailable model** — a preset referencing a model that
+  isn't currently available (a stale cloud snapshot id that rotated out of the registry, or a
+  swapped local quant) used to fail the *whole* load with a 400. It now loads, downgrading those
+  agents to the process default (matching `resolveModelRef`'s runtime fallback) and telling you
+  which: a notice on load plus a small `(!)` marker in the Presets panel next to each unavailable
+  model and on the preset card. `downgradeUnavailableModels` replaces the hard pre-check in the
+  load/apply routes and sub-room provisioning.
 - **Duplicate back-to-back handoffs** — when two agents in the same routing pass both handed off
   to the same agent (e.g. scout and builder both ending on `@planner`), that agent was enqueued
   twice and ran 2–3× in a row. `proposeChain` now de-dupes proposed handoffs against the pending

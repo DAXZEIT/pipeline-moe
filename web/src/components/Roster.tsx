@@ -1,6 +1,6 @@
 import { useState } from "react"
 import { api } from "../api"
-import type { RosterItem } from "../types"
+import type { PersonaDetail, RosterItem } from "../types"
 import { AddAgent } from "./AddAgent"
 import { AgentMenu, type AgentMenuItem } from "./AgentMenu"
 import { EditAgent } from "./EditAgent"
@@ -29,6 +29,8 @@ interface Props {
   onCreate: (body: Parameters<typeof api.create>[0]) => Promise<unknown>
   onAddTemplate: (templateId: string) => Promise<unknown>
   onReorder: (order: string[]) => void
+  onFetchParticipant: (id: string) => Promise<PersonaDetail>
+  onUpdate: (id: string, patch: Parameters<typeof api.updateAgent>[1]) => Promise<unknown>
 }
 
 /** Move `from` relative to `to`: dragging down lands below the target, dragging
@@ -95,6 +97,8 @@ export function Roster({
   onCreate,
   onAddTemplate,
   onReorder,
+  onFetchParticipant,
+  onUpdate,
 }: Props) {
   const [creating, setCreating] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -229,6 +233,8 @@ export function Roster({
             {editingId === r.id && (
               <EditAgent
                 agent={r}
+                onFetch={onFetchParticipant}
+                onSave={onUpdate}
                 onCancel={() => setEditingId(null)}
                 onSaved={() => setEditingId(null)}
               />

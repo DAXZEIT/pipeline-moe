@@ -1,18 +1,22 @@
 import { useEffect, useState } from "react"
 import { api } from "../api"
-import type { ModelInfo, RosterItem } from "../types"
+import type { ModelInfo, PersonaDetail, RosterItem } from "../types"
 
 const ALL_TOOLS = ["read", "bash", "edit", "write", "grep", "find", "ls", "web_search", "web_read", "youtube_transcript", "arxiv_search", "youcom_search"]
 
 interface Props {
   agent: RosterItem
+  /** Room-scoped fetch + save — so editing an agent in the second room doesn't
+   *  read/write the default room's agent of the same id. */
+  onFetch: (id: string) => Promise<PersonaDetail>
+  onSave: (id: string, patch: Parameters<typeof api.updateAgent>[1]) => Promise<unknown>
   onCancel: () => void
   onSaved: () => void
 }
 
 /** Edit an existing agent's persona. Saving recreates its pi session, so the
  *  new prompt/tools take effect immediately (its identity is rebuilt). */
-export function EditAgent({ agent, onCancel, onSaved }: Props) {
+export function EditAgent({ agent, onFetch, onSave, onCancel, onSaved }: Props) {
   const [name, setName] = useState(agent.name)
   const [systemPrompt, setSystemPrompt] = useState("")
   const [tools, setTools] = useState<string[]>(agent.tools)
@@ -30,8 +34,7 @@ export function EditAgent({ agent, onCancel, onSaved }: Props) {
   // Roster items don't carry the system prompt — fetch the full persona.
   useEffect(() => {
     let cancelled = false
-    api
-      .participant(agent.id)
+    onFetch(agent.id)
       .then((p) => {
         if (cancelled) return
         setSystemPrompt(p.systemPrompt)
@@ -154,7 +157,7 @@ export function EditAgent({ agent, onCancel, onSaved }: Props) {
           onClick={async () => {
             setBusy(true)
             try {
-              await api.updateAgent(agent.id, {
+              await onSave(agent.id, {
                 name: name.trim(),
                 systemPrompt: systemPrompt.trim(),
                 tools,

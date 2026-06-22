@@ -353,6 +353,8 @@ export function useRoom(roomId?: string) {
     [pushNotice, rApi],
   )
 
+  const getParticipant = useCallback((id: string) => rApi.participant(id), [rApi])
+
   const updateParticipant = useCallback(
     (id: string, patch: Parameters<typeof rApi.updateAgent>[1]) =>
       rApi.updateAgent(id, patch).catch((err) => {
@@ -553,6 +555,7 @@ export function useRoom(roomId?: string) {
     savePreset,
     loadPreset,
     applyPreset,
+    getParticipant,
     updateParticipant,
     reorderParticipants,
     abort,

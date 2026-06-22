@@ -70,6 +70,8 @@ export function RoomView({
           onCreate={room.createParticipant}
           onAddTemplate={room.addFromTemplate}
           onReorder={room.reorderParticipants}
+          onFetchParticipant={room.getParticipant}
+          onUpdate={room.updateParticipant}
         />
 
         <ProvidersPanel

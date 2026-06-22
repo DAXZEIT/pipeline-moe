@@ -12,7 +12,7 @@
 
 import { execFile } from "node:child_process"
 import { promisify } from "node:util"
-import { mkdir, rmdir } from "node:fs/promises"
+import { mkdir, rmdir, readdir } from "node:fs/promises"
 import { join } from "node:path"
 
 const execFileAsync = promisify(execFile)
@@ -74,6 +74,12 @@ export async function mountSshfs(roomId: string, sshTarget: string): Promise<str
   }
 
   const mountpoint = mountpointFor(roomId)
+  // A previous run may have left a live/stale mount at this deterministic path
+  // (e.g. the process was SIGKILLed before teardown). Mounting over a leftover
+  // FUSE mount fails with "fusermount3: … Permission denied", so clear it
+  // best-effort first. Safe: duplicate roomIds are rejected upstream, so no
+  // active room owns this mountpoint when we reach here.
+  await unmountSshfs(mountpoint).catch(() => {})
   await mkdir(mountpoint, { recursive: true })
 
   try {
@@ -113,4 +119,21 @@ export async function unmountSshfs(mountpoint: string): Promise<void> {
   }
   // Remove the empty mountpoint dir. Fails harmlessly if still busy or gone.
   await rmdir(mountpoint).catch(() => {})
+}
+
+/**
+ * Unmount every leftover mountpoint under MOUNT_BASE. Run once at startup to
+ * clear mounts leaked by a prior process that didn't tear down cleanly (a crash
+ * or SIGKILL skips the normal unmount, so the sshfs mount survives and blocks a
+ * later re-mount at the same deterministic path). restoreRooms() then re-mounts
+ * the rooms that are still valid.
+ */
+export async function cleanupStaleMounts(): Promise<void> {
+  let entries: string[]
+  try {
+    entries = await readdir(MOUNT_BASE)
+  } catch {
+    return // base dir absent — nothing to clean
+  }
+  await Promise.all(entries.map((e) => unmountSshfs(join(MOUNT_BASE, e))))
 }

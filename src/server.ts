@@ -19,7 +19,7 @@ import { Room } from "./room.js"
 import { RoomManager, type RoomDetails } from "./room-manager.js"
 import type { RoomOrchestrator } from "./orchestrator.js"
 import { SseHub } from "./sse.js"
-import { isSshTarget, mountSshfs, unmountSshfs, type RoomMount } from "./sshfs.js"
+import { cleanupStaleMounts, isSshTarget, mountSshfs, unmountSshfs, type RoomMount } from "./sshfs.js"
 import type { Persona, PersonaState, RouteDecision } from "./types.js"
 import { parsePersona, VALID_TOOLS } from "./validation.js"
 
@@ -483,6 +483,12 @@ async function main(): Promise<void> {
   // the manifest (sessions/rooms.json) is the durable record. Default room is
   // already created above — restoreRooms only adds the others (and restores a
   // renamed default name). sshfs rooms are re-mounted here.
+  //
+  // First clear any mounts leaked by a prior process that was killed before
+  // teardown — otherwise a resume/restore that re-mounts the same deterministic
+  // path fails with "fusermount3: … Permission denied". restoreRooms re-mounts
+  // the rooms that are still valid right after.
+  await cleanupStaleMounts()
   await roomManager.restoreRooms()
 
   const app = express()
