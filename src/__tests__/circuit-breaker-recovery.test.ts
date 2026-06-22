@@ -23,7 +23,11 @@ class MockParticipant {
     question?: string
     receipt: WorkReceipt
   }> {
-    return { reply: "OK", activity: [], receipt: {} }
+    return {
+      reply: "OK",
+      activity: [],
+      receipt: { participantId: this.persona.id, created: [], modified: [], deleted: [] },
+    }
   }
 
   sendCustomMessage(msg: { customType: string; content: string; display: boolean }, _opts: any) {

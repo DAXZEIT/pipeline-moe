@@ -229,7 +229,9 @@ describe("Room + LocalModelLock integration", () => {
     const registry = new MockRegistry()
 
     class ThrowingParticipant extends MockParticipant {
-      async run(_text: string) {
+      // Return type derived from the base so the override stays assignable even
+      // if MockParticipant.run's shape changes (it only ever throws here).
+      async run(_text: string): Promise<Awaited<ReturnType<MockParticipant["run"]>>> {
         throw new Error("inference failed")
       }
     }
