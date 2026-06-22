@@ -5,7 +5,8 @@
 // destroyRoom() and routes keyed by roomId.
 
 import { resolve } from "node:path"
-import { readFile, writeFile, rename, mkdir } from "node:fs/promises"
+import { readFile, writeFile, rename, mkdir, readdir } from "node:fs/promises"
+import type { Dirent } from "node:fs"
 import { Registry } from "./registry.js"
 import { Room } from "./room.js"
 import { SseHub } from "./sse.js"
@@ -44,6 +45,29 @@ export interface RoomManifestEntry {
   sshTarget?: string
 }
 
+/** Durable per-room metadata, persisted to `sessions/<roomId>/meta.json`. Unlike
+ *  the manifest entry, it is NOT removed on destroyRoom — it outlives the room so
+ *  a destroyed/closed room's conversation data can be resumed later. */
+export interface RoomMeta {
+  roomId: string
+  name: string
+  /** Durable scope INPUT (local path or `user@host:/path`). Absent = default workspace. */
+  workspaceDir?: string
+  createdAt: number
+}
+
+/** A room that has on-disk data but is not currently live — a resume candidate. */
+export interface ResumableRoom {
+  roomId: string
+  name: string
+  workspaceDir?: string
+  /** Latest conversation's updatedAt (else meta.createdAt, else 0). */
+  lastActivity: number
+  messageCount: number
+  /** false = legacy orphan (no meta.json); name derived from a conversation title. */
+  hasMeta: boolean
+}
+
 export class RoomManager {
   private rooms = new Map<
     string,
@@ -57,6 +81,8 @@ export class RoomManager {
        *  a degraded restore (mount failed, VPS down) has no live mount but must
        *  still persist this so the target isn't lost on the next save. */
       sshTarget?: string
+      /** Creation timestamp, persisted into meta.json and stable across renames. */
+      createdAt: number
     }
   >()
   /** Process-global semaphore for serializing local-model inference across all rooms. */
@@ -144,8 +170,10 @@ export class RoomManager {
       workspaceDir: scope,
       mount,
       sshTarget: mount?.sshTarget ?? sshTarget,
+      createdAt: Date.now(),
     })
     void this.saveManifest()
+    void this.saveRoomMeta(roomId)
     return room
   }
 
@@ -191,7 +219,117 @@ export class RoomManager {
     if (!entry) return false
     entry.name = newName
     void this.saveManifest()
+    void this.saveRoomMeta(roomId)
     return true
+  }
+
+  // ── Room metadata (resume support) ──────────────────────────────────────
+  // A small meta.json per room session dir records the durable display name +
+  // scope. It is deliberately NOT deleted on destroyRoom — it outlives the room
+  // so listResumableRooms() / the resume route can re-open a closed room with its
+  // original name and workspace scope intact.
+
+  private roomMetaPath(roomId: string): string {
+    return resolve(config.sessionsDir, roomId, "meta.json")
+  }
+
+  /** The durable scope INPUT for a room (local path or `user@host:/path`),
+   *  mirroring manifestEntries: sshTarget wins; a non-default local path is
+   *  stored as-is; the default workspace stores nothing. */
+  private durableScope(e: { workspaceDir: string; sshTarget?: string }): string | undefined {
+    if (e.sshTarget) return e.sshTarget
+    if (e.workspaceDir !== config.workspaceDir) return e.workspaceDir
+    return undefined
+  }
+
+  /** Serializes meta.json writes so two room mutations never collide on the
+   *  shared .tmp path (mirrors saveQueue for the manifest). */
+  private metaQueue: Promise<void> = Promise.resolve()
+
+  /** Write `sessions/<roomId>/meta.json` from the live entry. Atomic
+   *  (write .tmp + rename), serialized, best-effort (a failure is logged, never
+   *  thrown), and awaitable for tests. The dir/path are snapshotted at call time
+   *  so a queued write can't drift onto a different sessionsDir (matters in tests). */
+  saveRoomMeta(roomId: string): Promise<void> {
+    const e = this.rooms.get(roomId)
+    if (!e) return Promise.resolve()
+    const workspaceDir = this.durableScope(e)
+    const meta: RoomMeta = {
+      roomId,
+      name: e.name,
+      createdAt: e.createdAt,
+      ...(workspaceDir ? { workspaceDir } : {}),
+    }
+    const dir = resolve(config.sessionsDir, roomId)
+    const path = resolve(dir, "meta.json")
+    this.metaQueue = this.metaQueue
+      .then(() => this.writeRoomMeta(dir, path, meta))
+      .catch((err) => {
+        console.error(
+          `[room-meta] save failed for "${roomId}": ${err instanceof Error ? err.message : String(err)}`,
+        )
+      })
+    return this.metaQueue
+  }
+
+  private async writeRoomMeta(dir: string, path: string, meta: RoomMeta): Promise<void> {
+    const tmp = `${path}.tmp`
+    await mkdir(dir, { recursive: true })
+    await writeFile(tmp, JSON.stringify(meta, null, 2), "utf8")
+    await rename(tmp, path)
+  }
+
+  /** Read `sessions/<roomId>/meta.json`. Returns null when absent or malformed
+   *  (e.g. a legacy orphan dir predating meta.json). */
+  async readRoomMeta(roomId: string): Promise<RoomMeta | null> {
+    try {
+      const raw = await readFile(this.roomMetaPath(roomId), "utf8")
+      const m: unknown = JSON.parse(raw)
+      if (m && typeof m === "object" && typeof (m as RoomMeta).name === "string") {
+        return m as RoomMeta
+      }
+      return null
+    } catch {
+      return null
+    }
+  }
+
+  /** List rooms that have on-disk session data but are NOT currently live — i.e.
+   *  destroyed/closed rooms whose conversation can be resumed. Reads meta.json for
+   *  the durable name/scope and the latest conversation for activity + size.
+   *  Legacy orphans (no meta.json) fall back to the latest conversation's title. */
+  async listResumableRooms(): Promise<ResumableRoom[]> {
+    const dir = config.sessionsDir
+    let entries: Dirent[]
+    try {
+      entries = await readdir(dir, { withFileTypes: true })
+    } catch {
+      return []
+    }
+    const out: ResumableRoom[] = []
+    for (const ent of entries) {
+      if (!ent.isDirectory()) continue
+      const roomId = ent.name
+      if (roomId === "default") continue
+      if (this.rooms.has(roomId)) continue // live → already a tab, not "resumable"
+
+      const meta = await this.readRoomMeta(roomId)
+      const store = new ConversationStore(resolve(dir, roomId))
+      const convs = await store.list()
+      const latest = convs[0]
+      if (!meta && !latest) continue // empty dir — nothing to resume
+
+      out.push({
+        roomId,
+        name: meta?.name ?? latest?.title ?? roomId,
+        workspaceDir: meta?.workspaceDir,
+        lastActivity: latest?.updatedAt ?? meta?.createdAt ?? 0,
+        messageCount: latest?.messageCount ?? 0,
+        hasMeta: !!meta,
+      })
+    }
+    out.sort((a, b) => b.lastActivity - a.lastActivity)
+    return out
   }
 
   // ── Persistence ─────────────────────────────────────────────────────────────

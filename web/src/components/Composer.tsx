@@ -192,7 +192,8 @@ export function Composer({ roster, turnActive, runningAgentId, paused, pausedQue
       {suggestions.length > 0 && (
         <div className="mention-pop">
           {trigger === "/" ? (
-            suggestions.map((c, i) => (
+            // trigger === "/" guarantees command objects (see the suggestions memo).
+            (suggestions as typeof SLASH_COMMANDS).map((c, i) => (
               <div
                 key={c.cmd}
                 className={`mention-item ${i === highlight ? "active" : ""}`}
@@ -207,7 +208,8 @@ export function Composer({ roster, turnActive, runningAgentId, paused, pausedQue
               </div>
             ))
           ) : (
-            suggestions.map((h, i) => {
+            // trigger === "@" guarantees roster-id strings.
+            (suggestions as string[]).map((h, i) => {
               const r = roster.find((x) => x.id === h)
               return (
                 <div

@@ -131,6 +131,16 @@ export interface RoomSummary {
   goalText: string | null
 }
 
+/** A closed room with on-disk data, listed by GET /api/rooms/resumable. */
+export interface ResumableRoom {
+  roomId: string
+  name: string
+  workspaceDir?: string
+  lastActivity: number
+  messageCount: number
+  hasMeta: boolean
+}
+
 /** A provider listed by GET /api/providers. */
 export interface ProviderInfo {
   name: string

@@ -28,6 +28,13 @@
   unbounded spawning from starving the single llama-server slot.
 - **Multi-provider runtime auth** — add/remove provider API keys at runtime (`/provider` slash
   command + Providers panel) and apply presets in place.
+- **Resume closed rooms** — a room's conversation data survives `destroy_room` / closing its tab
+  (it was already on disk, just unreachable). Each room now writes a durable
+  `sessions/<id>/meta.json` (name + workspace scope) that outlives the manifest entry. New
+  `GET /api/rooms/resumable` lists closed rooms with on-disk data (including legacy orphans,
+  whose name falls back to the latest conversation title); `POST /api/rooms/:id/resume` reopens
+  one with its transcript, roster, and scope restored. UI: the “+ room” dialog gains a
+  **Create new / Resume** toggle listing resumable rooms (name, last activity, size, scope).
 
 ### Fixed
 
@@ -47,6 +54,10 @@
   `local-model-lock.test.ts` (added after the original 122→0 cleanup) reintroduced an invalid
   `WorkReceipt` literal (`{}`) and a `Promise<void>` `run()` override. Fixed; `npm run typecheck`
   is green again as a CI gate.
+- **Frontend build was broken** — `web` `npm run build` (`tsc --noEmit && vite build`) failed on
+  7 pre-existing type errors in `Composer.tsx` (the `/`-command suggestion union wasn't narrowed
+  per `trigger`). Narrowed at the gated render branches; the production build is green again.
+  (The dev server was unaffected — Vite doesn't typecheck — which is why it went unnoticed.)
 
 ---
 

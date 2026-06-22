@@ -5,6 +5,7 @@ import type {
   PersonaDetail,
   PresetFile,
   ProviderInfo,
+  ResumableRoom,
   RoomSummary,
   RosterItem,
   WorkspaceFile,
@@ -252,6 +253,14 @@ export const api = {
 
   listRooms: () =>
     fetch(`${API_BASE}/api/rooms`).then((r) => json<RoomSummary[]>(r)),
+
+  resumableRooms: () =>
+    fetch(`${API_BASE}/api/rooms/resumable`).then((r) => json<ResumableRoom[]>(r)),
+
+  resumeRoom: (roomId: string) =>
+    fetch(`${API_BASE}/api/rooms/${roomId}/resume`, { method: "POST" }).then((r) =>
+      json<RoomSummary>(r),
+    ),
 
   createRoom: (body: { name: string; roomId?: string; preset?: string; goal?: string; workspaceDir?: string }) =>
     fetch(`${API_BASE}/api/rooms`, {

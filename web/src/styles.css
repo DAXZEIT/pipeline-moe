@@ -1497,6 +1497,85 @@ body {
   text-transform: uppercase;
 }
 
+.dialog-tabs {
+  display: flex;
+  gap: 4px;
+}
+
+.dialog-tab {
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 5px;
+  border-bottom: 2px solid transparent;
+}
+
+.dialog-tab:hover {
+  color: var(--text);
+  background: var(--bg3);
+}
+
+.dialog-tab.active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+
+.resume-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.resume-item {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  width: 100%;
+  text-align: left;
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 10px;
+  cursor: pointer;
+  font-family: inherit;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.resume-item:hover:not(:disabled) {
+  border-color: var(--accent);
+  background: var(--bg2);
+}
+
+.resume-item:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.resume-name {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.resume-meta {
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .dialog-close {
   background: transparent;
   border: none;

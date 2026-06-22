@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest"
 import { resolve } from "node:path"
-import { mkdtempSync, readFileSync, writeFileSync, rmSync, existsSync } from "node:fs"
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync, existsSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { RoomManager } from "../room-manager.js"
 import { Room } from "../room.js"
@@ -115,6 +115,91 @@ describe("RoomManager", () => {
     expect(removed).toBe(true)
     expect(spy).toHaveBeenCalledTimes(1)
     expect(manager.getRoom("busy")).toBeUndefined()
+  })
+
+  // ── Resume support: meta.json + listResumableRooms ────────────────────────
+
+  test("createRoom persists meta.json with the name (default scope omits workspaceDir)", async () => {
+    manager.createRoom("m1", "Meta Room")
+    await manager.saveRoomMeta("m1") // drain the fire-and-forget write
+    expect(existsSync(resolve(suiteTmp, "m1", "meta.json"))).toBe(true)
+    const meta = await manager.readRoomMeta("m1")
+    expect(meta).toMatchObject({ roomId: "m1", name: "Meta Room" })
+    expect(meta?.workspaceDir).toBeUndefined()
+  })
+
+  test("createRoom records a custom workspaceDir (resolved) in meta", async () => {
+    manager.createRoom("m2", "Scoped", undefined, "/tmp/meta-scope")
+    await manager.saveRoomMeta("m2")
+    const meta = await manager.readRoomMeta("m2")
+    expect(meta?.workspaceDir).toBe(resolve("/tmp/meta-scope"))
+  })
+
+  test("createRoom records the sshTarget (not the mountpoint) in meta", async () => {
+    manager.createRoom("m2b", "VPS", undefined, "/tmp/mnt-x", {
+      mountpoint: "/tmp/mnt-x",
+      sshTarget: "dax@host:/srv",
+    })
+    await manager.saveRoomMeta("m2b")
+    const meta = await manager.readRoomMeta("m2b")
+    expect(meta?.workspaceDir).toBe("dax@host:/srv")
+  })
+
+  test("renameRoom updates meta name and preserves createdAt", async () => {
+    manager.createRoom("m3", "Old")
+    await manager.saveRoomMeta("m3")
+    const before = await manager.readRoomMeta("m3")
+    manager.renameRoom("m3", "New")
+    await manager.saveRoomMeta("m3")
+    const after = await manager.readRoomMeta("m3")
+    expect(after?.name).toBe("New")
+    expect(after?.createdAt).toBe(before?.createdAt)
+  })
+
+  test("destroyRoom keeps meta.json on disk so the room can be resumed", async () => {
+    manager.createRoom("m4", "Keepme")
+    await manager.saveRoomMeta("m4")
+    await manager.destroyRoom("m4")
+    expect(existsSync(resolve(suiteTmp, "m4", "meta.json"))).toBe(true)
+    expect(await manager.readRoomMeta("m4")).toMatchObject({ name: "Keepme" })
+  })
+
+  test("listResumableRooms lists closed rooms, excludes live and default", async () => {
+    manager.createDefaultRoom()
+    await manager.saveRoomMeta("default")
+    manager.createRoom("live1", "Live")
+    await manager.saveRoomMeta("live1")
+    manager.createRoom("closed1", "Closed One")
+    await manager.saveRoomMeta("closed1")
+    await manager.destroyRoom("closed1") // data on disk, no longer live
+
+    const resumable = await manager.listResumableRooms()
+    const ids = resumable.map((r) => r.roomId)
+    expect(ids).toContain("closed1")
+    expect(ids).not.toContain("live1")
+    expect(ids).not.toContain("default")
+    const entry = resumable.find((r) => r.roomId === "closed1")!
+    expect(entry.name).toBe("Closed One")
+    expect(entry.hasMeta).toBe(true)
+  })
+
+  test("listResumableRooms includes a legacy orphan (no meta.json) via the conversation title", async () => {
+    // A room dir created before meta.json existed: one conversation file, no meta.
+    const dir = resolve(suiteTmp, "room-legacy")
+    mkdirSync(dir, { recursive: true })
+    writeFileSync(
+      resolve(dir, "conv-1.json"),
+      JSON.stringify({
+        id: "conv-1", title: "Legacy Discussion", createdAt: 1000, updatedAt: 2000,
+        chaining: true, defaultAgent: null, fallbackAgent: "planner", personas: [], transcript: [],
+      }),
+    )
+    const resumable = await manager.listResumableRooms()
+    const entry = resumable.find((r) => r.roomId === "room-legacy")
+    expect(entry).toBeDefined()
+    expect(entry!.hasMeta).toBe(false)
+    expect(entry!.name).toBe("Legacy Discussion")
+    expect(entry!.lastActivity).toBe(2000)
   })
 
   test("each room has its own independent registry", () => {

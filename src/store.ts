@@ -41,7 +41,8 @@ export class ConversationStore {
     }
     const metas: ConversationMeta[] = []
     for (const name of names) {
-      if (!name.endsWith(".json")) continue
+      // meta.json is per-room metadata (RoomManager), not a conversation snapshot.
+      if (!name.endsWith(".json") || name === "meta.json") continue
       try {
         const conv = JSON.parse(await readFile(join(this.dir, name), "utf8")) as Conversation
         metas.push(conversationMeta(conv))

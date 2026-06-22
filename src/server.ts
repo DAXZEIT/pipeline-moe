@@ -1179,6 +1179,13 @@ async function main(): Promise<void> {
     res.json(roomManager.listRooms())
   })
 
+  // MUST precede "/api/rooms/:roomId" — otherwise Express binds "resumable" as a
+  // roomId. Lists rooms with on-disk data that aren't currently open (resume
+  // candidates), including legacy orphans created before meta.json existed.
+  app.get("/api/rooms/resumable", async (_req, res) => {
+    res.json(await roomManager.listResumableRooms())
+  })
+
   app.get("/api/rooms/:roomId", (req, res) => {
     const details = roomManager.getRoomDetails(req.params.roomId)
     if (!details) {
@@ -1242,6 +1249,43 @@ async function main(): Promise<void> {
     }
     hub.broadcast("room", { type: "destroyed", roomId })
     res.status(204).end()
+  })
+
+  // Resume a room that exists on disk but isn't live (destroyed/closed). Reuses
+  // provisionRoom with the durable name/scope from meta.json; the room's init()
+  // reloads its saved transcript + roster. Registered as a top-level route (not
+  // via the room-scoped router, whose requireRoom guard would 404 a non-live room).
+  app.post("/api/rooms/:roomId/resume", async (req, res) => {
+    const { roomId } = req.params
+    if (roomId === "default") {
+      res.status(400).json({ error: "the default room is always open" })
+      return
+    }
+    if (roomManager.getRoom(roomId)) {
+      res.status(409).json({ error: `room "${roomId}" is already open` })
+      return
+    }
+    const target = (await roomManager.listResumableRooms()).find((r) => r.roomId === roomId)
+    if (!target) {
+      res.status(404).json({ error: `no resumable data for room "${roomId}"` })
+      return
+    }
+    try {
+      const summary = await provisionRoom({
+        roomId,
+        name: target.name,
+        workspaceDir: target.workspaceDir,
+      })
+      res.status(200).json(summary)
+    } catch (err) {
+      if (err instanceof RoomProvisionError) {
+        const body: { error: string; details?: unknown } = { error: err.message }
+        if (err.details !== undefined) body.details = err.details
+        res.status(err.status).json(body)
+        return
+      }
+      res.status(500).json({ error: err instanceof Error ? err.message : String(err) })
+    }
   })
 
   // ── Room-scoped router (/api/rooms/:roomId/*) ─────────────────────────────
