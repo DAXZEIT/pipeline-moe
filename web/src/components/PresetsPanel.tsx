@@ -12,7 +12,15 @@ function modelLabel(p: PresetPersona): string {
 /** Detailed, read-only browser for saved presets and their member rosters.
  *  Lives in the right-hand side panel's "Presets" tab. Load/Apply reuse the
  *  same endpoints as the compact 🎯 menu. */
-export function PresetsPanel({ turnActive }: { turnActive: boolean }) {
+export function PresetsPanel({
+  turnActive,
+  onLoad,
+  onApply,
+}: {
+  turnActive: boolean
+  onLoad: (name: string) => Promise<{ downgraded?: Array<{ agent: string; model: string }> }>
+  onApply: (name: string) => Promise<{ downgraded?: Array<{ agent: string; model: string }> }>
+}) {
   const [presets, setPresets] = useState<PresetFile[] | null>(null)
   const [expanded, setExpanded] = useState<string | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
@@ -33,7 +41,7 @@ export function PresetsPanel({ turnActive }: { turnActive: boolean }) {
     setError(null)
     setWarn(null)
     try {
-      const res = await (kind === "load" ? api.loadPreset(name) : api.applyPreset(name))
+      const res = await (kind === "load" ? onLoad(name) : onApply(name))
       if (res.downgraded && res.downgraded.length > 0) {
         setWarn(
           `${res.downgraded.length} agent(s) on default model — ` +

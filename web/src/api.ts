@@ -40,6 +40,25 @@ export function makeRoomApi(prefix: string) {
   const base = `${API_BASE}${prefix}`
   return {
     roster: () => fetch(`${base}/participants`).then((r) => json<RosterItem[]>(r)),
+
+    // Preset save/load/apply target THIS room (the prefix), so loading from the
+    // second room's view doesn't clobber the default room.
+    savePreset: (name: string) =>
+      fetch(`${base}/presets`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name }),
+      }).then((r) => json<PresetFile>(r)),
+
+    loadPreset: (name: string) =>
+      fetch(`${base}/presets/${name}/load`, { method: "POST" }).then((r) =>
+        json<{ ok: boolean; conversation: ConversationMeta; downgraded?: Array<{ agent: string; model: string }> }>(r),
+      ),
+
+    applyPreset: (name: string) =>
+      fetch(`${base}/presets/${name}/apply`, { method: "POST" }).then((r) =>
+        json<{ ok: boolean; conversation: ConversationMeta; downgraded?: Array<{ agent: string; model: string }> }>(r),
+      ),
     transcript: () => fetch(`${base}/transcript`).then((r) => json<Message[]>(r)),
     workspace: () => fetch(`${base}/workspace`).then((r) => json<WorkspaceFile[]>(r)),
 
@@ -224,27 +243,10 @@ export const api = {
   presets: () =>
     fetch(`${API_BASE}/api/presets`).then((r) => json<PresetFile[]>(r)),
 
-  savePreset: (name: string) =>
-    fetch(`${API_BASE}/api/presets`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name }),
-    }).then((r) => json<PresetFile>(r)),
-
   deletePreset: (name: string) =>
     fetch(`${API_BASE}/api/presets/${name}`, { method: "DELETE" }).then((r) => {
       if (!r.ok && r.status !== 204) throw new Error(`${r.status}`)
     }),
-
-  loadPreset: (name: string) =>
-    fetch(`${API_BASE}/api/presets/${name}/load`, { method: "POST" }).then((r) =>
-      json<{ ok: boolean; conversation: ConversationMeta; downgraded?: Array<{ agent: string; model: string }> }>(r),
-    ),
-
-  applyPreset: (name: string) =>
-    fetch(`${API_BASE}/api/presets/${name}/apply`, { method: "POST" }).then((r) =>
-      json<{ ok: boolean; conversation: ConversationMeta; downgraded?: Array<{ agent: string; model: string }> }>(r),
-    ),
 
   // ── Providers (process-global) ──────────────────────────────────────────
 

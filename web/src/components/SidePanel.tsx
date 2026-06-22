@@ -12,7 +12,17 @@ type Tab = "workspace" | "presets"
 
 /** Right-hand side panel with two tabs: the live workspace file listing and a
  *  detailed presets browser. Replaces the former workspace-only panel. */
-export function SidePanel({ files, turnActive }: { files: WorkspaceFile[]; turnActive: boolean }) {
+export function SidePanel({
+  files,
+  turnActive,
+  onLoadPreset,
+  onApplyPreset,
+}: {
+  files: WorkspaceFile[]
+  turnActive: boolean
+  onLoadPreset: (name: string) => Promise<{ downgraded?: Array<{ agent: string; model: string }> }>
+  onApplyPreset: (name: string) => Promise<{ downgraded?: Array<{ agent: string; model: string }> }>
+}) {
   const [tab, setTab] = useState<Tab>("workspace")
 
   return (
@@ -49,7 +59,7 @@ export function SidePanel({ files, turnActive }: { files: WorkspaceFile[]; turnA
         </div>
       ) : (
         <div className="workspace-list">
-          <PresetsPanel turnActive={turnActive} />
+          <PresetsPanel turnActive={turnActive} onLoad={onLoadPreset} onApply={onApplyPreset} />
         </div>
       )}
     </aside>

@@ -495,6 +495,80 @@ async function main(): Promise<void> {
 
   // ── Presets ────────────────────────────────────────────────────────────────
 
+  // Preset save/load/apply shared by the default-room (/api) and room-scoped
+  // (/api/rooms/:id) routes, so an action targets the room you're viewing
+  // — not always the default room.
+  const doSavePreset = async (r: Room, name: string, res: express.Response): Promise<void> => {
+    if (!name) {
+      res.status(400).json({ error: "`name` is required (alphanumeric, dash, underscore)" })
+      return
+    }
+    if (r.isBusy()) {
+      res.status(409).json({ error: "a turn is running — press Stop before saving a preset" })
+      return
+    }
+    try {
+      const personas = stripSeedPrompts(r.getRegistry().personaStates())
+      const preset: PresetFile = { name, personas }
+      await writePreset(preset)
+      res.status(201).json(preset)
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : String(err) })
+    }
+  }
+
+  const doLoadPreset = async (r: Room, name: string, res: express.Response): Promise<void> => {
+    if (r.isBusy()) {
+      res.status(409).json({ error: "a turn is running — press Stop before loading a preset" })
+      return
+    }
+    try {
+      const preset = await readPreset(name)
+      if (!preset) {
+        res.status(404).json({ error: `preset "${name}" not found` })
+        return
+      }
+      const personas = rehydratePrompts(preset.personas)
+      if (personas.length === 0) {
+        res.status(400).json({ error: `preset "${name}" has no personas — would brick the session` })
+        return
+      }
+      // Unavailable models (stale cloud id, swapped local quant…) fall back to the
+      // default instead of blocking the whole preset — the human is told which.
+      const downgraded = downgradeModels(personas)
+      const meta = await r.loadPreset(personas, `${name} — ${new Date().toLocaleTimeString()}`)
+      res.json({ ok: true, conversation: meta, downgraded })
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      res.status(msg.includes("unknown") ? 404 : 409).json({ error: msg })
+    }
+  }
+
+  const doApplyPreset = async (r: Room, name: string, res: express.Response): Promise<void> => {
+    if (r.isBusy()) {
+      res.status(409).json({ error: "a turn is running — press Stop before applying a preset" })
+      return
+    }
+    try {
+      const preset = await readPreset(name)
+      if (!preset) {
+        res.status(404).json({ error: `preset "${name}" not found` })
+        return
+      }
+      const personas = rehydratePrompts(preset.personas)
+      if (personas.length === 0) {
+        res.status(400).json({ error: `preset "${name}" has no personas — would brick the session` })
+        return
+      }
+      const downgraded = downgradeModels(personas)
+      const meta = await r.applyPreset(personas)
+      res.json({ ok: true, conversation: meta, downgraded })
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      res.status(msg.includes("unknown") ? 404 : 409).json({ error: msg })
+    }
+  }
+
   app.get("/api/presets", async (_req, res) => {
     try {
       const presets = await listPresets()
@@ -506,22 +580,7 @@ async function main(): Promise<void> {
 
   app.post("/api/presets", async (req, res) => {
     const name = String(req.body?.name ?? "").trim().replace(/[^a-zA-Z0-9_-]/g, "")
-    if (!name) {
-      res.status(400).json({ error: "`name` is required (alphanumeric, dash, underscore)" })
-      return
-    }
-    if (room.isBusy()) {
-      res.status(409).json({ error: "a turn is running — press Stop before saving a preset" })
-      return
-    }
-    try {
-      const personas = stripSeedPrompts(registry.personaStates())
-      const preset: PresetFile = { name, personas }
-      await writePreset(preset)
-      res.status(201).json(preset)
-    } catch (err) {
-      res.status(500).json({ error: err instanceof Error ? err.message : String(err) })
-    }
+    await doSavePreset(room, name, res)
   })
 
   app.delete("/api/presets/:name", async (req, res) => {
@@ -534,72 +593,11 @@ async function main(): Promise<void> {
     res.status(204).end()
   })
 
-  app.post("/api/presets/:name/load", async (req, res) => {
-    const name = req.params.name
-    if (room.isBusy()) {
-      res.status(409).json({ error: "a turn is running — press Stop before loading a preset" })
-      return
-    }
-    try {
-      const preset = await readPreset(name)
-      if (!preset) {
-        res.status(404).json({ error: `preset "${name}" not found` })
-        return
-      }
-
-      // Rehydrate systemPrompts from current SEED_PERSONAS
-      const personas = rehydratePrompts(preset.personas)
-
-      // Guard: empty roster would brick the session
-      if (personas.length === 0) {
-        res.status(400).json({ error: `preset "${name}" has no personas — would brick the session` })
-        return
-      }
-
-      // Unavailable models (stale cloud id, swapped local quant…) fall back to the
-      // default instead of blocking the whole preset — the human is told which.
-      const downgraded = downgradeModels(personas)
-
-      const meta = await room.loadPreset(personas, `${name} — ${new Date().toLocaleTimeString()}`)
-      res.json({ ok: true, conversation: meta, downgraded })
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err)
-      res.status(msg.includes("unknown") ? 404 : 409).json({ error: msg })
-    }
-  })
+  app.post("/api/presets/:name/load", (req, res) => doLoadPreset(room, req.params.name, res))
 
   // ── Apply preset roster to current room (in-place, no new conversation) ──
 
-  app.post("/api/presets/:name/apply", async (req, res) => {
-    const name = req.params.name
-    if (room.isBusy()) {
-      res.status(409).json({ error: "a turn is running — press Stop before applying a preset" })
-      return
-    }
-    try {
-      const preset = await readPreset(name)
-      if (!preset) {
-        res.status(404).json({ error: `preset "${name}" not found` })
-        return
-      }
-
-      // Rehydrate systemPrompts from current SEED_PERSONAS
-      const personas = rehydratePrompts(preset.personas)
-
-      // Guard: empty roster would brick the session
-      if (personas.length === 0) {
-        res.status(400).json({ error: `preset "${name}" has no personas — would brick the session` })
-        return
-      }
-
-      const downgraded = downgradeModels(personas)
-      const meta = await room.applyPreset(personas)
-      res.json({ ok: true, conversation: meta, downgraded })
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err)
-      res.status(msg.includes("unknown") ? 404 : 409).json({ error: msg })
-    }
-  })
+  app.post("/api/presets/:name/apply", (req, res) => doApplyPreset(room, req.params.name, res))
 
   // Serve saved images from the media directory.
   app.get("/api/media/:filename", async (req, res) => {
@@ -1566,6 +1564,14 @@ async function main(): Promise<void> {
     roomOf(req).resolveRoute(decision)
     res.status(202).json({ accepted: true })
   })
+
+  // Room-scoped preset actions — target the room in the URL, not the default.
+  roomRouter.post("/presets", async (req, res) => {
+    const name = String(req.body?.name ?? "").trim().replace(/[^a-zA-Z0-9_-]/g, "")
+    await doSavePreset(roomOf(req), name, res)
+  })
+  roomRouter.post("/presets/:name/load", (req, res) => doLoadPreset(roomOf(req), req.params.name, res))
+  roomRouter.post("/presets/:name/apply", (req, res) => doApplyPreset(roomOf(req), req.params.name, res))
 
   roomRouter.post("/messages", rateLimit({ windowMs: 60_000, max: 60, standardHeaders: true, legacyHeaders: false }), async (req, res) => {
     const text = String(req.body?.text ?? "").trim()

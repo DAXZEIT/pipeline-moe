@@ -103,7 +103,12 @@ export function RoomView({
             onRename={room.renameConversation}
             onDelete={room.deleteConversation}
           />
-          <PresetMenu turnActive={room.turnActive} />
+          <PresetMenu
+            turnActive={room.turnActive}
+            onSave={room.savePreset}
+            onLoad={room.loadPreset}
+            onApply={room.applyPreset}
+          />
           <span className="topbar-sub">{room.turnActive ? "agents running…" : "ready"}</span>
           <div className="topbar-routing">
           <div
@@ -174,7 +179,12 @@ export function RoomView({
         />
       </main>
 
-      <SidePanel files={room.workspace} turnActive={room.turnActive} />
+      <SidePanel
+        files={room.workspace}
+        turnActive={room.turnActive}
+        onLoadPreset={room.loadPreset}
+        onApplyPreset={room.applyPreset}
+      />
 
       <div className="notices">
         {room.notices.map((n) => (

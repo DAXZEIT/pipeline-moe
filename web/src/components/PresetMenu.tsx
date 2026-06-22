@@ -4,9 +4,12 @@ import type { PresetFile } from "../types"
 
 interface Props {
   turnActive: boolean
+  onSave: (name: string) => Promise<unknown>
+  onLoad: (name: string) => Promise<unknown>
+  onApply: (name: string) => Promise<unknown>
 }
 
-export function PresetMenu({ turnActive }: Props) {
+export function PresetMenu({ turnActive, onSave, onLoad, onApply }: Props) {
   const [open, setOpen] = useState(false)
   const [presets, setPresets] = useState<PresetFile[]>([])
   const [savingName, setSavingName] = useState("")
@@ -43,7 +46,7 @@ export function PresetMenu({ turnActive }: Props) {
   const handleSave = () => {
     const name = savingName.trim()
     if (!name) return
-    api.savePreset(name).then(() => {
+    onSave(name).then(() => {
       setSavingName("")
       refresh()
     }).catch((err) => {
@@ -53,7 +56,7 @@ export function PresetMenu({ turnActive }: Props) {
 
   const handleLoad = (name: string) => {
     setLoadingName(name)
-    api.loadPreset(name).then(() => {
+    onLoad(name).then(() => {
       setOpen(false)
       setLoadingName(null)
     }).catch((err) => {
@@ -64,7 +67,7 @@ export function PresetMenu({ turnActive }: Props) {
 
   const handleApply = (name: string) => {
     setApplyingName(name)
-    api.applyPreset(name).then(() => {
+    onApply(name).then(() => {
       setOpen(false)
       setApplyingName(null)
     }).catch((err) => {

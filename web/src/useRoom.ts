@@ -326,6 +326,33 @@ export function useRoom(roomId?: string) {
     [pushNotice, rApi],
   )
 
+  const savePreset = useCallback(
+    (name: string) =>
+      rApi.savePreset(name).catch((err) => {
+        pushNotice(String(err.message ?? err), "error")
+        throw err
+      }),
+    [pushNotice, rApi],
+  )
+
+  const loadPreset = useCallback(
+    (name: string) =>
+      rApi.loadPreset(name).catch((err) => {
+        pushNotice(String(err.message ?? err), "error")
+        throw err
+      }),
+    [pushNotice, rApi],
+  )
+
+  const applyPreset = useCallback(
+    (name: string) =>
+      rApi.applyPreset(name).catch((err) => {
+        pushNotice(String(err.message ?? err), "error")
+        throw err
+      }),
+    [pushNotice, rApi],
+  )
+
   const updateParticipant = useCallback(
     (id: string, patch: Parameters<typeof rApi.updateAgent>[1]) =>
       rApi.updateAgent(id, patch).catch((err) => {
@@ -523,6 +550,9 @@ export function useRoom(roomId?: string) {
     compactAgent,
     createParticipant,
     addFromTemplate,
+    savePreset,
+    loadPreset,
+    applyPreset,
     updateParticipant,
     reorderParticipants,
     abort,
