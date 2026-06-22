@@ -98,21 +98,31 @@ export default function App() {
 
   return (
     <div className="app">
-      {/* key={activeRoomId} forces a full unmount/remount on room switch: the
-          old room's useRoom hook (SSE stream, state, callbacks) is torn down
-          and a fresh one mounts. No shared hook instance = no cross-room turn
-          relaunch. App itself never remounts, so global SSE + rooms state and
-          the create dialog persist across switches. */}
-      <RoomView
-        key={activeRoomId}
-        roomId={activeRoomId}
-        rooms={rooms}
-        onSwitch={setActiveRoomId}
-        onCreateRoom={() => setShowCreateDialog(true)}
-        onDestroyRoom={handleDestroyRoom}
-        onStopRoom={handleStopRoom}
-        onRenameRoom={handleRenameRoom}
-      />
+      {/* Every open room stays mounted; only the active one is shown (the rest
+          are display:none). Each RoomView keeps its OWN useRoom instance (SSE
+          stream + live streaming/activity state) alive across switches, so an
+          agent writing in one room isn't torn down when you peek at another and
+          its in-flight output isn't lost. Distinct instances per roomId = no
+          shared hook, so no cross-room turn relaunch. The wrapper uses
+          display:contents so each RoomView's panels still flow into the .app
+          grid when active. */}
+      {rooms.map((rm) => (
+        <div
+          key={rm.roomId}
+          style={{ display: rm.roomId === activeRoomId ? "contents" : "none" }}
+        >
+          <RoomView
+            roomId={rm.roomId}
+            active={rm.roomId === activeRoomId}
+            rooms={rooms}
+            onSwitch={setActiveRoomId}
+            onCreateRoom={() => setShowCreateDialog(true)}
+            onDestroyRoom={handleDestroyRoom}
+            onStopRoom={handleStopRoom}
+            onRenameRoom={handleRenameRoom}
+          />
+        </div>
+      ))}
 
       {showCreateDialog && (
         <CreateRoomDialog

@@ -13,12 +13,14 @@ import type { RoomSummary } from "../types"
 import { useRoom } from "../useRoom"
 
 interface Props {
-  /** The room this view is bound to. App renders <RoomView key={roomId} …> so
-   *  that switching rooms fully unmounts the old view — closing its SSE stream,
-   *  dropping all state, and garbage-collecting every callback closure. This is
-   *  what makes a tab a true "second page": no shared hook instance, no stale
-   *  callback that could relaunch a turn in the wrong room. */
+  /** The room this view is bound to. App keeps every open room's RoomView
+   *  mounted (only the active one is shown), each with its own useRoom instance
+   *  — distinct per roomId, so there's no shared hook and no stale callback that
+   *  could relaunch a turn in the wrong room. Staying mounted keeps the SSE
+   *  stream and in-flight streaming state alive when you peek at another room. */
   roomId: string
+  /** Whether this is the room currently shown (the others are display:none). */
+  active: boolean
   // Room-navigation chrome (RoomTabs) lives at the top of the center column, so
   // it is rendered here. These props are app-level state passed straight through.
   rooms: RoomSummary[]
@@ -31,6 +33,7 @@ interface Props {
 
 export function RoomView({
   roomId,
+  active,
   rooms,
   onSwitch,
   onCreateRoom,
@@ -39,7 +42,8 @@ export function RoomView({
   onRenameRoom,
 }: Props) {
   // The single source of room-scoped state. Bound to THIS RoomView instance,
-  // which exists only while this room is active (key={roomId} in App).
+  // which stays mounted for the room's whole lifetime (App keeps all open rooms
+  // mounted and toggles visibility), so its SSE + live state survive switches.
   const room = useRoom(roomId)
 
   // Local draft for the hops field so typing doesn't fight the async server
@@ -160,6 +164,7 @@ export function RoomView({
           liveReasoning={room.liveReasoning}
           receipts={room.receipts}
           roster={room.roster}
+          active={active}
         />
         {room.pendingRoute && (
           <RoutingApproval

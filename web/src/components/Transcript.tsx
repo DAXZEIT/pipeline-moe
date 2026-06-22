@@ -9,6 +9,8 @@ interface Props {
   liveReasoning: Record<string, string>
   receipts: Record<number, Receipt>
   roster: RosterItem[]
+  /** Whether this room is the visible one (rooms stay mounted across switches). */
+  active: boolean
 }
 
 function ReceiptView({ r }: { r: Receipt }) {
@@ -56,6 +58,7 @@ export function Transcript({
   liveReasoning,
   receipts,
   roster,
+  active,
 }: Props) {
   const endRef = useRef<HTMLDivElement>(null)
   // Jump instantly to the bottom on the initial load of a room (room switches
@@ -71,6 +74,13 @@ export function Transcript({
     })
     if (messages.length > 0) settled.current = true
   }, [messages, streaming, liveActivity, liveReasoning])
+
+  // When this room becomes the visible one again, jump to the bottom: a hidden
+  // transcript can't scroll, so content that streamed in while you were on
+  // another room would otherwise sit below the fold.
+  useEffect(() => {
+    if (active) endRef.current?.scrollIntoView({ behavior: "auto", block: "end" })
+  }, [active])
 
   // Agents currently producing something: streaming text, tool calls, or reasoning.
   const liveIds = [
