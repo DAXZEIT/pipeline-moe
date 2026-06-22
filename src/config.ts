@@ -25,6 +25,11 @@ export const config = {
     | "medium"
     | "high"
     | "xhigh",
+  /** Hard cap on the total number of concurrent rooms, default room included.
+   *  Prevents a planner (or a runaway goal-eval loop) from spawning sub-rooms
+   *  without bound — every local room contends for the single llama-server slot.
+   *  provisionRoom rejects spawns past this. Set PIPELINE_MAX_ROOMS to tune. */
+  maxRooms: Math.max(1, Number(process.env.PIPELINE_MAX_ROOMS ?? 8) || 8),
   /** Allowed CORS origins, comma-separated. Defaults to local dev servers. */
   corsOrigins: process.env.PIPELINE_CORS_ORIGINS
     ? process.env.PIPELINE_CORS_ORIGINS.split(",").map((s) => s.trim())

@@ -79,7 +79,12 @@ export class Room {
   /** Goal prompt if this room was started with a goal; null for interactive rooms. */
   private goalText: string | null = null
   /** Lifecycle status for goal-driven rooms. */
-  private goalStatus: "idle" | "running" | "completed" | "failed" = "idle"
+  private goalStatus: "idle" | "running" | "completed" | "failed" | "cancelled" = "idle"
+  /** Set by abortCurrent() while a goal is running. Sticky for the whole goal
+   *  run — NOT reset per eval iteration — so the goal-eval loop (which clears
+   *  `aborted` on every pass) still terminates as "cancelled" instead of spinning
+   *  to the next iteration. Cleared by submitGoal() for the next goal. */
+  private goalCancelled = false
   /** Goal completion mode. "auto": complete when the pipeline drains naturally.
    *  "eval": after each drain, route to the evaluator to verify the goal and
    *  either dispatch more work or declare GOAL_MET. */
@@ -142,7 +147,7 @@ export class Room {
   }
 
   getGoalText(): string | null { return this.goalText }
-  getGoalStatus(): "idle" | "running" | "completed" | "failed" { return this.goalStatus }
+  getGoalStatus(): "idle" | "running" | "completed" | "failed" | "cancelled" { return this.goalStatus }
 
   /** Start a goal-driven pipeline run. Sets goalText/status and fires the first turn.
    *  In "eval" mode the evaluator agent verifies the goal after each drain and
@@ -158,6 +163,7 @@ export class Room {
     this.goalEvaluator = opts?.evaluator?.trim() || "planner"
     this.maxGoalIterations = Math.max(1, Math.min(50, Math.round(opts?.maxIterations ?? 10)))
     this.goalIteration = 0
+    this.goalCancelled = false
     // In eval mode the eval loop is the sole router: the evaluator is invoked
     // deliberately after every natural drain. Leaving generic fallback routing
     // active would re-invoke the evaluator (when it is also the fallback agent)
@@ -547,6 +553,15 @@ export class Room {
     // re-nulls runningAgentId per endTurn's documented contract.
     try {
       while (this.goalIteration < this.maxGoalIterations) {
+        // Cancellation (abortCurrent / stop_room / Stop button) wins over
+        // everything: end the goal as "cancelled" without another pass. Checked
+        // here (between iterations) and again after the drain below.
+        if (this.goalCancelled) {
+          this.goalStatus = "cancelled"
+          this.emit("room", { type: "goal-cancelled", goalText: this.goalText })
+          this.notice(`Goal cancelled on iteration ${this.goalIteration}.`, "info")
+          return
+        }
         this.goalIteration++
 
         // Inject the structured eval context (invisible in the transcript).
@@ -573,6 +588,15 @@ export class Room {
         this.runningAgentId = evaluator.persona.id
         this.emit("turn", { phase: "chain", from: null, targets: [evaluator.persona.id] })
         await this.drainQueue()
+
+        // Cancelled mid-drain — stop now, before reinterpreting the drain as a
+        // completion or circuit-breaker failure.
+        if (this.goalCancelled) {
+          this.goalStatus = "cancelled"
+          this.emit("room", { type: "goal-cancelled", goalText: this.goalText })
+          this.notice(`Goal cancelled on iteration ${this.goalIteration}.`, "info")
+          return
+        }
 
         // Did the evaluator declare the goal met in its most recent message?
         if (this.evaluatorDeclaredGoalMet(evaluator.persona.id)) {
@@ -893,11 +917,23 @@ export class Room {
       // If drainQueue exited without pause, loop to check if another circuit breaker fired.
     }
 
-    // Goal failure: circuit breaker tripped without recovery. Set before endTurn so
-    // endTurn's completion guard doesn't overwrite the failure status.
+    // Goal terminated by abort without recovery. Set before endTurn so its
+    // completion guard doesn't overwrite the status. A user/planner cancel
+    // (goalCancelled) resolves to "cancelled"; a circuit-breaker abort to
+    // "failed".
     if (this.aborted && this.goalText !== null && this.goalStatus === "running") {
-      this.goalStatus = "failed"
-      this.emit("room", { type: "goal-failed", goalText: this.goalText })
+      if (this.goalCancelled) {
+        this.goalStatus = "cancelled"
+        this.emit("room", { type: "goal-cancelled", goalText: this.goalText })
+      } else {
+        this.goalStatus = "failed"
+        this.emit("room", { type: "goal-failed", goalText: this.goalText })
+      }
+      // Aborting during the INITIAL drain of an eval-mode goal means runGoalEval
+      // never ran, so its finally never restored the fallback agent that
+      // submitGoal suppressed. Restore it here so the room isn't left with
+      // fallback routing silently disabled.
+      if (this.goalMode === "eval") this.fallbackAgentId = this.goalEvalSavedFallback
     }
     this.queue = []
     await this.endTurn()
@@ -1369,6 +1405,12 @@ export class Room {
    *  (a parallel wave can have several in flight at once). */
   async abortCurrent(): Promise<boolean> {
     this.aborted = true
+    // Mark an in-flight goal as cancelled. The goal-eval loop resets `aborted`
+    // each iteration, so a separate sticky flag is what actually makes it stop
+    // (see runGoalEval). submitGoal() clears it for the next goal run.
+    if (this.goalText !== null && this.goalStatus === "running") {
+      this.goalCancelled = true
+    }
     const had = this.queue.length > 0 || this.running.size > 0 || this.pendingQuestion !== null
     this.queue = []
     this.pendingQuestion = null

@@ -49,6 +49,11 @@ export interface RoomOrchestrator {
   spawnRoom(opts: SpawnRoomOptions): Promise<SpawnRoomResult>
   /** Read a sub-room's current goal status and recent transcript. */
   checkRoom(roomId: string): CheckRoomResult
-  /** Destroy a sub-room (unmounts any sshfs target). Returns false if absent. */
+  /** Stop a sub-room's in-flight pipeline WITHOUT destroying it: aborts running
+   *  agents and cancels any goal (status → "cancelled"), leaving the room and its
+   *  transcript intact so the caller can inspect why it ran away. Returns false
+   *  when the room is absent or protected (the default room cannot be stopped). */
+  stopRoom(roomId: string): Promise<boolean>
+  /** Destroy a sub-room (aborts it, then unmounts any sshfs target). Returns false if absent. */
   destroyRoom(roomId: string): Promise<boolean>
 }

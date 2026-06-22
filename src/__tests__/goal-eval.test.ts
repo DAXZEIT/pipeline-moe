@@ -42,11 +42,55 @@ class SeqParticipant {
   getAvailableThinkingLevels() { return [] }
 }
 
+/** A participant whose run() blocks on a gate until abort() (or openGate()) is
+ *  called. Lets a test observe the room in a stable "running" state and then
+ *  cancel it deterministically. */
+class GateParticipant {
+  persona: Persona
+  active = true
+  parallel = false
+  status: "idle" | "active" | "thinking" | "working" = "idle"
+  cursor = 0
+  callCount = 0
+  aborted = false
+  customMessages: Array<{ customType: string; content: string }> = []
+  private release!: () => void
+  private gate: Promise<void>
+
+  constructor(persona: Persona) {
+    this.persona = persona
+    this.gate = new Promise<void>((r) => { this.release = r })
+  }
+
+  async run(_text: string) {
+    this.callCount++
+    await this.gate
+    return { text: "(unblocked)", activity: [], reasoning: undefined, question: undefined }
+  }
+
+  async followUp(_text: string) { return this.run(_text) }
+
+  async sendCustomMessage(
+    message: { customType: string; content: string; display: boolean },
+    _options?: unknown,
+  ) {
+    this.customMessages.push({ customType: message.customType, content: message.content })
+  }
+
+  async abort() { this.aborted = true; this.release() }
+  openGate() { this.release() }
+  getContextUsage() { return undefined }
+  getSessionStats() { return undefined }
+  getAvailableThinkingLevels() { return [] }
+}
+
+type MockParticipant = SeqParticipant | GateParticipant
+
 class MockRegistry {
-  private parts = new Map<string, SeqParticipant>()
+  private parts = new Map<string, MockParticipant>()
   onChange: (() => void) | null = null
 
-  add(p: SeqParticipant) { this.parts.set(p.persona.id, p) }
+  add(p: MockParticipant) { this.parts.set(p.persona.id, p) }
   get(id: string) { return this.parts.get(id) }
   has(id: string) { return this.parts.has(id) }
   roster() {
@@ -253,6 +297,57 @@ describe("Room goal-eval loop", () => {
 
     expect(room.getGoalStatus()).toBe("completed")
     expect(auditor.customMessages.some(m => m.customType === "goal_eval")).toBe(true)
+  })
+
+  // ── Cancellation (fix #1: goal-level abort) ──────────────────────────────
+
+  test("abortCurrent cancels a goal during the INITIAL drain (status → cancelled, not failed)", async () => {
+    const worker = new GateParticipant(makePersona("worker"))
+    registry.add(worker)
+    const planner = new SeqParticipant(makePersona("planner"), ["GOAL_MET"])
+    registry.add(planner)
+    priv(room).fallbackAgentId = null
+    await room.init()
+
+    room.submitGoal("@worker do slow work", { mode: "eval", maxIterations: 5 })
+    await settle() // worker started and is blocked on the gate
+    expect(room.getGoalStatus()).toBe("running")
+    expect(worker.callCount).toBe(1)
+
+    await room.abortCurrent()
+    await settle()
+
+    expect(room.getGoalStatus()).toBe("cancelled")
+    // Cancelled before the evaluator ever ran.
+    expect(priv(room).goalIteration).toBe(0)
+    // Eval-mode fallback suppression was restored (not left disabled).
+    expect(priv(room).fallbackAgentId).toBe(null)
+  })
+
+  test("abortCurrent during the eval loop cancels the goal and stops iterating", async () => {
+    const worker = new SeqParticipant(makePersona("worker"), ["(done)"])
+    registry.add(worker)
+    // The evaluator blocks on its first eval pass so we can cancel mid-loop.
+    const planner = new GateParticipant(makePersona("planner"))
+    registry.add(planner)
+    priv(room).fallbackAgentId = null
+    await room.init()
+
+    room.submitGoal("@worker build", { mode: "eval", maxIterations: 10 })
+    await settle() // initial drain (worker) done; evaluator entered iter 1 and blocked
+    expect(room.getGoalStatus()).toBe("running")
+    expect(priv(room).goalIteration).toBe(1)
+    expect(planner.callCount).toBe(1)
+
+    await room.abortCurrent()
+    await settle()
+
+    expect(room.getGoalStatus()).toBe("cancelled")
+    // The sticky goalCancelled flag stopped the loop — it did NOT spin to iter 2+,
+    // which is exactly what the per-iteration `aborted = false` reset would have
+    // allowed before the fix.
+    expect(priv(room).goalIteration).toBe(1)
+    expect(planner.callCount).toBe(1)
   })
 })
 

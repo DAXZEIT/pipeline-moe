@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, test } from "vitest"
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest"
 import { resolve } from "node:path"
 import { mkdtempSync, readFileSync, writeFileSync, rmSync, existsSync } from "node:fs"
 import { tmpdir } from "node:os"
@@ -103,6 +103,18 @@ describe("RoomManager", () => {
 
   test("destroyRoom returns false for nonexistent room", async () => {
     expect(await manager.destroyRoom("ghost")).toBe(false)
+  })
+
+  test("destroyRoom aborts the room's in-flight pipeline before removal (no zombie)", async () => {
+    // Regression guard: previously destroyRoom only deleted the Map entry, so a
+    // busy room kept running headless — holding the local-model lock and writing
+    // files. It must abort the pipeline first.
+    const room = manager.createRoom("busy", "Busy")
+    const spy = vi.spyOn(room, "abortCurrent")
+    const removed = await manager.destroyRoom("busy")
+    expect(removed).toBe(true)
+    expect(spy).toHaveBeenCalledTimes(1)
+    expect(manager.getRoom("busy")).toBeUndefined()
   })
 
   test("each room has its own independent registry", () => {

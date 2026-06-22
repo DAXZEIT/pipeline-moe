@@ -295,6 +295,17 @@ async function main(): Promise<void> {
       throw new RoomProvisionError(409, `Room "${roomId}" already exists`)
     }
 
+    // Global concurrency cap. Counts ALL rooms (default included). Both entry
+    // points — POST /api/rooms and the spawn_room tool — flow through here, so
+    // the cap can't be bypassed. Reject before any sshfs mount so a refused
+    // spawn leaks no resources, and give the planner an actionable message.
+    if (roomManager.listRooms().length >= config.maxRooms) {
+      throw new RoomProvisionError(
+        429,
+        `room limit reached (${config.maxRooms}) — stop or destroy a room before creating another`,
+      )
+    }
+
     const presetName = opts.preset?.trim() || undefined
     const goal = opts.goal?.trim() || undefined
     const workspaceDir = opts.workspaceDir?.trim() || undefined
@@ -408,6 +419,16 @@ async function main(): Promise<void> {
         goalText: r.getGoalText(),
         lastMessages,
       }
+    },
+    async stopRoom(roomId) {
+      // The default room is the planner's OWN room — stopping it would abort the
+      // planner mid-turn. Protect it; stop_room is for sub-rooms only.
+      if (roomId === "default") return false
+      const r = roomManager.getRoom(roomId)
+      if (!r) return false
+      await r.abortCurrent()
+      hub.broadcast("room", { type: "stopped", roomId })
+      return true
     },
     async destroyRoom(roomId) {
       if (roomId === "default") return false

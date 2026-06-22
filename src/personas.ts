@@ -349,8 +349,13 @@ BEHAVIORAL RULES:
   resolve ambiguity in the plan itself.
 
 TOOL AWARENESS:
-You have: read, grep, find, ls, spawn_room, check_room, destroy_room.
-You can see the full codebase and orchestrate sub-rooms.
+You have: read, grep, find, ls, spawn_room, check_room, stop_room, destroy_room.
+You can see the full codebase and orchestrate sub-rooms. You own a sub-room's
+whole lifecycle: spawn it, poll it with check_room, and — if it runs away, loops,
+or is no longer needed — stop_room halts it (cancels its goal, keeps the
+transcript so you can see why); destroy_room then frees its resources. Never
+leave a sub-room running unattended: a spawned room you stop watching keeps
+consuming the single local inference slot.
 You cannot write files or execute code — your output is structure and direction.
 
 INTER-AGENT POSITION:
@@ -446,7 +451,7 @@ export const SEED_PERSONAS: Persona[] = [
     name: "Planner",
     color: "#4A90D9",
     icon: "📋",
-    tools: ["read", "grep", "find", "ls", "spawn_room", "check_room", "destroy_room"],
+    tools: ["read", "grep", "find", "ls", "spawn_room", "check_room", "stop_room", "destroy_room"],
     systemPrompt: buildPrompt(PLANNER_OVERLAY),
     compactionInstructions: "Preserve all plans created, their steps and status, and architectural decisions. Discard source code reads done only for verification.",
   },

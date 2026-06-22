@@ -11,6 +11,7 @@ import { createArxivSearchToolDefinition } from "./arxiv-search.js"
 import { createYoucomSearchToolDefinition } from "./youcom-search.js"
 import { createSpawnRoomToolDefinition } from "./spawn-room.js"
 import { createCheckRoomToolDefinition } from "./check-room.js"
+import { createStopRoomToolDefinition } from "./stop-room.js"
 import { createDestroyRoomToolDefinition } from "./destroy-room.js"
 import type { RoomOrchestrator } from "../orchestrator.js"
 
@@ -23,7 +24,7 @@ export interface ToolContext {
 
 /** Orchestration tool names — gated on a RoomOrchestrator being present, not on
  *  the static TOOLS registry. Only orchestrator personas (the planner) get them. */
-export const ORCHESTRATION_TOOLS = ["spawn_room", "check_room", "destroy_room"] as const
+export const ORCHESTRATION_TOOLS = ["spawn_room", "check_room", "stop_room", "destroy_room"] as const
 
 // Registry of tool name → factory function.
 // Add new tools here — each tool is a self-contained module.
@@ -61,6 +62,7 @@ export function buildCustomTools(toolNames: string[], ctx?: ToolContext): ToolDe
     const orch = ctx.orchestrator
     if (wanted.has("spawn_room")) tools.push(createSpawnRoomToolDefinition(orch) as ToolDefinition)
     if (wanted.has("check_room")) tools.push(createCheckRoomToolDefinition(orch) as ToolDefinition)
+    if (wanted.has("stop_room")) tools.push(createStopRoomToolDefinition(orch) as ToolDefinition)
     if (wanted.has("destroy_room")) tools.push(createDestroyRoomToolDefinition(orch) as ToolDefinition)
   }
 

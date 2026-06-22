@@ -2,6 +2,7 @@ import { describe, expect, test, vi } from "vitest"
 import { buildCustomTools, availableCustomTools, ORCHESTRATION_TOOLS } from "../custom-tools/index.js"
 import { createSpawnRoomToolDefinition } from "../custom-tools/spawn-room.js"
 import { createCheckRoomToolDefinition } from "../custom-tools/check-room.js"
+import { createStopRoomToolDefinition } from "../custom-tools/stop-room.js"
 import { createDestroyRoomToolDefinition } from "../custom-tools/destroy-room.js"
 import type { RoomOrchestrator } from "../orchestrator.js"
 
@@ -20,6 +21,7 @@ function mockOrchestrator(overrides: Partial<RoomOrchestrator> = {}): RoomOrches
       goalText: "do the thing",
       lastMessages: ["Builder: done", "Auditor: looks good"],
     })),
+    stopRoom: vi.fn(async () => true),
     destroyRoom: vi.fn(async () => true),
     ...overrides,
   }
@@ -44,6 +46,17 @@ describe("buildCustomTools — orchestration gating", () => {
   test("only builds the orchestration tools in the allowlist", () => {
     const tools = buildCustomTools(["spawn_room"], { orchestrator: mockOrchestrator() })
     expect(tools.map((t) => t.name)).toEqual(["spawn_room"])
+  })
+
+  test("builds stop_room when requested", () => {
+    const tools = buildCustomTools(["stop_room"], { orchestrator: mockOrchestrator() })
+    expect(tools.map((t) => t.name)).toEqual(["stop_room"])
+  })
+
+  test("stop_room is a context-gated orchestration tool", () => {
+    expect(ORCHESTRATION_TOOLS).toContain("stop_room")
+    // Not built without an orchestrator (same contract as the others).
+    expect(buildCustomTools(["stop_room"])).toHaveLength(0)
   })
 
   test("mixes research and orchestration tools", () => {
@@ -159,5 +172,36 @@ describe("destroy_room tool", () => {
     const result = await tool.execute("tc1", { roomId: "room-abc" }, undefined, undefined, {} as any)
     expect(textOf(result)).toContain("destroy_room error")
     expect(textOf(result)).toContain("unmount failed")
+  })
+})
+
+/* ── stop_room ────────────────────────────── */
+
+describe("stop_room tool", () => {
+  test("calls orchestrator.stopRoom and confirms the halt", async () => {
+    const orch = mockOrchestrator()
+    const tool = createStopRoomToolDefinition(orch)
+    const result = await tool.execute("tc1", { roomId: "room-abc" }, undefined, undefined, {} as any)
+    expect(orch.stopRoom).toHaveBeenCalledWith("room-abc")
+    const text = textOf(result)
+    expect(text).toContain("Stopped room")
+    expect(text).toContain("check_room")
+  })
+
+  test("reports when the room cannot be stopped (protected / absent)", async () => {
+    const orch = mockOrchestrator({ stopRoom: vi.fn(async () => false) })
+    const tool = createStopRoomToolDefinition(orch)
+    const result = await tool.execute("tc1", { roomId: "default" }, undefined, undefined, {} as any)
+    expect(textOf(result)).toContain("no room with id \"default\"")
+  })
+
+  test("returns a readable error when stopRoom throws", async () => {
+    const orch = mockOrchestrator({
+      stopRoom: vi.fn(async () => { throw new Error("abort boom") }),
+    })
+    const tool = createStopRoomToolDefinition(orch)
+    const result = await tool.execute("tc1", { roomId: "room-abc" }, undefined, undefined, {} as any)
+    expect(textOf(result)).toContain("stop_room error")
+    expect(textOf(result)).toContain("abort boom")
   })
 })

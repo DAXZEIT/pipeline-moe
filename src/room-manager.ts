@@ -160,6 +160,13 @@ export class RoomManager {
   async destroyRoom(roomId: string): Promise<boolean> {
     const entry = this.rooms.get(roomId)
     if (!entry) return false
+    // Stop any in-flight pipeline FIRST. Deleting the room from the Map only
+    // drops our handle — the Room's async chain keeps running headless (a
+    // "zombie"): its agents continue inference (holding the process-global
+    // LocalModelLock and starving every other room) and writing into a workspace
+    // we are about to unmount. abortCurrent() flips the abort flag, cancels any
+    // running goal, and awaits the in-flight agents so the unmount below is safe.
+    await entry.room.abortCurrent()
     if (entry.mount) {
       await unmountSshfs(entry.mount.mountpoint)
     }
