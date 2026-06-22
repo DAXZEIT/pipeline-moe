@@ -364,6 +364,44 @@ function buildPrompt(overlay: string): string {
   return BASE_PROMPT + "\n" + overlay
 }
 
+// ─── Goal-eval loop prompt ─────────────────────────────────────────────────
+
+/** Structured context injected into the evaluator agent before each goal-eval
+ *  pass (rooms spawned with goalMode: "eval"). The evaluator verifies the goal
+ *  independently with its tools, then either dispatches more work via @mention
+ *  or declares the goal met by emitting the GOAL_MET token. */
+export function goalEvalPrompt(
+  goal: string,
+  iteration: number,
+  maxIterations: number,
+): string {
+  return `\
+(GOAL EVALUATION — iteration ${iteration} of at most ${maxIterations})
+
+You are the goal controller for this room. The goal condition is:
+
+  "${goal}"
+
+Evaluate whether this condition is genuinely met RIGHT NOW. Do not take the other
+agents' word for it — use your tools (read, grep, find, ls, bash) to verify the
+actual state of the workspace against the goal. The transcript tells you what was
+claimed; your tools tell you what is true.
+
+Then choose exactly one:
+
+• NOT MET — explain precisely what is still missing or wrong, then dispatch the
+  right agent to close the gap by @-mentioning them in your FINAL paragraph
+  (e.g. "@builder ...", "@tester ..."). Be specific about what they must do.
+
+• MET — write the token GOAL_MET on its own line, then explain why you are
+  confident, citing what you verified with tools.
+
+Do NOT write GOAL_MET unless you have actually confirmed the condition with your
+tools. Writing it ends the room. This is iteration ${iteration} of at most
+${maxIterations}; if the loop keeps dispatching without converging, the room
+fails the goal — so dispatch decisively toward closing the remaining gap.)`
+}
+
 // ─── Exported personas ─────────────────────────────────────────────────────
 
 export const SEED_PERSONAS: Persona[] = [

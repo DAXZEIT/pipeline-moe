@@ -11,6 +11,7 @@ import { conversationMeta } from "./store.js"
 import type { SseHub, SseEventName } from "./sse.js"
 import type { LocalModelLock } from "./local-model-lock.js"
 import { REPEAT_THRESHOLD, SIMILARITY_FLOOR, textSimilarity, LOOKBACK_WINDOW, checkToolLoop, TOOL_REPEAT_THRESHOLD } from "./circuit-breaker.js"
+import { goalEvalPrompt } from "./personas.js"
 import type {
   Conversation,
   ConversationMeta,
@@ -79,6 +80,19 @@ export class Room {
   private goalText: string | null = null
   /** Lifecycle status for goal-driven rooms. */
   private goalStatus: "idle" | "running" | "completed" | "failed" = "idle"
+  /** Goal completion mode. "auto": complete when the pipeline drains naturally.
+   *  "eval": after each drain, route to the evaluator to verify the goal and
+   *  either dispatch more work or declare GOAL_MET. */
+  private goalMode: "auto" | "eval" = "auto"
+  /** Agent id that evaluates the goal in "eval" mode. */
+  private goalEvaluator = "planner"
+  /** Max eval iterations before the goal auto-fails (eval mode only). */
+  private maxGoalIterations = 10
+  /** Eval iterations consumed so far in the current goal run. */
+  private goalIteration = 0
+  /** Fallback agent saved while an eval-mode goal suppresses fallback routing.
+   *  Restored when the eval loop terminates. */
+  private goalEvalSavedFallback: string | null = null
 
   // ── Current conversation identity ──────────────────────────────────────────
   private convId = newConvId()
@@ -130,12 +144,34 @@ export class Room {
   getGoalText(): string | null { return this.goalText }
   getGoalStatus(): "idle" | "running" | "completed" | "failed" { return this.goalStatus }
 
-  /** Start a goal-driven pipeline run. Sets goalText/status and fires the first turn. */
-  submitGoal(text: string): void {
+  /** Start a goal-driven pipeline run. Sets goalText/status and fires the first turn.
+   *  In "eval" mode the evaluator agent verifies the goal after each drain and
+   *  drives an iterative dispatch loop until it declares GOAL_MET or the iteration
+   *  budget is exhausted. */
+  submitGoal(
+    text: string,
+    opts?: { mode?: "auto" | "eval"; evaluator?: string; maxIterations?: number },
+  ): void {
     this.goalText = text
     this.goalStatus = "running"
+    this.goalMode = opts?.mode ?? "auto"
+    this.goalEvaluator = opts?.evaluator?.trim() || "planner"
+    this.maxGoalIterations = Math.max(1, Math.min(50, Math.round(opts?.maxIterations ?? 10)))
+    this.goalIteration = 0
+    // In eval mode the eval loop is the sole router: the evaluator is invoked
+    // deliberately after every natural drain. Leaving generic fallback routing
+    // active would re-invoke the evaluator (when it is also the fallback agent)
+    // with a misleading "routing fallback" context — doubling invocations and
+    // draining the iteration budget. Suppress fallback for the whole goal run
+    // (initial drain + eval loop); runGoalEval's finally restores it.
+    if (this.goalMode === "eval") {
+      this.goalEvalSavedFallback = this.fallbackAgentId
+      this.fallbackAgentId = null
+    }
     this.submit(text)
   }
+
+  getGoalMode(): "auto" | "eval" { return this.goalMode }
 
   /** Expose the registry for server-side route handlers. */
   getRegistry(): Registry {
@@ -466,13 +502,111 @@ export class Room {
   /** End the current turn — clears runningAgentId and broadcasts turn end. */
   private async endTurn(): Promise<void> {
     this.runningAgentId = null
-    // Natural turn completion: if a goal was running, mark it completed.
+    // Natural turn completion: if a goal was running, resolve it.
     if (this.goalText !== null && this.goalStatus === "running") {
-      this.goalStatus = "completed"
-      this.emit("room", { type: "goal-completed", goalText: this.goalText })
+      if (this.goalMode === "eval") {
+        // Don't auto-complete — hand off to the evaluator to verify the goal
+        // and drive the dispatch loop. runGoalEval sets the terminal status.
+        await this.runGoalEval()
+      } else {
+        this.goalStatus = "completed"
+        this.emit("room", { type: "goal-completed", goalText: this.goalText })
+      }
     }
     this.emit("turn", { phase: "end" })
     this.emit("workspace", await listWorkspace(this.workspaceDir))
+  }
+
+  /** Matches the GOAL_MET completion token in any reasonable form. */
+  private static readonly GOAL_MET_RE = /\bGOAL[\s_-]?MET\b/i
+
+  /** Goal-eval loop (eval mode). After the pipeline drains naturally, route to
+   *  the evaluator agent with a structured prompt. The evaluator verifies the
+   *  goal independently (using its tools), then either:
+   *    - declares GOAL_MET  → goal completes, loop exits; or
+   *    - @-mentions an agent → that agent runs (via drainQueue chaining), then
+   *      the loop re-evaluates.
+   *  Bounded by maxGoalIterations to guarantee termination. Called from within
+   *  endTurn(); it drives drainQueue() directly and never re-enters endTurn(),
+   *  so there is no recursion. */
+  private async runGoalEval(): Promise<void> {
+    const evaluator = this.registry.get(this.goalEvaluator)
+    if (!evaluator || !evaluator.active) {
+      // No evaluator available — fall back to auto-completion rather than hang
+      // the goal in "running" forever.
+      this.notice(`Goal eval: evaluator @${this.goalEvaluator} not available — completing goal without verification.`, "info")
+      this.goalStatus = "completed"
+      this.emit("room", { type: "goal-completed", goalText: this.goalText })
+      this.fallbackAgentId = this.goalEvalSavedFallback
+      this.runningAgentId = null
+      return
+    }
+
+    // Fallback routing is already suppressed (set null in submitGoal for the
+    // whole eval-mode run). The finally restores the original fallback agent and
+    // re-nulls runningAgentId per endTurn's documented contract.
+    try {
+      while (this.goalIteration < this.maxGoalIterations) {
+        this.goalIteration++
+
+        // Inject the structured eval context (invisible in the transcript).
+        await evaluator.sendCustomMessage(
+          {
+            customType: "goal_eval",
+            content: goalEvalPrompt(this.goalText!, this.goalIteration, this.maxGoalIterations),
+            display: false,
+          },
+          { deliverAs: "nextTurn" },
+        )
+        this.emit("room", {
+          type: "goal-eval",
+          goalText: this.goalText,
+          iteration: this.goalIteration,
+          maxIterations: this.maxGoalIterations,
+        })
+
+        // Run the evaluator and any agents it dispatches via @mention chaining.
+        this.queue = [evaluator]
+        this.aborted = false
+        this.circuitBreakerAgentId = null
+        this.chainBudget = 0
+        this.runningAgentId = evaluator.persona.id
+        this.emit("turn", { phase: "chain", from: null, targets: [evaluator.persona.id] })
+        await this.drainQueue()
+
+        // Did the evaluator declare the goal met in its most recent message?
+        if (this.evaluatorDeclaredGoalMet(evaluator.persona.id)) {
+          this.goalStatus = "completed"
+          this.emit("room", { type: "goal-completed", goalText: this.goalText })
+          return
+        }
+
+        // Circuit breaker tripped during this eval pass — give up.
+        if (this.aborted) {
+          this.goalStatus = "failed"
+          this.emit("room", { type: "goal-failed", goalText: this.goalText, reason: "aborted" })
+          this.notice(`Goal eval aborted on iteration ${this.goalIteration} (circuit breaker).`, "error")
+          return
+        }
+      }
+
+      // Iteration budget exhausted without GOAL_MET.
+      this.goalStatus = "failed"
+      this.emit("room", { type: "goal-failed", goalText: this.goalText, reason: "max-iterations" })
+      this.notice(`Goal eval exhausted after ${this.maxGoalIterations} iterations without GOAL_MET.`, "error")
+    } finally {
+      this.fallbackAgentId = this.goalEvalSavedFallback
+      this.runningAgentId = null
+    }
+  }
+
+  /** True if the evaluator's most recent transcript message declares GOAL_MET. */
+  private evaluatorDeclaredGoalMet(evaluatorId: string): boolean {
+    for (let i = this.transcript.length - 1; i >= 0; i--) {
+      const e = this.transcript[i]
+      if (e.author === evaluatorId) return Room.GOAL_MET_RE.test(e.text)
+    }
+    return false
   }
 
   /** Steer a running agent mid-turn. Posts a (steered) notice to the transcript

@@ -26,6 +26,32 @@ const spawnRoomSchema = Type.Object({
         "Working directory scope — a local path or an sshfs target (user@host:/path). Omit for the pipeline workspace.",
     }),
   ),
+  goalMode: Type.Optional(
+    Type.Union([Type.Literal("auto"), Type.Literal("eval")], {
+      description:
+        "Goal completion mode. 'auto' (default): the goal completes when the sub-room's pipeline " +
+        "drains. 'eval': after each pass the evaluator agent re-enters the sub-room, verifies " +
+        "the goal independently with tools, and either dispatches more work or declares GOAL_MET. Use " +
+        "'eval' for iterative goals that need a verification loop.",
+    }),
+  ),
+  goalEvaluator: Type.Optional(
+    Type.String({
+      description:
+        "Agent id that evaluates the goal in 'eval' mode (e.g. 'planner', 'auditor'). Defaults to " +
+        "'planner'. Must match a persona id in the sub-room's roster, or the goal will auto-complete " +
+        "without verification.",
+    }),
+  ),
+  maxGoalIterations: Type.Optional(
+    Type.Integer({
+      minimum: 1,
+      maximum: 50,
+      description:
+        "Max evaluation iterations before the goal auto-fails in 'eval' mode. Default 10. Each " +
+        "iteration is one evaluator verification pass plus any agents it dispatches.",
+    }),
+  ),
 })
 
 export function createSpawnRoomToolDefinition(
@@ -47,6 +73,9 @@ export function createSpawnRoomToolDefinition(
           goal: params.goal,
           preset: params.preset,
           workspaceDir: params.workspaceDir,
+          goalMode: params.goalMode,
+          goalEvaluator: params.goalEvaluator,
+          maxGoalIterations: params.maxGoalIterations,
         })
         return {
           content: [{

@@ -16,6 +16,15 @@ export interface SpawnRoomOptions {
   /** Working directory scope — local path or user@host:/path (sshfs).
    *  Omit for the pipeline workspace. */
   workspaceDir?: string
+  /** Goal completion mode. "auto" (default): the goal completes when the
+   *  pipeline drains naturally. "eval": after each drain the evaluator agent
+   *  verifies the goal independently and either dispatches more work or declares
+   *  GOAL_MET. */
+  goalMode?: "auto" | "eval"
+  /** Agent id that evaluates the goal in "eval" mode. Defaults to "planner". */
+  goalEvaluator?: string
+  /** Max eval iterations before the goal auto-fails (eval mode only). Default 10. */
+  maxGoalIterations?: number
 }
 
 export interface SpawnRoomResult {

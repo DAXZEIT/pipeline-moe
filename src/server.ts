@@ -279,6 +279,9 @@ async function main(): Promise<void> {
     preset?: string
     goal?: string
     workspaceDir?: string
+    goalMode?: "auto" | "eval"
+    goalEvaluator?: string
+    maxGoalIterations?: number
   }): Promise<RoomDetails> {
     const name = opts.name.trim()
     if (!name) throw new RoomProvisionError(400, "`name` is required")
@@ -353,7 +356,13 @@ async function main(): Promise<void> {
       hub.broadcast("room", { type: "created", roomId, name, participantCount: newRoom.rosterLength() })
 
       // Fire goal asynchronously — caller returns immediately with status "running".
-      if (goal) newRoom.submitGoal(goal)
+      if (goal) {
+        newRoom.submitGoal(goal, {
+          mode: opts.goalMode,
+          evaluator: opts.goalEvaluator,
+          maxIterations: opts.maxGoalIterations,
+        })
+      }
 
       return roomManager.getRoomDetails(roomId)!
     } catch (err) {
@@ -375,7 +384,15 @@ async function main(): Promise<void> {
   // orchestrator closes over provisionRoom (preset + mount logic lives here).
   const orchestrator: RoomOrchestrator = {
     async spawnRoom(o) {
-      const d = await provisionRoom({ name: o.name, goal: o.goal, preset: o.preset, workspaceDir: o.workspaceDir })
+      const d = await provisionRoom({
+        name: o.name,
+        goal: o.goal,
+        preset: o.preset,
+        workspaceDir: o.workspaceDir,
+        goalMode: o.goalMode,
+        goalEvaluator: o.goalEvaluator,
+        maxGoalIterations: o.maxGoalIterations,
+      })
       return { roomId: d.roomId, name: d.name, goalStatus: d.goalStatus }
     },
     checkRoom(roomId) {
@@ -1174,6 +1191,9 @@ async function main(): Promise<void> {
         preset: req.body?.preset ? String(req.body.preset).trim() : undefined,
         goal: req.body?.goal ? String(req.body.goal).trim() : undefined,
         workspaceDir: req.body?.workspaceDir ? String(req.body.workspaceDir).trim() : undefined,
+        goalMode: req.body?.goalMode === "eval" ? "eval" : undefined,
+        goalEvaluator: req.body?.goalEvaluator ? String(req.body.goalEvaluator).trim() : undefined,
+        maxGoalIterations: typeof req.body?.maxGoalIterations === "number" ? req.body.maxGoalIterations : undefined,
       })
       res.status(201).json(summary)
     } catch (err) {
