@@ -16,6 +16,7 @@ import type {
   Conversation,
   ConversationMeta,
   Persona,
+  RouteDecision,
   RoutingMode,
   ToolActivity,
   TranscriptEntry,
@@ -34,6 +35,20 @@ function formatReceipt(r: WorkReceipt): string {
 /** State when the pipeline is paused waiting for a user response to an ask_user. */
 interface PendingQuestion {
   askerId: string
+  heldQueue: Participant[]
+}
+
+/** A proposed handoff awaiting human approval (semi/manual routing). */
+interface RouteProposal {
+  fromId: string
+  target: Participant
+}
+
+/** State when routing is paused for human approval (semi/manual mode). The
+ *  heldQueue is work already queued before the proposal; it resumes once the
+ *  human approves / redirects / drops. */
+interface PendingRoute {
+  proposals: RouteProposal[]
   heldQueue: Participant[]
 }
 
@@ -77,6 +92,8 @@ export class Room {
   private chainBudget = 0
   /** Set when an agent called ask_user — pipeline is paused until user responds. */
   private pendingQuestion: PendingQuestion | null = null
+  /** Set in semi/manual mode when proposed handoffs await human approval. */
+  private pendingRoute: PendingRoute | null = null
   /** Agent that handles messages with no @mention. null = first active. */
   private defaultAgentId: string | null = null
   /** Agent that receives routing fallback when no agent is @-mentioned in a reply. null = disabled. */
@@ -316,11 +333,11 @@ export class Room {
   /** True while an agent is running or queued — editing a roster member's
    *  session (which disposes+recreates it) is unsafe during this window. */
   isBusy(): boolean {
-    return this.running.size > 0 || this.queue.length > 0 || this.pendingQuestion !== null
+    return this.running.size > 0 || this.queue.length > 0 || this.pendingQuestion !== null || this.pendingRoute !== null
   }
 
   private ensureIdle(): void {
-    if (this.running.size > 0 || this.queue.length > 0 || this.pendingQuestion !== null) {
+    if (this.running.size > 0 || this.queue.length > 0 || this.pendingQuestion !== null || this.pendingRoute !== null) {
       throw new Error("a turn is running — press Stop before switching discussions")
     }
   }
@@ -825,7 +842,18 @@ export class Room {
         // below). Routes identically to the main drain loop — a handoff made right
         // after answering a question now continues instead of being dropped.
         if (this.chaining) {
-          await this.proposeChain(asker.persona.id, result.reply, pq.heldQueue)
+          const proposed = await this.proposeChain(asker.persona.id, result.reply, pq.heldQueue)
+          if (proposed.length > 0) {
+            // semi/manual: pause for approval instead of continuing the drain.
+            this.pendingRoute = {
+              proposals: proposed.map((t) => ({ fromId: asker.persona.id, target: t })),
+              heldQueue: pq.heldQueue,
+            }
+            this.emitRoutingProposed()
+            this.emit("workspace", await listWorkspace(this.workspaceDir))
+            await this.saveCurrent()
+            return
+          }
         }
       }
 
@@ -1309,14 +1337,19 @@ export class Room {
    *  the main drain loop and the ask-user resume path so routing is identical in
    *  both — the resume path previously pushed @mentions onto a queue it then
    *  discarded, silently dropping a handoff made right after answering a question. */
-  private async proposeChain(fromId: string, reply: string, target: Participant[]): Promise<void> {
+  private async proposeChain(fromId: string, reply: string, target: Participant[]): Promise<Participant[]> {
     const mentioned = this.resolveAgentMentions(reply, fromId)
     if (mentioned.length > 0) {
       // De-dupe against the pending queue: if e.g. scout AND builder both hand
       // off to @planner in the same pass, enqueue the planner once instead of
       // running it back-to-back (the loop kept returning to it 2-3× in a row).
       const next = mentioned.filter((p) => !target.includes(p))
-      if (next.length === 0) return
+      if (next.length === 0) return []
+      if (this.routingMode !== "auto") {
+        // semi/manual: hand these back for human approval. Don't enqueue or spend
+        // hop budget yet — that happens when the human approves.
+        return next
+      }
       if (this.chainBudget < this.maxChainHops) {
         this.chainBudget += next.length
         target.push(...next)
@@ -1324,7 +1357,7 @@ export class Room {
       } else {
         this.notice(`Chain budget exhausted (${this.maxChainHops} hops) — stopping.`, "info")
       }
-      return
+      return []
     }
     if (
       this.fallbackAgentId &&
@@ -1348,6 +1381,77 @@ export class Room {
         )
       }
     }
+    return []
+  }
+
+  /** Broadcast the current routing proposal so the UI can render the approval card. */
+  private emitRoutingProposed(): void {
+    if (!this.pendingRoute) return
+    this.emit("routing", {
+      type: "proposed",
+      proposals: this.pendingRoute.proposals.map((p) => ({
+        from: p.fromId,
+        target: p.target.persona.id,
+        targetName: p.target.persona.name,
+      })),
+    })
+  }
+
+  /** Serializable snapshot of a pending routing proposal (for state bootstrap),
+   *  or null when nothing is awaiting approval. */
+  getPendingRoute(): { proposals: Array<{ from: string; target: string; targetName: string }> } | null {
+    if (!this.pendingRoute) return null
+    return {
+      proposals: this.pendingRoute.proposals.map((p) => ({
+        from: p.fromId,
+        target: p.target.persona.id,
+        targetName: p.target.persona.name,
+      })),
+    }
+  }
+
+  /** Apply the human's decision on a pending routing proposal (semi/manual).
+   *  Serialized onto the room's turn chain so it can't race a running turn. */
+  resolveRoute(decision: RouteDecision): void {
+    this.chain = this.chain.then(() => this.processRouteDecision(decision)).catch((err) => {
+      this.notice(`Room error: ${err instanceof Error ? err.message : String(err)}`, "error")
+    })
+  }
+
+  private async processRouteDecision(decision: RouteDecision): Promise<void> {
+    const pr = this.pendingRoute
+    if (!pr) return // nothing pending (already resolved, or raced an abort)
+    this.pendingRoute = null
+    this.aborted = false
+
+    let toRun: Participant[] = []
+    if (decision.action === "approve") {
+      toRun = pr.proposals.map((p) => p.target)
+    } else if (decision.action === "redirect") {
+      toRun = (decision.targetIds ?? [])
+        .map((id) => this.registry.get(id))
+        .filter((p): p is Participant => !!p && p.active)
+    }
+    // "drop" → toRun stays empty: continue with whatever work was already held.
+
+    const fresh = toRun.filter((p) => !pr.heldQueue.includes(p))
+    if (fresh.length > 0) {
+      this.chainBudget += fresh.length
+      pr.heldQueue.push(...fresh)
+      this.emit("turn", { phase: "chain", from: null, targets: fresh.map((t) => t.persona.id) })
+    }
+    this.emit("routing", { type: "resolved", action: decision.action, targets: fresh.map((t) => t.persona.id) })
+
+    this.queue = pr.heldQueue
+    const paused = await this.drainQueue()
+    if (paused) {
+      this.emit("workspace", await listWorkspace(this.workspaceDir))
+      await this.saveCurrent()
+      return
+    }
+    this.queue = []
+    await this.endTurn()
+    await this.saveCurrent()
   }
 
   private async drainQueue(): Promise<boolean> {
@@ -1365,6 +1469,7 @@ export class Room {
       let paused = false
       let pauseAskerId: string | null = null
       let pauseQuestion: string | null = null
+      const waveProposals: RouteProposal[] = []
 
       for (const out of results) {
         if (!out || this.aborted) continue
@@ -1384,7 +1489,12 @@ export class Room {
         // Chain from this reply (even if it had a question — the question is
         // posted as part of the message, so @mentions in the text still chain).
         if (this.chaining) {
-          await this.proposeChain(out.target.persona.id, out.reply, this.queue)
+          const proposed = await this.proposeChain(out.target.persona.id, out.reply, this.queue)
+          for (const t of proposed) {
+            if (!waveProposals.some((wp) => wp.target === t)) {
+              waveProposals.push({ fromId: out.target.persona.id, target: t })
+            }
+          }
         }
 
         // Inject work receipt into the next agent in queue (if there is one and there are changes).
@@ -1404,6 +1514,15 @@ export class Room {
         this.emit("turn", { phase: "pause", askerId: pauseAskerId!, question: pauseQuestion! })
         return true
       }
+
+      // semi/manual: if any handoffs were proposed this wave, pause for approval
+      // before running them. The held queue resumes after the human decides.
+      if (waveProposals.length > 0) {
+        this.pendingRoute = { proposals: waveProposals, heldQueue: [...this.queue] }
+        this.queue = []
+        this.emitRoutingProposed()
+        return true
+      }
     }
     return false
   }
@@ -1418,9 +1537,10 @@ export class Room {
     if (this.goalText !== null && this.goalStatus === "running") {
       this.goalCancelled = true
     }
-    const had = this.queue.length > 0 || this.running.size > 0 || this.pendingQuestion !== null
+    const had = this.queue.length > 0 || this.running.size > 0 || this.pendingQuestion !== null || this.pendingRoute !== null
     this.queue = []
     this.pendingQuestion = null
+    this.pendingRoute = null
     await Promise.all([...this.running].map((p) => p.abort()))
     return had
   }

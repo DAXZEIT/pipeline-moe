@@ -83,6 +83,13 @@ export interface PersonaState extends Persona {
  *  - `manual` — no agent→agent chaining; the human routes every step. */
 export type RoutingMode = "auto" | "semi" | "manual"
 
+/** A human decision on a proposed handoff (semi/manual routing). */
+export interface RouteDecision {
+  action: "approve" | "redirect" | "drop"
+  /** For 'redirect': the agent id(s) to route to instead of the proposal. */
+  targetIds?: string[]
+}
+
 export interface Conversation {
   id: string
   title: string

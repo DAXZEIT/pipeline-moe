@@ -20,7 +20,7 @@ import { RoomManager, type RoomDetails } from "./room-manager.js"
 import type { RoomOrchestrator } from "./orchestrator.js"
 import { SseHub } from "./sse.js"
 import { isSshTarget, mountSshfs, unmountSshfs, type RoomMount } from "./sshfs.js"
-import type { Persona, PersonaState } from "./types.js"
+import type { Persona, PersonaState, RouteDecision } from "./types.js"
 import { parsePersona, VALID_TOOLS } from "./validation.js"
 
 /** Directory for saved user images (relative to workspace). */
@@ -1069,6 +1069,13 @@ async function main(): Promise<void> {
     maxChainHops: r.getMaxChainHops(),
   })
 
+  const parseRouteDecision = (body: Record<string, unknown>): RouteDecision | null => {
+    const action = body?.action
+    if (action !== "approve" && action !== "redirect" && action !== "drop") return null
+    const targetIds = Array.isArray(body?.targetIds) ? body.targetIds.map(String) : undefined
+    return { action, targetIds }
+  }
+
   app.get("/api/settings", (_req, res) => {
     res.json(settingsPayload(room))
   })
@@ -1125,6 +1132,16 @@ async function main(): Promise<void> {
       room.setRoutingMode(m)
     }
     res.json(settingsPayload(room))
+  })
+
+  app.post("/api/route", (req, res) => {
+    const decision = parseRouteDecision(req.body ?? {})
+    if (!decision) {
+      res.status(400).json({ error: "`action` must be 'approve', 'redirect', or 'drop'" })
+      return
+    }
+    room.resolveRoute(decision)
+    res.status(202).json({ accepted: true })
   })
 
   // Post a message to the room. Returns immediately; results stream over SSE.
@@ -1566,6 +1583,16 @@ async function main(): Promise<void> {
       r.setRoutingMode(m)
     }
     res.json(settingsPayload(r))
+  })
+
+  roomRouter.post("/route", (req, res) => {
+    const decision = parseRouteDecision(req.body ?? {})
+    if (!decision) {
+      res.status(400).json({ error: "`action` must be 'approve', 'redirect', or 'drop'" })
+      return
+    }
+    roomOf(req).resolveRoute(decision)
+    res.status(202).json({ accepted: true })
   })
 
   roomRouter.post("/messages", rateLimit({ windowMs: 60_000, max: 60, standardHeaders: true, legacyHeaders: false }), async (req, res) => {

@@ -16,6 +16,7 @@ export type SseEventName =
   | "workspace" // live workspace file listing
   | "circuit_breaker" // agent repeated similar output N times — pipeline aborted
   | "settings" // room settings change (e.g. chaining toggle)
+  | "routing" // semi/manual routing: a handoff proposal awaiting approval, or its resolution
   | "transcript" // full transcript replacement (on conversation switch)
   | "conversations" // saved-conversation list + current id
   | "providers" // provider auth status changed (after add/remove)

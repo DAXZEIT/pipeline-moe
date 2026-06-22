@@ -138,6 +138,7 @@ class EventCapture {
   messages: Array<{ author: string; text: string; question?: string }> = []
   turns: TurnEvent[] = []
   notices: Array<{ msg: string; level: string }> = []
+  routing: Array<Record<string, unknown>> = []
 
   constructor(private hub: SseHub) {
     // Intercept broadcasts by wrapping.
@@ -149,6 +150,8 @@ class EventCapture {
         this.turns.push(data as TurnEvent)
       } else if (event === "notice") {
         this.notices.push(data as { msg: string; level: string })
+      } else if (event === "routing") {
+        this.routing.push(data as Record<string, unknown>)
       }
       orig(event, data)
     }
@@ -446,5 +449,127 @@ describe("ask_user — pause/resume", () => {
     // De-duped: the planner runs exactly once, not twice back-to-back.
     const plannerMsgs = events.messages.filter((m) => m.author === "planner")
     expect(plannerMsgs.length).toBe(1)
+  })
+
+  describe("semi mode — per-wave approval", () => {
+    const proposalTargets = (e?: Record<string, unknown>) =>
+      ((e?.proposals as Array<{ target: string }>) ?? []).map((p) => p.target)
+
+    test("a proposed handoff pauses instead of running", async () => {
+      const builder = makeMockParticipant("builder")
+      const auditor = makeMockParticipant("auditor")
+      builder.withResult({ text: "done\n\n@auditor please review" })
+      auditor.withResult({ text: "Auditor reviewing" })
+      registry.addParticipant(builder)
+      registry.addParticipant(auditor)
+      room.setRoutingMode("semi")
+
+      room.submit("@builder go")
+      await new Promise((r) => setTimeout(r, 200))
+
+      const proposed = events.routing.find((e) => e.type === "proposed")
+      expect(proposed).toBeDefined()
+      expect(proposalTargets(proposed)).toEqual(["auditor"])
+      expect(events.messages.find((m) => m.author === "auditor")).toBeUndefined()
+      expect(room.isBusy()).toBe(true)
+      expect(room.getPendingRoute()).not.toBeNull()
+    })
+
+    test("approve runs the proposed agent", async () => {
+      const builder = makeMockParticipant("builder")
+      const auditor = makeMockParticipant("auditor")
+      builder.withResult({ text: "done\n\n@auditor please review" })
+      auditor.withResult({ text: "Auditor reviewing" })
+      registry.addParticipant(builder)
+      registry.addParticipant(auditor)
+      room.setRoutingMode("semi")
+
+      room.submit("@builder go")
+      await new Promise((r) => setTimeout(r, 200))
+      room.resolveRoute({ action: "approve" })
+      await new Promise((r) => setTimeout(r, 200))
+
+      expect(events.messages.find((m) => m.author === "auditor")?.text).toBe("Auditor reviewing")
+      expect(room.isBusy()).toBe(false)
+    })
+
+    test("redirect routes to a different agent", async () => {
+      const builder = makeMockParticipant("builder")
+      const auditor = makeMockParticipant("auditor")
+      const planner = makeMockParticipant("planner")
+      builder.withResult({ text: "done\n\n@auditor please review" })
+      auditor.withResult({ text: "Auditor reviewing" })
+      planner.withResult({ text: "Planner planning" })
+      registry.addParticipant(builder)
+      registry.addParticipant(auditor)
+      registry.addParticipant(planner)
+      room.setRoutingMode("semi")
+
+      room.submit("@builder go")
+      await new Promise((r) => setTimeout(r, 200))
+      room.resolveRoute({ action: "redirect", targetIds: ["planner"] })
+      await new Promise((r) => setTimeout(r, 200))
+
+      expect(events.messages.find((m) => m.author === "planner")?.text).toBe("Planner planning")
+      expect(events.messages.find((m) => m.author === "auditor")).toBeUndefined()
+    })
+
+    test("drop runs nothing and ends the turn", async () => {
+      const builder = makeMockParticipant("builder")
+      const auditor = makeMockParticipant("auditor")
+      builder.withResult({ text: "done\n\n@auditor please review" })
+      auditor.withResult({ text: "Auditor reviewing" })
+      registry.addParticipant(builder)
+      registry.addParticipant(auditor)
+      room.setRoutingMode("semi")
+
+      room.submit("@builder go")
+      await new Promise((r) => setTimeout(r, 200))
+      room.resolveRoute({ action: "drop" })
+      await new Promise((r) => setTimeout(r, 200))
+
+      expect(events.messages.find((m) => m.author === "auditor")).toBeUndefined()
+      expect(room.isBusy()).toBe(false)
+      expect(room.getPendingRoute()).toBeNull()
+    })
+
+    test("de-dupes parallel handoffs to the same agent into one proposal", async () => {
+      const scout = makeMockParticipant("scout")
+      const builder = makeMockParticipant("builder")
+      const planner = makeMockParticipant("planner")
+      scout.parallel = true
+      builder.parallel = true
+      scout.withResult({ text: "found\n\n@planner plan" })
+      builder.withResult({ text: "built\n\n@planner plan" })
+      registry.addParticipant(scout)
+      registry.addParticipant(builder)
+      registry.addParticipant(planner)
+      room.setRoutingMode("semi")
+
+      room.submit("@scout @builder go")
+      await new Promise((r) => setTimeout(r, 300))
+
+      const proposed = events.routing.find((e) => e.type === "proposed")
+      expect(proposed).toBeDefined()
+      expect(proposalTargets(proposed)).toEqual(["planner"])
+    })
+
+    test("abort clears the pending route", async () => {
+      const builder = makeMockParticipant("builder")
+      const auditor = makeMockParticipant("auditor")
+      builder.withResult({ text: "done\n\n@auditor please review" })
+      registry.addParticipant(builder)
+      registry.addParticipant(auditor)
+      room.setRoutingMode("semi")
+
+      room.submit("@builder go")
+      await new Promise((r) => setTimeout(r, 200))
+      expect(room.getPendingRoute()).not.toBeNull()
+
+      const had = await room.abortCurrent()
+      expect(had).toBe(true)
+      expect(room.getPendingRoute()).toBeNull()
+      expect(room.isBusy()).toBe(false)
+    })
   })
 })

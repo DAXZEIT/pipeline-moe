@@ -60,6 +60,11 @@
 
 ### Fixed
 
+- **Duplicate back-to-back handoffs** — when two agents in the same routing pass both handed off
+  to the same agent (e.g. scout and builder both ending on `@planner`), that agent was enqueued
+  twice and ran 2–3× in a row. `proposeChain` now de-dupes proposed handoffs against the pending
+  queue, so a target already queued for this pass isn't added again (applies to explicit
+  @mentions and to the no-handoff fallback). Regression test added (verified failing before).
 - **Dropped handoff after answering a question** — with chaining on, if an agent @-mentioned
   another agent in the reply it produced right after the user answered its `ask_user` question,
   that handoff was silently discarded: the resume path pushed the next agent onto a queue it then
