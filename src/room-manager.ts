@@ -162,6 +162,7 @@ export class RoomManager {
       this.localLock,
       config.circuitBreaker,
       scope,
+      !!(mount || sshTarget), // remote (sshfs) → skip per-turn full-tree snapshots
     )
 
     this.rooms.set(roomId, {

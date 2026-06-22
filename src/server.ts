@@ -1502,7 +1502,7 @@ async function main(): Promise<void> {
   // Room-scoped workspace listing: initial snapshot for the WorkspacePanel.
   // Live updates arrive over SSE; this serves the first paint per room.
   roomRouter.get("/workspace", async (req, res) => {
-    res.json(await listWorkspace(roomOf(req).getWorkspaceDir()))
+    res.json(await roomOf(req).getWorkspaceListing())
   })
 
   roomRouter.get("/settings", (req, res) => {

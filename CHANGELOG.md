@@ -68,6 +68,15 @@
 
 ### Fixed
 
+- **Editing an agent in a second room edited the main room's agent** — `EditAgent` fetched the
+  persona and saved changes through the *global* API (default room), so changing an agent's
+  model / prompt / tools while viewing another room hit the wrong room. It now uses the active
+  room's scoped fetch + save (threaded via `useRoom.getParticipant` / `updateParticipant`).
+- **Resuming an sshfs-scoped room failed with "fusermount3: … Permission denied"** — a mount
+  leaked by a previous process (killed before teardown) survived at the room's deterministic
+  mountpoint, so re-mounting on resume failed. `mountSshfs` now clears any leftover mount before
+  mounting, and the server runs `cleanupStaleMounts()` at startup to unmount everything left under
+  the mount base before `restoreRooms()` re-mounts the valid rooms.
 - **Preset load no longer blocks on an unavailable model** — a preset referencing a model that
   isn't currently available (a stale cloud snapshot id that rotated out of the registry, or a
   swapped local quant) used to fail the *whole* load with a 400. It now loads, downgrading those
