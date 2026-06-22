@@ -7,7 +7,10 @@ import type {
   PresetFile,
   ProviderInfo,
   ResumableRoom,
+  RoomSettings,
   RoomSummary,
+  RouteDecision,
+  RoutingMode,
   RosterItem,
   WorkspaceFile,
 } from "./types"
@@ -137,30 +140,42 @@ export function makeRoomApi(prefix: string) {
       fetch(`${base}/participants/${id}/export-jsonl`).then((r) => r.blob()),
 
     settings: () =>
-      fetch(`${base}/settings`).then((r) =>
-        json<{ chaining: boolean; defaultAgent: string | null; maxChainHops: number }>(r),
-      ),
+      fetch(`${base}/settings`).then((r) => json<RoomSettings>(r)),
 
     setChaining: (chaining: boolean) =>
       fetch(`${base}/settings`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ chaining }),
-      }).then((r) => json<{ chaining: boolean; defaultAgent: string | null; maxChainHops: number }>(r)),
+      }).then((r) => json<RoomSettings>(r)),
 
     setDefaultAgent: (defaultAgent: string | null) =>
       fetch(`${base}/settings`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ defaultAgent }),
-      }).then((r) => json<{ chaining: boolean; defaultAgent: string | null; maxChainHops: number }>(r)),
+      }).then((r) => json<RoomSettings>(r)),
 
     setMaxChainHops: (maxChainHops: number) =>
       fetch(`${base}/settings`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ maxChainHops }),
-      }).then((r) => json<{ chaining: boolean; defaultAgent: string | null; maxChainHops: number }>(r)),
+      }).then((r) => json<RoomSettings>(r)),
+
+    setRoutingMode: (routingMode: RoutingMode) =>
+      fetch(`${base}/settings`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ routingMode }),
+      }).then((r) => json<RoomSettings>(r)),
+
+    resolveRoute: (decision: RouteDecision) =>
+      fetch(`${base}/route`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(decision),
+      }).then((r) => json(r)),
 
     conversations: () =>
       fetch(`${base}/conversations`).then((r) =>

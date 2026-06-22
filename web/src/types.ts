@@ -122,6 +122,32 @@ export interface PresetFile {
   personas: PresetPersona[]
 }
 
+/** How agent→agent handoffs are routed within a room. */
+export type RoutingMode = "auto" | "semi" | "manual"
+
+/** A proposed handoff awaiting human approval (semi/manual routing). */
+export interface RouteProposal {
+  from: string
+  target: string
+  targetName: string
+}
+
+/** A human decision on a proposed handoff. */
+export interface RouteDecision {
+  action: "approve" | "redirect" | "drop"
+  targetIds?: string[]
+}
+
+/** Room settings payload (GET/PATCH /settings). */
+export interface RoomSettings {
+  chaining: boolean
+  routingMode: RoutingMode
+  defaultAgent: string | null
+  fallbackAgent?: string | null
+  maxChainHops: number
+  pendingRoute: { proposals: RouteProposal[] } | null
+}
+
 /** A built-in persona template (GET /api/persona-templates) for the Add-agent picker. */
 export interface PersonaTemplate {
   id: string

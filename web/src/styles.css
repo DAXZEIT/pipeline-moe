@@ -425,6 +425,115 @@ body {
   color: var(--accent);
   border-color: var(--accent);
 }
+
+/* ---------- Routing mode selector ---------- */
+.topbar-routing {
+  margin-left: auto;
+  display: flex;
+  flex-direction: row-reverse; /* mode selector pinned right, hops to its left */
+  align-items: center;
+  gap: 8px;
+}
+.mode-select {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  overflow: hidden;
+}
+.mode-opt {
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: 11px;
+  padding: 5px 10px;
+  cursor: pointer;
+  text-transform: capitalize;
+}
+.mode-opt:not(:last-child) {
+  border-right: 1px solid var(--border);
+}
+.mode-opt.on {
+  background: var(--accent);
+  color: #06281f;
+  font-weight: 600;
+}
+.mode-opt:hover:not(.on) {
+  color: var(--text);
+}
+
+/* ---------- Routing approval card (semi/manual) ---------- */
+.route-approval {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 0 12px 8px;
+  padding: 9px 12px;
+  background: var(--bg2);
+  border: 1px solid var(--accent);
+  border-left-width: 3px;
+  border-radius: 9px;
+  font-size: 12.5px;
+}
+.route-label {
+  font-weight: 600;
+  color: var(--text);
+}
+.route-hops {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  color: var(--muted);
+}
+.route-hop b {
+  color: var(--accent);
+  font-weight: 600;
+}
+.route-actions {
+  display: flex;
+  gap: 6px;
+  margin-left: auto;
+}
+.route-select {
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  padding: 4px 8px;
+  font: inherit;
+  font-size: 12px;
+}
+.route-btn {
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  padding: 4px 10px;
+  cursor: pointer;
+}
+.route-btn:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+.route-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.route-btn.approve {
+  background: var(--accent);
+  color: #06281f;
+  border-color: var(--accent);
+  font-weight: 600;
+}
+.route-btn.drop {
+  color: #e0707a;
+}
+.route-btn.ghost {
+  color: var(--muted);
+}
+
 .chain-hops {
   font-size: 11px;
   color: var(--muted);

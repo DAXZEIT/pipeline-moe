@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react"
 import { Composer } from "./Composer"
 import { ConversationBar } from "./ConversationBar"
+import { RoutingApproval } from "./RoutingApproval"
+import type { RoutingMode } from "../types"
 import { PresetMenu } from "./PresetMenu"
 import { ProvidersPanel } from "./ProvidersPanel"
 import { Roster } from "./Roster"
@@ -103,14 +105,22 @@ export function RoomView({
           />
           <PresetMenu turnActive={room.turnActive} />
           <span className="topbar-sub">{room.turnActive ? "agents running…" : "ready"}</span>
-          <button
-            className={`chain-toggle ${room.chaining ? "on" : ""}`}
-            onClick={() => room.setChaining(!room.chaining)}
-            title="When on, agents can summon each other via @mentions"
+          <div className="topbar-routing">
+          <div
+            className="mode-select"
+            title="Routing: auto chains @mentions directly · semi asks before each wave's handoffs · manual asks per handoff"
           >
-            ⟳ chaining {room.chaining ? "on" : "off"}
-          </button>
-          {room.chaining && (
+            {(["auto", "semi", "manual"] as RoutingMode[]).map((m) => (
+              <button
+                key={m}
+                className={`mode-opt ${room.routingMode === m ? "on" : ""}`}
+                onClick={() => room.setRoutingMode(m)}
+              >
+                {m}
+              </button>
+            ))}
+          </div>
+          {room.routingMode !== "manual" && (
             <label className="chain-hops" title="Max chain hops per turn (1–100). Enter or ✓ to apply.">
               hops
               <input
@@ -134,6 +144,7 @@ export function RoomView({
               )}
             </label>
           )}
+          </div>
         </header>
         <Transcript
           messages={room.messages}
@@ -143,6 +154,13 @@ export function RoomView({
           receipts={room.receipts}
           roster={room.roster}
         />
+        {room.pendingRoute && (
+          <RoutingApproval
+            proposals={room.pendingRoute}
+            roster={room.roster}
+            onResolve={room.resolveRoute}
+          />
+        )}
         <Composer
           roster={room.roster}
           turnActive={room.turnActive}

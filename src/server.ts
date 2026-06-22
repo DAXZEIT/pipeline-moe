@@ -1067,6 +1067,7 @@ async function main(): Promise<void> {
     defaultAgent: r.getDefaultAgent(),
     fallbackAgent: r.getFallbackAgent(),
     maxChainHops: r.getMaxChainHops(),
+    pendingRoute: r.getPendingRoute(),
   })
 
   const parseRouteDecision = (body: Record<string, unknown>): RouteDecision | null => {

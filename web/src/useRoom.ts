@@ -7,6 +7,9 @@ import type {
   ProviderInfo,
   Receipt,
   RosterItem,
+  RouteDecision,
+  RouteProposal,
+  RoutingMode,
   ToolActivity,
   WorkspaceFile,
 } from "./types"
@@ -43,8 +46,10 @@ export function useRoom(roomId?: string) {
   const [pausedQuestion, setPausedQuestion] = useState<string | null>(null)
   const [pausedAskerId, setPausedAskerId] = useState<string | null>(null)
   const [chaining, setChainingState] = useState(true)
+  const [routingMode, setRoutingModeState] = useState<RoutingMode>("auto")
   const [defaultAgent, setDefaultAgentState] = useState<string | null>(null)
   const [maxChainHops, setMaxChainHopsState] = useState(30)
+  const [pendingRoute, setPendingRoute] = useState<RouteProposal[] | null>(null)
   const [conversations, setConversations] = useState<ConversationMeta[]>([])
   const [currentConversationId, setCurrentConversationId] = useState<string>("")
   const [providers, setProviders] = useState<ProviderInfo[]>([])
@@ -71,6 +76,7 @@ export function useRoom(roomId?: string) {
     setPaused(false)
     setPausedQuestion(null)
     setPausedAskerId(null)
+    setPendingRoute(null)
     setStreaming({})
     setLiveActivity({})
     setLiveReasoning({})
@@ -83,8 +89,10 @@ export function useRoom(roomId?: string) {
     rApi.roster().then(setRoster).catch(() => {})
     rApi.settings().then((s) => {
       setChainingState(s.chaining)
+      setRoutingModeState(s.routingMode)
       setDefaultAgentState(s.defaultAgent)
       if (s.maxChainHops !== undefined) setMaxChainHopsState(s.maxChainHops)
+      setPendingRoute(s.pendingRoute ? s.pendingRoute.proposals : null)
     }).catch(() => {})
     rApi.conversations().then((c) => {
       setConversations(c.list)
@@ -194,6 +202,7 @@ export function useRoom(roomId?: string) {
         setPaused(false)
         setPausedQuestion(null)
         setPausedAskerId(null)
+        setPendingRoute(null)
       } else if (data.phase === "pause") {
         setTurnActive(false)
         setPaused(true)
@@ -213,10 +222,21 @@ export function useRoom(roomId?: string) {
     })
 
     es.addEventListener("settings", (e) => {
-      const { chaining: c, defaultAgent: d, maxChainHops: m } = JSON.parse((e as MessageEvent).data)
+      const { chaining: c, routingMode: rm, defaultAgent: d, maxChainHops: m } = JSON.parse((e as MessageEvent).data)
       setChainingState(c)
+      if (rm !== undefined) setRoutingModeState(rm)
       if (d !== undefined) setDefaultAgentState(d)
       if (m !== undefined) setMaxChainHopsState(m)
+    })
+
+    es.addEventListener("routing", (e) => {
+      const data = JSON.parse((e as MessageEvent).data)
+      if (data.type === "proposed") {
+        setPendingRoute(data.proposals as RouteProposal[])
+        setTurnActive(false) // paused for approval — not actively running
+      } else if (data.type === "resolved") {
+        setPendingRoute(null)
+      }
     })
 
     // Full transcript replacement (conversation switch / new / load).
@@ -370,6 +390,23 @@ export function useRoom(roomId?: string) {
     [pushNotice, rApi],
   )
 
+  const setRoutingMode = useCallback(
+    (mode: RoutingMode) => {
+      rApi.setRoutingMode(mode).then((s) => setRoutingModeState(s.routingMode)).catch((err) =>
+        pushNotice(String(err.message ?? err), "error"),
+      )
+    },
+    [pushNotice, rApi],
+  )
+
+  const resolveRoute = useCallback(
+    (decision: RouteDecision) => {
+      setPendingRoute(null) // optimistic — the card disappears immediately
+      rApi.resolveRoute(decision).catch((err) => pushNotice(String(err.message ?? err), "error"))
+    },
+    [pushNotice, rApi],
+  )
+
   const setDefaultAgent = useCallback(
     (id: string | null) => {
       rApi.setDefaultAgent(id).then((s) => setDefaultAgentState(s.defaultAgent)).catch((err) =>
@@ -468,8 +505,10 @@ export function useRoom(roomId?: string) {
     pausedQuestion,
     pausedAskerId,
     chaining,
+    routingMode,
     defaultAgent,
     maxChainHops,
+    pendingRoute,
     conversations,
     currentConversationId,
     providers,
@@ -489,6 +528,8 @@ export function useRoom(roomId?: string) {
     abort,
     steer,
     setChaining,
+    setRoutingMode,
+    resolveRoute,
     setDefaultAgent,
     setMaxChainHops,
     newConversation,

@@ -28,6 +28,14 @@
   unbounded spawning from starving the single llama-server slot.
 - **Multi-provider runtime auth** — add/remove provider API keys at runtime (`/provider` slash
   command + Providers panel) and apply presets in place.
+- **Semi-automatic routing — backend** — in `semi` mode an agent's proposed `@mention` handoff no
+  longer dispatches immediately: the wave's handoffs pause as a `pendingRoute` and emit a `routing`
+  SSE event for approval. `POST /api/route` (and the room-scoped `/route`) resolves it — `approve`
+  runs the proposed agent(s), `redirect` swaps in different ones (`targetIds`), `drop` continues
+  with whatever was already queued. The no-handoff fallback stays automatic; proposals are
+  de-duped per wave. The web UI adds a routing-mode selector (auto/semi/manual) and an approval
+  card above the composer (✓ approve · ↪ redirect to another agent · ✕ drop). `manual` is
+  selectable but currently behaves like `semi` (per-wave) — per-proposition granularity lands next.
 - **Routing-mode setting (groundwork)** — `routingMode: 'auto' | 'semi' | 'manual'` per room,
   exposed via `GET`/`PATCH /api/settings` (and the room-scoped equivalent) and persisted per
   discussion. `auto` is today's behavior; the legacy `chaining` boolean is now *derived* from it
