@@ -17,16 +17,29 @@ export function PresetsPanel({ turnActive }: { turnActive: boolean }) {
   const [expanded, setExpanded] = useState<string | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [available, setAvailable] = useState<Set<string>>(new Set())
+  const [warn, setWarn] = useState<string | null>(null)
 
   useEffect(() => {
     api.presets().then(setPresets).catch((e) => setError(e instanceof Error ? e.message : String(e)))
+    api.models().then((d) => setAvailable(new Set(d.models.map((m) => m.ref)))).catch(() => {})
   }, [])
+
+  // A model is flagged only once the available list has loaded (size > 0).
+  const isUnavailable = (model?: string) => !!model && available.size > 0 && !available.has(model)
 
   const act = async (name: string, kind: "load" | "apply") => {
     setBusy(`${kind}:${name}`)
     setError(null)
+    setWarn(null)
     try {
-      await (kind === "load" ? api.loadPreset(name) : api.applyPreset(name))
+      const res = await (kind === "load" ? api.loadPreset(name) : api.applyPreset(name))
+      if (res.downgraded && res.downgraded.length > 0) {
+        setWarn(
+          `${res.downgraded.length} agent(s) on default model — ` +
+            res.downgraded.map((d) => `${d.agent} (${d.model})`).join(", "),
+        )
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
     } finally {
@@ -41,9 +54,11 @@ export function PresetsPanel({ turnActive }: { turnActive: boolean }) {
   return (
     <div className="presets-panel">
       {error && <div className="presets-error">{error}</div>}
+      {warn && <div className="presets-warn">(!) {warn}</div>}
       {presets.map((p) => {
         const isOpen = expanded === p.name
         const cloud = p.personas.some((pp) => pp.model && !pp.model.startsWith("local/"))
+        const missing = p.personas.some((pp) => isUnavailable(pp.model))
         return (
           <div key={p.name} className={`preset-card${isOpen ? " open" : ""}`}>
             <button
@@ -55,6 +70,9 @@ export function PresetsPanel({ turnActive }: { turnActive: boolean }) {
               <span className="preset-card-name">{p.name}</span>
               <span className="preset-card-count">{p.personas.length}</span>
               {cloud && <span className="preset-card-cloud" title="Uses cloud models">☁</span>}
+              {missing && (
+                <span className="preset-card-warn" title="Has unavailable models — they load on the default model">(!)</span>
+              )}
             </button>
 
             {isOpen && (
@@ -70,6 +88,9 @@ export function PresetsPanel({ turnActive }: { turnActive: boolean }) {
                       </div>
                       <div className="pm-line2">
                         <span className="pm-model" title={m.model ?? "default model"}>{modelLabel(m)}</span>
+                        {isUnavailable(m.model) && (
+                          <span className="pm-warn" title="Model unavailable — loads on the default model">(!)</span>
+                        )}
                         {m.thinkingLevel && <span className="pm-think">· think {m.thinkingLevel}</span>}
                       </div>
                       {m.tools.length > 0 && (

@@ -3,6 +3,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterAll, beforeAll, describe, expect, test } from "vitest"
 import { SEED_PERSONAS } from "../personas.js"
+import { downgradeUnavailableModels } from "../model.js"
 import type { PersonaState } from "../types.js"
 
 // ── Types (mirror server.ts internals) ──────────────────────────────────────
@@ -672,5 +673,35 @@ describe("edge cases", () => {
     expect(parsed.personas[0].id).toBe("second")
 
     await unlink(join(presetsDir, "dup.json"))
+  })
+})
+
+// ── Tolerant load: unavailable models fall back to default ───────────────────
+
+describe("downgradeUnavailableModels", () => {
+  test("downgrades unavailable models to default and reports them", () => {
+    const personas: Array<{ name: string; model?: string }> = [
+      { name: "Planner", model: "anthropic/claude-opus-4-6-20250603" }, // stale dated id
+      { name: "Builder", model: "local/Qwopus-Q4.gguf" }, // available
+      { name: "Scribe" }, // no model — already default
+    ]
+    const available = new Set(["local/Qwopus-Q4.gguf"])
+    const downgraded = downgradeUnavailableModels(personas, (m) => available.has(m))
+
+    expect(downgraded).toEqual([{ agent: "Planner", model: "anthropic/claude-opus-4-6-20250603" }])
+    expect(personas[0].model).toBeUndefined() // fell back to default
+    expect(personas[1].model).toBe("local/Qwopus-Q4.gguf") // untouched
+    expect(personas[2].model).toBeUndefined()
+  })
+
+  test("no downgrade when every model is available", () => {
+    const personas: Array<{ name: string; model?: string }> = [
+      { name: "A", model: "x" },
+      { name: "B", model: "y" },
+    ]
+    const downgraded = downgradeUnavailableModels(personas, () => true)
+    expect(downgraded).toEqual([])
+    expect(personas[0].model).toBe("x")
+    expect(personas[1].model).toBe("y")
   })
 })

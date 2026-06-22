@@ -91,6 +91,25 @@ export function isAllowedModel(resolved: ResolvedModel, ref: string, explicitlyE
   return listModels(resolved, explicitlyEnabled).some((m) => m.ref === ref)
 }
 
+/** Downgrade preset personas whose model isn't currently available to the
+ *  process default (model → undefined) instead of blocking the whole load.
+ *  Mutates `personas` in place and returns what was downgraded so the caller can
+ *  surface it. Mirrors resolveModelRef's runtime fallback — a stale cloud id or a
+ *  swapped local quant degrades gracefully rather than bricking every preset. */
+export function downgradeUnavailableModels(
+  personas: Array<{ name: string; model?: string }>,
+  isAllowed: (ref: string) => boolean,
+): Array<{ agent: string; model: string }> {
+  const downgraded: Array<{ agent: string; model: string }> = []
+  for (const p of personas) {
+    if (p.model && !isAllowed(p.model)) {
+      downgraded.push({ agent: p.name, model: p.model })
+      p.model = undefined
+    }
+  }
+  return downgraded
+}
+
 /** Resolve a persona's "provider/id" ref to a concrete model. Enforces the
  *  local-only policy: a non-local ref (or an unknown one) falls back to the
  *  process default rather than silently reaching the cloud. */

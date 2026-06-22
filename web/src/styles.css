@@ -1419,6 +1419,24 @@ body {
   font-size: 11px;
   padding: 8px 10px;
 }
+.presets-warn {
+  color: #e0a23a;
+  font-size: 11px;
+  padding: 6px 10px;
+  line-height: 1.4;
+}
+.preset-card-warn,
+.pm-warn {
+  color: #e0a23a;
+  font-weight: 700;
+  font-size: 11px;
+}
+.preset-card-warn {
+  margin-left: 2px;
+}
+.pm-warn {
+  margin-left: 4px;
+}
 .preset-card {
   border: 1px solid var(--border);
   border-radius: 6px;

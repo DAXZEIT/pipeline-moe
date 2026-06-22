@@ -12,7 +12,7 @@ import cors from "cors"
 import rateLimit from "express-rate-limit"
 import express, { Router } from "express"
 import { config } from "./config.js"
-import { isAllowedModel, listModels, resolveModel, type ResolvedModel } from "./model.js"
+import { downgradeUnavailableModels, isAllowedModel, listModels, resolveModel, type ResolvedModel } from "./model.js"
 import { listWorkspace } from "./receipts.js"
 import { BASE_PROMPT, BUILDER_OVERLAY, PLANNER_OVERLAY, SEED_PERSONAS } from "./personas.js"
 import { Room } from "./room.js"
@@ -269,6 +269,11 @@ async function main(): Promise<void> {
 
   const roomManager = new RoomManager(resolved, hub, explicitlyEnabledProviders, SEED_PERSONAS)
 
+  // Preset loads downgrade unavailable models (stale cloud id, swapped local
+  // quant…) to the process default instead of blocking the whole load.
+  const downgradeModels = (personas: Array<{ name: string; model?: string }>) =>
+    downgradeUnavailableModels(personas, (m) => isAllowedModel(resolved, m, explicitlyEnabledProviders))
+
   // Shared room-provisioning path used by both the POST /api/rooms route and the
   // sub-room orchestrator (spawn_room tool). Single source of truth so the two
   // entry points cannot drift on validation, mounting, preset resolution, or
@@ -348,17 +353,8 @@ async function main(): Promise<void> {
         if (personas.length === 0) {
           throw new RoomProvisionError(400, `preset "${presetName}" has no personas`)
         }
-        const missingModels: string[] = []
-        for (const p of personas) {
-          if (p.model && !isAllowedModel(resolved, p.model, explicitlyEnabledProviders)) {
-            missingModels.push(config.allowCloud
-              ? `model "${p.model}" not found`
-              : `model "${p.model}" unavailable — cloud is disabled (set PIPELINE_ALLOW_CLOUD=1)`)
-          }
-        }
-        if (missingModels.length > 0) {
-          throw new RoomProvisionError(400, "unavailable models in preset", missingModels)
-        }
+        // Unavailable models fall back to the default rather than failing room creation.
+        downgradeModels(personas)
         overridePersonas = personas
       }
 
@@ -560,23 +556,12 @@ async function main(): Promise<void> {
         return
       }
 
-      // Validate: all model refs must be available
-      const missingModels: string[] = []
-      for (const p of personas) {
-        if (p.model && !isAllowedModel(resolved, p.model, explicitlyEnabledProviders)) {
-          const reason = config.allowCloud
-            ? `model "${p.model}" not found`
-            : `model "${p.model}" unavailable — cloud is disabled (set PIPELINE_ALLOW_CLOUD=1)`
-          missingModels.push(reason)
-        }
-      }
-      if (missingModels.length > 0) {
-        res.status(400).json({ error: "unavailable models in preset:", details: missingModels })
-        return
-      }
+      // Unavailable models (stale cloud id, swapped local quant…) fall back to the
+      // default instead of blocking the whole preset — the human is told which.
+      const downgraded = downgradeModels(personas)
 
       const meta = await room.loadPreset(personas, `${name} — ${new Date().toLocaleTimeString()}`)
-      res.json({ ok: true, conversation: meta })
+      res.json({ ok: true, conversation: meta, downgraded })
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
       res.status(msg.includes("unknown") ? 404 : 409).json({ error: msg })
@@ -607,23 +592,9 @@ async function main(): Promise<void> {
         return
       }
 
-      // Validate: all model refs must be available
-      const missingModels: string[] = []
-      for (const p of personas) {
-        if (p.model && !isAllowedModel(resolved, p.model, explicitlyEnabledProviders)) {
-          const reason = config.allowCloud
-            ? `model "${p.model}" not found`
-            : `model "${p.model}" unavailable — cloud is disabled (set PIPELINE_ALLOW_CLOUD=1)`
-          missingModels.push(reason)
-        }
-      }
-      if (missingModels.length > 0) {
-        res.status(400).json({ error: "unavailable models in preset:", details: missingModels })
-        return
-      }
-
+      const downgraded = downgradeModels(personas)
       const meta = await room.applyPreset(personas)
-      res.json({ ok: true, conversation: meta })
+      res.json({ ok: true, conversation: meta, downgraded })
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
       res.status(msg.includes("unknown") ? 404 : 409).json({ error: msg })

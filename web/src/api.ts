@@ -238,12 +238,12 @@ export const api = {
 
   loadPreset: (name: string) =>
     fetch(`${API_BASE}/api/presets/${name}/load`, { method: "POST" }).then((r) =>
-      json<{ ok: boolean; conversation: ConversationMeta }>(r),
+      json<{ ok: boolean; conversation: ConversationMeta; downgraded?: Array<{ agent: string; model: string }> }>(r),
     ),
 
   applyPreset: (name: string) =>
     fetch(`${API_BASE}/api/presets/${name}/apply`, { method: "POST" }).then((r) =>
-      json<{ ok: boolean; conversation: ConversationMeta }>(r),
+      json<{ ok: boolean; conversation: ConversationMeta; downgraded?: Array<{ agent: string; model: string }> }>(r),
     ),
 
   // ── Providers (process-global) ──────────────────────────────────────────
