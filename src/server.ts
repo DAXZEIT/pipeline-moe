@@ -272,7 +272,7 @@ async function main(): Promise<void> {
   // Preset loads downgrade unavailable models (stale cloud id, swapped local
   // quant…) to the process default instead of blocking the whole load.
   const downgradeModels = (personas: Array<{ name: string; model?: string }>) =>
-    downgradeUnavailableModels(personas, (m) => isAllowedModel(resolved, m, explicitlyEnabledProviders))
+    downgradeUnavailableModels(personas, (m) => registry.isAllowedModel(m))
 
   // Shared room-provisioning path used by both the POST /api/rooms route and the
   // sub-room orchestrator (spawn_room tool). Single source of truth so the two
@@ -415,7 +415,7 @@ async function main(): Promise<void> {
     const name = n === 1 ? tpl.name : `${tpl.name} ${n}`
 
     const clone: Persona = { ...tpl, id, name }
-    if (clone.model && !isAllowedModel(resolved, clone.model, explicitlyEnabledProviders)) {
+    if (clone.model && !reg.isAllowedModel(clone.model)) {
       clone.model = undefined
     }
     await reg.create(clone)
@@ -653,8 +653,8 @@ async function main(): Promise<void> {
   // Models offered for per-agent selection (local-only unless PIPELINE_ALLOW_CLOUD,
   // or the provider has been explicitly enabled by the user via /api/providers).
   app.get("/api/models", (_req, res) => {
-    const models = listModels(resolved, explicitlyEnabledProviders)
-    res.json({ models, allowCloud: config.allowCloud })
+    const models = listModels(resolved, room.getAllowCloud(), explicitlyEnabledProviders)
+    res.json({ models, allowCloud: room.getAllowCloud() })
   })
 
   // ── Providers ──────────────────────────────────────────────────────────────
@@ -922,13 +922,13 @@ async function main(): Promise<void> {
       const mv = body.model
       if (mv === null || mv === "") {
         patch.model = undefined // reset to the process default model
-      } else if (typeof mv === "string" && isAllowedModel(resolved, mv, explicitlyEnabledProviders)) {
+      } else if (typeof mv === "string" && registry.isAllowedModel(mv)) {
         patch.model = mv
       } else {
         res.status(400).json({
-          error: config.allowCloud
+          error: room.getAllowCloud()
             ? `unknown model "${String(mv)}"`
-            : `model "${String(mv)}" unavailable — cloud is disabled (set PIPELINE_ALLOW_CLOUD=1 to enable)`,
+            : `model "${String(mv)}" unavailable — cloud is disabled (toggle in Settings)`,
         })
         return
       }
@@ -1042,6 +1042,11 @@ async function main(): Promise<void> {
     defaultAgent: r.getDefaultAgent(),
     fallbackAgent: r.getFallbackAgent(),
     maxChainHops: r.getMaxChainHops(),
+    circuitBreaker: r.getCircuitBreaker(),
+    defaultThinkingLevel: r.getDefaultThinkingLevel(),
+    allowCloud: r.getAllowCloud(),
+    compactionReserveTokens: r.getCompactionReserveTokens(),
+    maxRooms: config.maxRooms,
     pendingRoute: r.getPendingRoute(),
   })
 
@@ -1106,6 +1111,36 @@ async function main(): Promise<void> {
         return
       }
       room.setRoutingMode(m)
+    }
+    if ("circuitBreaker" in body) {
+      if (typeof body.circuitBreaker !== "boolean") {
+        res.status(400).json({ error: "`circuitBreaker` must be a boolean" })
+        return
+      }
+      room.setCircuitBreaker(body.circuitBreaker)
+    }
+    if ("defaultThinkingLevel" in body) {
+      const validLevels = ["off", "minimal", "low", "medium", "high", "xhigh"]
+      if (!validLevels.includes(body.defaultThinkingLevel)) {
+        res.status(400).json({ error: "`defaultThinkingLevel` must be one of: " + validLevels.join(", ") })
+        return
+      }
+      room.setDefaultThinkingLevel(body.defaultThinkingLevel)
+    }
+    if ("allowCloud" in body) {
+      if (typeof body.allowCloud !== "boolean") {
+        res.status(400).json({ error: "`allowCloud` must be a boolean" })
+        return
+      }
+      room.setAllowCloud(body.allowCloud)
+    }
+    if ("compactionReserveTokens" in body) {
+      const v = Number(body.compactionReserveTokens)
+      if (!Number.isFinite(v) || v < 5000 || v > 100000) {
+        res.status(400).json({ error: "`compactionReserveTokens` must be an integer between 5000 and 100000" })
+        return
+      }
+      room.setCompactionReserveTokens(v)
     }
     res.json(settingsPayload(room))
   })
@@ -1439,13 +1474,13 @@ async function main(): Promise<void> {
       const mv = body.model
       if (mv === null || mv === "") {
         patch.model = undefined
-      } else if (typeof mv === "string" && isAllowedModel(resolved, mv, explicitlyEnabledProviders)) {
+      } else if (typeof mv === "string" && reg.isAllowedModel(mv)) {
         patch.model = mv
       } else {
         res.status(400).json({
-          error: config.allowCloud
+          error: r.getAllowCloud()
             ? `unknown model "${String(mv)}"`
-            : `model "${String(mv)}" unavailable — cloud is disabled (set PIPELINE_ALLOW_CLOUD=1 to enable)`,
+            : `model "${String(mv)}" unavailable — cloud is disabled (toggle in Settings)`,
         })
         return
       }
@@ -1557,6 +1592,36 @@ async function main(): Promise<void> {
         return
       }
       r.setRoutingMode(m)
+    }
+    if ("circuitBreaker" in body) {
+      if (typeof body.circuitBreaker !== "boolean") {
+        res.status(400).json({ error: "`circuitBreaker` must be a boolean" })
+        return
+      }
+      r.setCircuitBreaker(body.circuitBreaker)
+    }
+    if ("defaultThinkingLevel" in body) {
+      const validLevels = ["off", "minimal", "low", "medium", "high", "xhigh"]
+      if (!validLevels.includes(body.defaultThinkingLevel)) {
+        res.status(400).json({ error: "`defaultThinkingLevel` must be one of: " + validLevels.join(", ") })
+        return
+      }
+      r.setDefaultThinkingLevel(body.defaultThinkingLevel)
+    }
+    if ("allowCloud" in body) {
+      if (typeof body.allowCloud !== "boolean") {
+        res.status(400).json({ error: "`allowCloud` must be a boolean" })
+        return
+      }
+      r.setAllowCloud(body.allowCloud)
+    }
+    if ("compactionReserveTokens" in body) {
+      const v = Number(body.compactionReserveTokens)
+      if (!Number.isFinite(v) || v < 5000 || v > 100000) {
+        res.status(400).json({ error: "`compactionReserveTokens` must be an integer between 5000 and 100000" })
+        return
+      }
+      r.setCompactionReserveTokens(v)
     }
     res.json(settingsPayload(r))
   })

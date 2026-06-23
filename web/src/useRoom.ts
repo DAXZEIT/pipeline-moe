@@ -48,8 +48,14 @@ export function useRoom(roomId?: string) {
   const [chaining, setChainingState] = useState(true)
   const [routingMode, setRoutingModeState] = useState<RoutingMode>("auto")
   const [defaultAgent, setDefaultAgentState] = useState<string | null>(null)
+  const [fallbackAgent, setFallbackAgentState] = useState<string | null>(null)
   const [maxChainHops, setMaxChainHopsState] = useState(30)
+  const [circuitBreaker, setCircuitBreakerState] = useState(true)
+  const [defaultThinkingLevel, setDefaultThinkingLevelState] = useState<"off" | "minimal" | "low" | "medium" | "high" | "xhigh">("medium")
+  const [allowCloud, setAllowCloudState] = useState(false)
+  const [compactionReserveTokens, setCompactionReserveTokensState] = useState(38000)
   const [pendingRoute, setPendingRoute] = useState<RouteProposal[] | null>(null)
+  const [maxRooms, setMaxRoomsState] = useState(8)
   const [conversations, setConversations] = useState<ConversationMeta[]>([])
   const [currentConversationId, setCurrentConversationId] = useState<string>("")
   const [providers, setProviders] = useState<ProviderInfo[]>([])
@@ -91,7 +97,13 @@ export function useRoom(roomId?: string) {
       setChainingState(s.chaining)
       setRoutingModeState(s.routingMode)
       setDefaultAgentState(s.defaultAgent)
+      if (s.fallbackAgent !== undefined) setFallbackAgentState(s.fallbackAgent)
       if (s.maxChainHops !== undefined) setMaxChainHopsState(s.maxChainHops)
+      if (s.circuitBreaker !== undefined) setCircuitBreakerState(s.circuitBreaker)
+      if (s.defaultThinkingLevel !== undefined) setDefaultThinkingLevelState(s.defaultThinkingLevel)
+      if (s.allowCloud !== undefined) setAllowCloudState(s.allowCloud)
+      if (s.compactionReserveTokens !== undefined) setCompactionReserveTokensState(s.compactionReserveTokens)
+      if (s.maxRooms !== undefined) setMaxRoomsState(s.maxRooms)
       setPendingRoute(s.pendingRoute ? s.pendingRoute.proposals : null)
     }).catch(() => {})
     rApi.conversations().then((c) => {
@@ -222,11 +234,16 @@ export function useRoom(roomId?: string) {
     })
 
     es.addEventListener("settings", (e) => {
-      const { chaining: c, routingMode: rm, defaultAgent: d, maxChainHops: m } = JSON.parse((e as MessageEvent).data)
+      const { chaining: c, routingMode: rm, defaultAgent: d, fallbackAgent: fa, maxChainHops: m, circuitBreaker: cb, defaultThinkingLevel: dtl, allowCloud: ac, compactionReserveTokens: srt } = JSON.parse((e as MessageEvent).data)
       setChainingState(c)
       if (rm !== undefined) setRoutingModeState(rm)
       if (d !== undefined) setDefaultAgentState(d)
+      if (fa !== undefined) setFallbackAgentState(fa)
       if (m !== undefined) setMaxChainHopsState(m)
+      if (cb !== undefined) setCircuitBreakerState(cb)
+      if (dtl !== undefined) setDefaultThinkingLevelState(dtl)
+      if (ac !== undefined) setAllowCloudState(ac)
+      if (srt !== undefined) setCompactionReserveTokensState(srt)
     })
 
     es.addEventListener("routing", (e) => {
@@ -428,6 +445,42 @@ export function useRoom(roomId?: string) {
     [pushNotice, rApi],
   )
 
+  const setCircuitBreaker = useCallback(
+    (value: boolean) => {
+      rApi.setCircuitBreaker(value).then((s) => setCircuitBreakerState(s.circuitBreaker)).catch((err) =>
+        pushNotice(String(err.message ?? err), "error"),
+      )
+    },
+    [pushNotice, rApi],
+  )
+
+  const setDefaultThinkingLevel = useCallback(
+    (level: "off" | "minimal" | "low" | "medium" | "high" | "xhigh") => {
+      rApi.setDefaultThinkingLevel(level).then((s) => setDefaultThinkingLevelState(s.defaultThinkingLevel)).catch((err) =>
+        pushNotice(String(err.message ?? err), "error"),
+      )
+    },
+    [pushNotice, rApi],
+  )
+
+  const setAllowCloud = useCallback(
+    (value: boolean) => {
+      rApi.setAllowCloud(value).then((s) => setAllowCloudState(s.allowCloud)).catch((err) =>
+        pushNotice(String(err.message ?? err), "error"),
+      )
+    },
+    [pushNotice, rApi],
+  )
+
+  const setCompactionReserveTokens = useCallback(
+    (value: number) => {
+      rApi.setCompactionReserveTokens(value).then((s) => setCompactionReserveTokensState(s.compactionReserveTokens)).catch((err) =>
+        pushNotice(String(err.message ?? err), "error"),
+      )
+    },
+    [pushNotice, rApi],
+  )
+
   const resolveRoute = useCallback(
     (decision: RouteDecision) => {
       setPendingRoute(null) // optimistic — the card disappears immediately
@@ -439,6 +492,15 @@ export function useRoom(roomId?: string) {
   const setDefaultAgent = useCallback(
     (id: string | null) => {
       rApi.setDefaultAgent(id).then((s) => setDefaultAgentState(s.defaultAgent)).catch((err) =>
+        pushNotice(String(err.message ?? err), "error"),
+      )
+    },
+    [pushNotice, rApi],
+  )
+
+  const setFallbackAgent = useCallback(
+    (id: string | null) => {
+      rApi.setFallbackAgent(id).then((s) => setFallbackAgentState(s.fallbackAgent ?? null)).catch((err) =>
         pushNotice(String(err.message ?? err), "error"),
       )
     },
@@ -536,8 +598,14 @@ export function useRoom(roomId?: string) {
     chaining,
     routingMode,
     defaultAgent,
+    fallbackAgent,
     maxChainHops,
+    circuitBreaker,
+    defaultThinkingLevel,
+    allowCloud,
+    compactionReserveTokens,
     pendingRoute,
+    maxRooms,
     conversations,
     currentConversationId,
     providers,
@@ -564,7 +632,12 @@ export function useRoom(roomId?: string) {
     setRoutingMode,
     resolveRoute,
     setDefaultAgent,
+    setFallbackAgent,
     setMaxChainHops,
+    setCircuitBreaker,
+    setDefaultThinkingLevel,
+    setAllowCloud,
+    setCompactionReserveTokens,
     newConversation,
     loadConversation,
     renameConversation,

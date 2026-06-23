@@ -175,6 +175,13 @@ export function makeRoomApi(prefix: string) {
         body: JSON.stringify({ defaultAgent }),
       }).then((r) => json<RoomSettings>(r)),
 
+    setFallbackAgent: (fallbackAgent: string | null) =>
+      fetch(`${base}/settings`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ fallbackAgent }),
+      }).then((r) => json<RoomSettings>(r)),
+
     setMaxChainHops: (maxChainHops: number) =>
       fetch(`${base}/settings`, {
         method: "PATCH",
@@ -187,6 +194,34 @@ export function makeRoomApi(prefix: string) {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ routingMode }),
+      }).then((r) => json<RoomSettings>(r)),
+
+    setCircuitBreaker: (circuitBreaker: boolean) =>
+      fetch(`${base}/settings`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ circuitBreaker }),
+      }).then((r) => json<RoomSettings>(r)),
+
+    setDefaultThinkingLevel: (defaultThinkingLevel: "off" | "minimal" | "low" | "medium" | "high" | "xhigh") =>
+      fetch(`${base}/settings`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ defaultThinkingLevel }),
+      }).then((r) => json<RoomSettings>(r)),
+
+    setAllowCloud: (allowCloud: boolean) =>
+      fetch(`${base}/settings`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ allowCloud }),
+      }).then((r) => json<RoomSettings>(r)),
+
+    setCompactionReserveTokens: (compactionReserveTokens: number) =>
+      fetch(`${base}/settings`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ compactionReserveTokens }),
       }).then((r) => json<RoomSettings>(r)),
 
     resolveRoute: (decision: RouteDecision) =>

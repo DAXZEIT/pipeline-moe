@@ -11,6 +11,14 @@ cd "$(dirname "$0")"
 
 LLAMA_SCRIPT="/home/dax/AI/launch_llama_server_Qwopusctx.sh"
 
+# Allow cloud providers (Anthropic, DeepSeek…) whose API keys are already stored
+# in auth.json to be usable without re-enabling them in the UI after every restart.
+# Without this, presets that reference cloud models fail to load on a fresh boot:
+# the credentials persist but the in-memory "enabled" flag resets each restart.
+# Exported here so the backend (and its tsx child) inherit it; a shell env var
+# takes precedence over .env, so this wins regardless of what .env says.
+export PIPELINE_ALLOW_CLOUD=1
+
 # ── Colors ───────────────────────────────────────────────────────────────────
 RED='\033[0;31m'   GREEN='\033[0;32m'   AMBER='\033[0;33m'
 BLUE='\033[0;34m'  DIM='\033[0;90m'     RESET='\033[0m'

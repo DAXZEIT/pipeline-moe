@@ -33,14 +33,14 @@ describe("listModels basic behavior", () => {
   afterEach(async () => { await teardown(); await setup() })
 
   test("returns an array of ModelInfo objects", () => {
-    const models = listModels(resolved)
+    const models = listModels(resolved, false)
     expect(Array.isArray(models)).toBe(true)
     // May be empty if no providers have auth configured in the test env
     // (getAvailable() only returns models with configured credentials)
   })
 
   test("each model has the expected shape", () => {
-    const models = listModels(resolved)
+    const models = listModels(resolved, false)
     for (const m of models) {
       expect(m.provider).toBeDefined()
       expect(m.id).toBeDefined()
@@ -51,7 +51,7 @@ describe("listModels basic behavior", () => {
   })
 
   test("local provider models are marked local: true", () => {
-    const models = listModels(resolved)
+    const models = listModels(resolved, false)
     const localModels = models.filter((m) => m.local)
     for (const m of localModels) {
       expect(m.provider).toBe("local")
@@ -59,14 +59,14 @@ describe("listModels basic behavior", () => {
   })
 
   test("listModels returns models from getAvailable", () => {
-    const models = listModels(resolved)
+    const models = listModels(resolved, false)
     const available = resolved.modelRegistry.getAvailable()
     // listModels is a view over getAvailable — length should be <= available
     expect(models.length).toBeLessThanOrEqual(available.length)
   })
 
   test("all returned models have correct shape", () => {
-    const models = listModels(resolved)
+    const models = listModels(resolved, false)
     for (const m of models) {
       expect(typeof m.provider).toBe("string")
       expect(typeof m.id).toBe("string")
@@ -85,20 +85,20 @@ describe("isAllowedModel basic behavior", () => {
   afterEach(async () => { await teardown(); await setup() })
 
   test("returns true for a model that exists in listModels", () => {
-    const models = listModels(resolved)
+    const models = listModels(resolved, false)
     if (models.length > 0) {
-      const allowed = isAllowedModel(resolved, models[0].ref)
+      const allowed = isAllowedModel(resolved, false, models[0].ref)
       expect(allowed).toBe(true)
     }
   })
 
   test("returns false for a non-existent model ref", () => {
-    const allowed = isAllowedModel(resolved, "nonexistent/fake-model-123")
+    const allowed = isAllowedModel(resolved, false, "nonexistent/fake-model-123")
     expect(allowed).toBe(false)
   })
 
   test("returns false for an empty ref", () => {
-    const allowed = isAllowedModel(resolved, "")
+    const allowed = isAllowedModel(resolved, false, "")
     expect(allowed).toBe(false)
   })
 })
@@ -145,16 +145,16 @@ describe("explicitly-enabled providers set mechanics", () => {
   test("listModels accepts the explicitly-enabled set", () => {
     const explicit = new Set<string>(["anthropic"])
     // Should not throw
-    const models = listModels(resolved, explicit)
+    const models = listModels(resolved, false, explicit)
     expect(Array.isArray(models)).toBe(true)
   })
 
   test("isAllowedModel accepts the explicitly-enabled set", () => {
     const explicit = new Set<string>(["anthropic"])
     // Should not throw
-    const models = listModels(resolved, explicit)
+    const models = listModels(resolved, false, explicit)
     if (models.length > 0) {
-      const allowed = isAllowedModel(resolved, models[0].ref, explicit)
+      const allowed = isAllowedModel(resolved, false, models[0].ref, explicit)
       expect(typeof allowed).toBe("boolean")
     }
   })

@@ -145,6 +145,11 @@ export interface RoomSettings {
   defaultAgent: string | null
   fallbackAgent?: string | null
   maxChainHops: number
+  circuitBreaker: boolean
+  defaultThinkingLevel: "off" | "minimal" | "low" | "medium" | "high" | "xhigh"
+  allowCloud: boolean
+  compactionReserveTokens: number
+  maxRooms: number
   pendingRoute: { proposals: RouteProposal[] } | null
 }
 

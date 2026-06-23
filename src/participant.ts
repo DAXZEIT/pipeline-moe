@@ -56,9 +56,8 @@ const ROOM_NOTE =
   "genuinely need it. Do not @-mention yourself, and do not use @all (that is for the human).\n" +
   "You can refer to other agents by name in discussion (e.g. 'the builder said...') without " +
   "triggering a handoff — only the @prefix routes work.\n" +
-  "When handing off work to another agent, place the @mention in your final paragraph — " +
-  "this is where the routing system looks. Mentions earlier in your response are treated " +
-  "as discussion, not routing. Example: 'I've finished the analysis. @builder please implement " +
+  "When handing off work to another agent, @-mention them in your reply — " +
+  "any @mention triggers routing. Example: 'I've finished the analysis. @builder please implement " +
   "the fix above.'\n" +
   "If you need information only the user can provide (preferences, credentials, context), " +
   "use the ask_user tool — it will pause the pipeline and wait for their response. Do NOT " +
@@ -111,6 +110,9 @@ export class Participant {
     emit: Emit,
     workspaceDir: string = config.workspaceDir,
     orchestrator?: RoomOrchestrator,
+    defaultThinkingLevel: "off" | "minimal" | "low" | "medium" | "high" | "xhigh" = config.thinkingLevel,
+    allowCloud: boolean = config.allowCloud,
+    compactionReserveTokens: number = 38000,
   ): Promise<Participant> {
     const p = new Participant(persona, emit, workspaceDir)
 
@@ -143,12 +145,12 @@ export class Participant {
     await loader.reload()
 
     // Each persona may pin its own model ("provider/id"); undefined → default.
-    const model = resolveModelRef(resolved, persona.model)
+    const model = resolveModelRef(resolved, allowCloud, persona.model)
 
     // Auto-compaction: trigger when context exceeds 90K tokens.
     // reserveTokens = contextWindow - threshold. For 128K ctx: 128000 - 90000 = 38000.
     const settings = SettingsManager.inMemory({
-      compaction: { enabled: true, reserveTokens: 38000 },
+      compaction: { enabled: true, reserveTokens: compactionReserveTokens },
     })
 
     const { session } = await createAgentSession({
@@ -162,7 +164,7 @@ export class Participant {
         console.log(`[Participant.create] persona=${persona.id} orchestrator=${!!orchestrator} confined=${confined.length} custom=${custom.length} customNames=${custom.map(t => t.name).join(",")}`)
         return [...confined, ...custom]
       })(),
-      thinkingLevel: persona.thinkingLevel ?? config.thinkingLevel,
+      thinkingLevel: persona.thinkingLevel ?? defaultThinkingLevel,
       resourceLoader: loader,
       sessionManager: SessionManager.inMemory(workspaceDir),
       settingsManager: settings,

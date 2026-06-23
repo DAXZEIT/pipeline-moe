@@ -139,8 +139,9 @@ export class Room {
     /** Optional process-global lock for serializing local-model inference across rooms. */
     private readonly localLock?: LocalModelLock,
     /** Whether the repetition/tool-loop circuit breaker is active. Defaults to
-     *  config.circuitBreaker (ON). Disabled for cloud models that legitimately repeat. */
-    private readonly circuitBreakerEnabled: boolean = config.circuitBreaker,
+     *  config.circuitBreaker (ON). Disabled for cloud models that legitimately repeat.
+     *  Mutable — can be toggled per-room via the Settings panel. */
+    private circuitBreakerEnabled: boolean = config.circuitBreaker,
     /** Directory this room is scoped to: where file tools are confined, bash runs,
      *  work receipts snapshot, and the workspace listing looks. Defaults to the
      *  pipeline workspace. */
@@ -151,6 +152,21 @@ export class Room {
      *  for remote rooms. */
     private readonly remote: boolean = false,
   ) {}
+
+  /** Default thinking level for agents without a per-agent override.
+   *  Mutable — can be changed per-room via the Settings panel.
+   *  Propagated to the Registry so new participants use it. */
+  private defaultThinkingLevel: "off" | "minimal" | "low" | "medium" | "high" | "xhigh" = config.thinkingLevel
+
+  /** Whether cloud models are allowed in this room. Mutable — can be toggled
+   *  per-room via the Settings panel. Propagated to the Registry so new
+   *  participants use the room's policy. */
+  private allowCloud: boolean = config.allowCloud
+
+  /** Reserve tokens for auto-compaction. Mutable — can be changed per-room via
+   *  the Settings panel. Propagated to the Registry so new participants use
+   *  the room's value. */
+  private compactionReserveTokens: number = 38000
 
   /** Broadcast wrapper: tags object payloads with roomId; arrays pass through unmodified. */
   private emit(event: SseEventName, data: unknown): void {
@@ -277,8 +293,72 @@ export class Room {
     void this.saveCurrent()
   }
 
+  // ── Circuit breaker toggle ──────────────────────────────────────────────────
+
+  getCircuitBreaker(): boolean {
+    return this.circuitBreakerEnabled
+  }
+
+  setCircuitBreaker(enabled: boolean): void {
+    this.circuitBreakerEnabled = enabled
+    this.broadcastSettings()
+    void this.saveCurrent()
+  }
+
+  // ── Default thinking level ──────────────────────────────────────────────────
+
+  getDefaultThinkingLevel(): "off" | "minimal" | "low" | "medium" | "high" | "xhigh" {
+    return this.defaultThinkingLevel
+  }
+
+  setDefaultThinkingLevel(level: "off" | "minimal" | "low" | "medium" | "high" | "xhigh"): void {
+    this.defaultThinkingLevel = level
+    // Propagate to registry so new participants use the updated default.
+    this.registry.setDefaultThinkingLevel(level)
+    this.broadcastSettings()
+    void this.saveCurrent()
+  }
+
+  // ── Allow cloud toggle ─────────────────────────────────────────────────────
+
+  getAllowCloud(): boolean {
+    return this.allowCloud
+  }
+
+  setAllowCloud(value: boolean): void {
+    this.allowCloud = value
+    // Propagate to registry so new participants use the updated policy.
+    this.registry.setAllowCloud(value)
+    this.broadcastSettings()
+    void this.saveCurrent()
+  }
+
+  // ── Compaction reserve tokens ────────────────────────────────────────────
+
+  getCompactionReserveTokens(): number {
+    return this.compactionReserveTokens
+  }
+
+  setCompactionReserveTokens(value: number): void {
+    this.compactionReserveTokens = Math.max(5000, Math.min(100000, Math.round(value)))
+    // Propagate to registry so new participants use the updated value.
+    this.registry.setCompactionReserveTokens(this.compactionReserveTokens)
+    this.broadcastSettings()
+    void this.saveCurrent()
+  }
+
   private broadcastSettings(): void {
-    this.emit("settings", { chaining: this.chaining, routingMode: this.routingMode, defaultAgent: this.defaultAgentId, fallbackAgent: this.fallbackAgentId, maxChainHops: this.maxChainHops })
+    this.emit("settings", {
+      chaining: this.chaining,
+      routingMode: this.routingMode,
+      defaultAgent: this.defaultAgentId,
+      fallbackAgent: this.fallbackAgentId,
+      maxChainHops: this.maxChainHops,
+      circuitBreaker: this.circuitBreakerEnabled,
+      defaultThinkingLevel: this.defaultThinkingLevel,
+      allowCloud: this.allowCloud,
+      compactionReserveTokens: this.compactionReserveTokens,
+    })
   }
 
   // ── Conversation lifecycle ──────────────────────────────────────────────────
@@ -310,6 +390,10 @@ export class Room {
       routingMode: this.routingMode,
       defaultAgent: this.defaultAgentId,
       fallbackAgent: this.fallbackAgentId,
+      circuitBreaker: this.circuitBreakerEnabled,
+      defaultThinkingLevel: this.defaultThinkingLevel,
+      allowCloud: this.allowCloud,
+      compactionReserveTokens: this.compactionReserveTokens,
       personas: this.registry.personaStates(),
       transcript: this.transcript,
     }
@@ -378,6 +462,19 @@ export class Room {
     this.routingMode = conv.routingMode ?? (conv.chaining ? "auto" : "manual")
     this.defaultAgentId = conv.defaultAgent ?? null
     this.fallbackAgentId = conv.fallbackAgent ?? "planner"
+    // Back-compat: older saves don't have these fields — fall back to config defaults.
+    this.circuitBreakerEnabled = conv.circuitBreaker ?? config.circuitBreaker
+    if (conv.defaultThinkingLevel) {
+      const level = conv.defaultThinkingLevel as "off" | "minimal" | "low" | "medium" | "high" | "xhigh"
+      this.defaultThinkingLevel = level
+      this.registry.setDefaultThinkingLevel(level)
+    }
+    // Back-compat: older saves don't have allowCloud — fall back to config default.
+    this.allowCloud = conv.allowCloud ?? config.allowCloud
+    this.registry.setAllowCloud(this.allowCloud)
+    // Back-compat: older saves don't have compactionReserveTokens — fall back to 38000.
+    this.compactionReserveTokens = conv.compactionReserveTokens ?? 38000
+    this.registry.setCompactionReserveTokens(this.compactionReserveTokens)
 
     // Guard against a corrupt save with an empty roster (e.g. a botched
     // out-of-band edit / mid-turn restart). An empty roster would brick the UI
@@ -731,18 +828,12 @@ export class Room {
   }
 
   /** Resolve @mentions emitted BY an agent. No @all (human-only), never the
-   *  speaker itself, active participants only. Only parses the last paragraph —
-   *  mid-text references like "as @builder mentioned" don't trigger chains.
+   *  speaker itself, active participants only. Scans the full reply text.
    *  No budget / anti-rebound for now. */
   private resolveAgentMentions(text: string, selfId: string): Participant[] {
-    // Only parse @mentions from the last paragraph — prevents casual
-    // mid-text references from triggering unintended chains.
-    const paragraphs = text.split(/\n\n/)
-    const tail = paragraphs.slice(-1)[0]
-
     const mentioned = new Set<string>()
     let m: RegExpExecArray | null
-    while ((m = MENTION_RE.exec(tail)) !== null) mentioned.add(m[1].toLowerCase())
+    while ((m = MENTION_RE.exec(text)) !== null) mentioned.add(m[1].toLowerCase())
     mentioned.delete("all") // agents cannot fan out to everyone
     mentioned.delete(selfId) // no self-invocation
 
@@ -932,7 +1023,7 @@ export class Room {
       await fb.sendCustomMessage(
         {
           customType: "circuit_breaker_recovery",
-          content: `(Circuit breaker tripped on @${this.circuitBreakerAgentId} — it looped. Take over: assess the situation, assign work to another agent by @-mentioning them in your last paragraph, or declare the work done if appropriate. Do not attempt the same action that caused the loop.)`,
+          content: `(Circuit breaker tripped on @${this.circuitBreakerAgentId} — it looped. Take over: assess the situation, assign work to another agent by @-mentioning them, or declare the work done if appropriate. Do not attempt the same action that caused the loop.)`,
           display: false,
         },
         { deliverAs: "nextTurn" },
@@ -1393,7 +1484,7 @@ export class Room {
         await fb.sendCustomMessage(
           {
             customType: "routing_fallback",
-            content: `(Routing fallback: @${fromId} finished without handing off. Based on the conversation state, decide who should go next — @-mention them in your last paragraph. If the work is complete, say so without mentioning anyone.)`,
+            content: `(Routing fallback: @${fromId} finished without handing off. Based on the conversation state, decide who should go next — @-mention them in your reply. If the work is complete, say so without mentioning anyone.)`,
             display: false,
           },
           { deliverAs: "nextTurn" },

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react"
+
 import { Composer } from "./Composer"
 import { ConversationBar } from "./ConversationBar"
 import { RoutingApproval } from "./RoutingApproval"
@@ -45,18 +45,6 @@ export function RoomView({
   // which stays mounted for the room's whole lifetime (App keeps all open rooms
   // mounted and toggles visibility), so its SSE + live state survive switches.
   const room = useRoom(roomId)
-
-  // Local draft for the hops field so typing doesn't fight the async server
-  // round-trip; applied explicitly on Enter / blur / the ✓ button.
-  const [hopsDraft, setHopsDraft] = useState(String(room.maxChainHops))
-  useEffect(() => { setHopsDraft(String(room.maxChainHops)) }, [room.maxChainHops])
-  const applyHops = () => {
-    const parsed = parseInt(hopsDraft, 10)
-    const n = Math.max(1, Math.min(100, Number.isFinite(parsed) ? parsed : room.maxChainHops))
-    setHopsDraft(String(n))
-    if (n !== room.maxChainHops) room.setMaxChainHops(n)
-  }
-  const hopsDirty = hopsDraft.trim() !== "" && Number(hopsDraft) !== room.maxChainHops
 
   return (
     <>
@@ -131,30 +119,7 @@ export function RoomView({
               </button>
             ))}
           </div>
-          {room.routingMode !== "manual" && (
-            <label className="chain-hops" title="Max chain hops per turn (1–100). Enter or ✓ to apply.">
-              hops
-              <input
-                type="number"
-                min={1}
-                max={100}
-                value={hopsDraft}
-                onChange={(e) => setHopsDraft(e.target.value)}
-                onBlur={applyHops}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    applyHops()
-                    ;(e.target as HTMLInputElement).blur()
-                  }
-                }}
-              />
-              {hopsDirty && (
-                <button type="button" className="hops-apply" title="Apply hops" onMouseDown={(e) => e.preventDefault()} onClick={applyHops}>
-                  ✓
-                </button>
-              )}
-            </label>
-          )}
+
           </div>
         </header>
         <Transcript
@@ -191,6 +156,22 @@ export function RoomView({
         turnActive={room.turnActive}
         onLoadPreset={room.loadPreset}
         onApplyPreset={room.applyPreset}
+        roster={room.roster}
+        defaultAgent={room.defaultAgent}
+        fallbackAgent={room.fallbackAgent}
+        circuitBreaker={room.circuitBreaker}
+        defaultThinkingLevel={room.defaultThinkingLevel}
+        allowCloud={room.allowCloud}
+        compactionReserveTokens={room.compactionReserveTokens}
+        maxChainHops={room.maxChainHops}
+        maxRooms={room.maxRooms}
+        onSetDefaultAgent={room.setDefaultAgent}
+        onSetFallbackAgent={room.setFallbackAgent}
+        onSetCircuitBreaker={room.setCircuitBreaker}
+        onSetDefaultThinkingLevel={room.setDefaultThinkingLevel}
+        onSetAllowCloud={room.setAllowCloud}
+        onSetCompactionReserveTokens={room.setCompactionReserveTokens}
+        onSetMaxChainHops={room.setMaxChainHops}
       />
 
       <div className="notices">

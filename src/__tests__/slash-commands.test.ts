@@ -131,6 +131,16 @@ class MockRegistry {
     return this._allowedModels.includes(ref)
   }
 
+  setAllowCloud(_value: boolean) {}
+  getAllowCloud(): boolean {
+    return false
+  }
+
+  setCompactionReserveTokens(_value: number) {}
+  getCompactionReserveTokens(): number {
+    return 38000
+  }
+
   addParticipant(p: MockParticipant) {
     this.participants.set(p.persona.id, p)
   }

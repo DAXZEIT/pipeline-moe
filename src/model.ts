@@ -69,13 +69,13 @@ function splitRef(ref: string): { provider: string; id: string } {
 }
 
 /** Models offered for per-agent selection: those with auth configured, filtered
- *  to local unless cloud is explicitly allowed (PIPELINE_ALLOW_CLOUD), or the
- *  provider has been explicitly enabled by the user via /api/providers. */
-export function listModels(resolved: ResolvedModel, explicitlyEnabled?: Set<string>): ModelInfo[] {
+ *  to local unless cloud is explicitly allowed, or the provider has been
+ *  explicitly enabled by the user via /api/providers. */
+export function listModels(resolved: ResolvedModel, allowCloud: boolean, explicitlyEnabled?: Set<string>): ModelInfo[] {
   return resolved.modelRegistry
     .getAvailable()
     .filter((m) =>
-      config.allowCloud || m.provider === "local" || (explicitlyEnabled?.has(m.provider) ?? false),
+      allowCloud || m.provider === "local" || (explicitlyEnabled?.has(m.provider) ?? false),
     )
     .map((m) => ({
       provider: m.provider,
@@ -87,8 +87,8 @@ export function listModels(resolved: ResolvedModel, explicitlyEnabled?: Set<stri
 }
 
 /** True if a "provider/id" ref is a model the UI is allowed to assign. */
-export function isAllowedModel(resolved: ResolvedModel, ref: string, explicitlyEnabled?: Set<string>): boolean {
-  return listModels(resolved, explicitlyEnabled).some((m) => m.ref === ref)
+export function isAllowedModel(resolved: ResolvedModel, allowCloud: boolean, ref: string, explicitlyEnabled?: Set<string>): boolean {
+  return listModels(resolved, allowCloud, explicitlyEnabled).some((m) => m.ref === ref)
 }
 
 /** Downgrade preset personas whose model isn't currently available to the
@@ -113,12 +113,12 @@ export function downgradeUnavailableModels(
 /** Resolve a persona's "provider/id" ref to a concrete model. Enforces the
  *  local-only policy: a non-local ref (or an unknown one) falls back to the
  *  process default rather than silently reaching the cloud. */
-export function resolveModelRef(resolved: ResolvedModel, ref?: string): ResolvedModel["model"] {
+export function resolveModelRef(resolved: ResolvedModel, allowCloud: boolean, ref?: string): ResolvedModel["model"] {
   if (!ref) return resolved.model
   const { provider, id } = splitRef(ref)
-  if (provider !== "local" && !config.allowCloud) {
+  if (provider !== "local" && !allowCloud) {
     console.warn(
-      `[model] persona model "${ref}" is non-local and PIPELINE_ALLOW_CLOUD is off — using default instead.`,
+      `[model] persona model "${ref}" is non-local and cloud is disabled — using default instead.`,
     )
     return resolved.model
   }

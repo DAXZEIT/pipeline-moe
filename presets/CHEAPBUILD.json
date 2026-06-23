@@ -1,5 +1,5 @@
 {
-  "name": "2106BUILD",
+  "name": "CHEAPBUILD",
   "personas": [
     {
       "id": "planner",
@@ -22,30 +22,7 @@
       ],
       "compactionInstructions": "Preserve all plans created, their steps and status, and architectural decisions. Discard source code reads done only for verification.",
       "thinkingLevel": "high",
-      "model": "anthropic/claude-opus-4-6",
-      "active": true,
-      "parallel": false
-    },
-    {
-      "id": "scout",
-      "name": "Scout",
-      "color": "#5DCAA5",
-      "icon": "🔍",
-      "tools": [
-        "read",
-        "grep",
-        "find",
-        "ls",
-        "web_search",
-        "web_read",
-        "youtube_transcript",
-        "arxiv_search",
-        "youcom_search",
-        "bash"
-      ],
-      "compactionInstructions": "Preserve all discovered file paths, structural observations, and anomalies found. Discard exploratory dead-ends and paths that led nowhere.",
-      "thinkingLevel": "high",
-      "model": "anthropic/claude-sonnet-4-6",
+      "model": "local/Qwopus3.6-27B-v2-MTP-Q4_K_M.gguf",
       "active": true,
       "parallel": false
     },
@@ -64,7 +41,7 @@
         "ls"
       ],
       "compactionInstructions": "Preserve all code changes made, bugs encountered, and architectural decisions. Discard intermediate failed attempts and tool calls that were superseded.",
-      "model": "anthropic/claude-sonnet-4-6",
+      "model": "local/Qwopus3.6-27B-v2-MTP-Q4_K_M.gguf",
       "thinkingLevel": "high",
       "active": true,
       "parallel": false
@@ -87,50 +64,7 @@
       ],
       "compactionInstructions": "Preserve all findings (open and resolved), severity assessments, and verification status. Discard read-only exploration that found no issues.",
       "model": "openrouter/deepseek/deepseek-v4-flash",
-      "active": true,
-      "parallel": false
-    },
-    {
-      "id": "scribe",
-      "name": "Scribe",
-      "color": "#F09975",
-      "icon": "✏️",
-      "tools": [
-        "read",
-        "write",
-        "edit",
-        "grep",
-        "find",
-        "ls",
-        "youtube_transcript",
-        "web_read",
-        "arxiv_search",
-        "youcom_search",
-        "web_search"
-      ],
-      "compactionInstructions": "Preserve all documentation written, memory updates, and knowledge distilled. Discard read-only exploration used only to gather context.",
-      "model": "local/Qwopus3.6-27B-v2-MTP-Q4_K_M.gguf",
       "thinkingLevel": "high",
-      "active": true,
-      "parallel": false
-    },
-    {
-      "id": "tester",
-      "name": "Tester",
-      "color": "#97C459",
-      "icon": "🧪",
-      "tools": [
-        "read",
-        "bash",
-        "grep",
-        "find",
-        "ls",
-        "edit",
-        "write"
-      ],
-      "compactionInstructions": "Preserve all test results, pass/fail counts, and bugs found. Discard intermediate test runs that were superseded by later runs.",
-      "thinkingLevel": "high",
-      "model": "openrouter/deepseek/deepseek-v4-flash",
       "active": true,
       "parallel": false
     },
@@ -155,7 +89,7 @@
       ],
       "compactionInstructions": "Preserve all URLs fetched and their key findings. Discard failed fetch attempts and retry traces.",
       "thinkingLevel": "high",
-      "model": "openrouter/nvidia/nemotron-3-super-120b-a12b:free",
+      "model": "openrouter/deepseek/deepseek-v4-flash",
       "active": true,
       "parallel": false
     }

@@ -52,7 +52,7 @@
         "find",
         "ls"
       ],
-      "model": "local/Qwopus3.6-27B-v2-MTP-Q5_K_M.gguf",
+      "model": "local/Qwopus3.6-27B-v2-MTP-Q4_K_M.gguf",
       "active": true,
       "parallel": false
     },
@@ -104,7 +104,7 @@
         "find",
         "ls"
       ],
-      "model": "local/Qwopus3.6-27B-v2-MTP-Q5_K_M.gguf",
+      "model": "local/Qwopus3.6-27B-v2-MTP-Q4_K_M.gguf",
       "active": true,
       "parallel": false
     },
@@ -122,7 +122,7 @@
         "find",
         "ls"
       ],
-      "model": "local/Qwopus3.6-27B-v2-MTP-Q5_K_M.gguf",
+      "model": "local/Qwopus3.6-27B-v2-MTP-Q4_K_M.gguf",
       "active": true,
       "parallel": false
     },
@@ -139,7 +139,7 @@
         "find",
         "ls"
       ],
-      "model": "local/Qwopus3.6-27B-v2-MTP-Q5_K_M.gguf",
+      "model": "local/Qwopus3.6-27B-v2-MTP-Q4_K_M.gguf",
       "active": true,
       "parallel": false
     }

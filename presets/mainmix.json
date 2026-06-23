@@ -1,5 +1,5 @@
 {
-  "name": "2106BUILD",
+  "name": "mainmix",
   "personas": [
     {
       "id": "planner",
@@ -13,15 +13,10 @@
         "ls",
         "bash",
         "edit",
-        "write",
-        "web_search",
-        "web_read",
-        "youtube_transcript",
-        "youcom_search",
-        "arxiv_search"
+        "write"
       ],
       "compactionInstructions": "Preserve all plans created, their steps and status, and architectural decisions. Discard source code reads done only for verification.",
-      "thinkingLevel": "high",
+      "thinkingLevel": "medium",
       "model": "anthropic/claude-opus-4-6",
       "active": true,
       "parallel": false
@@ -40,12 +35,11 @@
         "web_read",
         "youtube_transcript",
         "arxiv_search",
-        "youcom_search",
-        "bash"
+        "youcom_search"
       ],
       "compactionInstructions": "Preserve all discovered file paths, structural observations, and anomalies found. Discard exploratory dead-ends and paths that led nowhere.",
+      "model": "openrouter/deepseek/deepseek-v4-flash",
       "thinkingLevel": "high",
-      "model": "anthropic/claude-sonnet-4-6",
       "active": true,
       "parallel": false
     },
@@ -64,8 +58,8 @@
         "ls"
       ],
       "compactionInstructions": "Preserve all code changes made, bugs encountered, and architectural decisions. Discard intermediate failed attempts and tool calls that were superseded.",
-      "model": "anthropic/claude-sonnet-4-6",
-      "thinkingLevel": "high",
+      "thinkingLevel": "medium",
+      "model": "anthropic/claude-opus-4-8",
       "active": true,
       "parallel": false
     },
@@ -79,14 +73,10 @@
         "grep",
         "find",
         "ls",
-        "bash",
-        "edit",
-        "write",
-        "web_search",
-        "web_read"
+        "bash"
       ],
       "compactionInstructions": "Preserve all findings (open and resolved), severity assessments, and verification status. Discard read-only exploration that found no issues.",
-      "model": "openrouter/deepseek/deepseek-v4-flash",
+      "model": "anthropic/claude-sonnet-4-6",
       "active": true,
       "parallel": false
     },
@@ -101,16 +91,10 @@
         "edit",
         "grep",
         "find",
-        "ls",
-        "youtube_transcript",
-        "web_read",
-        "arxiv_search",
-        "youcom_search",
-        "web_search"
+        "ls"
       ],
       "compactionInstructions": "Preserve all documentation written, memory updates, and knowledge distilled. Discard read-only exploration used only to gather context.",
       "model": "local/Qwopus3.6-27B-v2-MTP-Q4_K_M.gguf",
-      "thinkingLevel": "high",
       "active": true,
       "parallel": false
     },
@@ -124,13 +108,11 @@
         "bash",
         "grep",
         "find",
-        "ls",
-        "edit",
-        "write"
+        "ls"
       ],
       "compactionInstructions": "Preserve all test results, pass/fail counts, and bugs found. Discard intermediate test runs that were superseded by later runs.",
+      "model": "local/Qwopus3.6-27B-v2-MTP-Q4_K_M.gguf",
       "thinkingLevel": "high",
-      "model": "openrouter/deepseek/deepseek-v4-flash",
       "active": true,
       "parallel": false
     },
@@ -140,22 +122,22 @@
       "color": "#5DADE2",
       "icon": "🌐",
       "tools": [
-        "read",
+        "web_read",
         "bash",
+        "read",
         "write",
         "grep",
         "find",
         "ls",
-        "web_read",
         "web_search",
+        "edit",
         "youtube_transcript",
-        "youcom_search",
         "arxiv_search",
-        "edit"
+        "youcom_search"
       ],
       "compactionInstructions": "Preserve all URLs fetched and their key findings. Discard failed fetch attempts and retry traces.",
       "thinkingLevel": "high",
-      "model": "openrouter/nvidia/nemotron-3-super-120b-a12b:free",
+      "model": "local/Qwopus3.6-27B-v2-MTP-Q4_K_M.gguf",
       "active": true,
       "parallel": false
     }

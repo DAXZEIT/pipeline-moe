@@ -79,10 +79,11 @@
   workspace twice (the before/after work-receipt diff) and re-listed it on each event. For a room
   scoped to a large remote directory (e.g. an entire `/home`), that meant `stat`-ing the full tree
   over the network each time — ~a minute per agent. Remote rooms now skip the full-tree snapshot
-  and workspace listing, so turns run at inference speed like local rooms. Tradeoff: file-change
-  receipts and the live workspace panel are disabled for sshfs rooms (the diff over a huge remote
-  tree wasn't usable anyway); rebuilding receipts from the agent's reported file ops is a possible
-  follow-up.
+  and workspace listing, so turns run at inference speed like local rooms. Only the live workspace
+  file panel stays disabled for sshfs rooms; **work receipts are preserved** — rebuilt from the
+  agent's actually-executed `write`/`edit` tool calls (`receiptFromActivity`), independent of its
+  text claims, so the builder→auditor verification handoff still works. (Files changed as a side
+  effect of `bash` aren't captured this way — the only gap vs the full snapshot diff.)
 - **Editing an agent in a second room edited the main room's agent** — `EditAgent` fetched the
   persona and saved changes through the *global* API (default room), so changing an agent's
   model / prompt / tools while viewing another room hit the wrong room. It now uses the active

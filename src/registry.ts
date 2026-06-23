@@ -47,6 +47,43 @@ export class Registry {
     private readonly orchestrator?: RoomOrchestrator,
   ) {}
 
+  /** Default thinking level for new participants without a per-agent override.
+   *  Mutable — the Room can change it at runtime and existing participants
+   *  keep their current level; only new participants pick up the change. */
+  private defaultThinkingLevel: "off" | "minimal" | "low" | "medium" | "high" | "xhigh" = config.thinkingLevel
+
+  setDefaultThinkingLevel(level: "off" | "minimal" | "low" | "medium" | "high" | "xhigh"): void {
+    this.defaultThinkingLevel = level
+  }
+
+  getDefaultThinkingLevel(): "off" | "minimal" | "low" | "medium" | "high" | "xhigh" {
+    return this.defaultThinkingLevel
+  }
+
+  /** Whether cloud models are allowed in this room. Mutable — the Room can
+   *  change it at runtime; only new participants pick up the change. */
+  private allowCloud: boolean = config.allowCloud
+
+  setAllowCloud(value: boolean): void {
+    this.allowCloud = value
+  }
+
+  getAllowCloud(): boolean {
+    return this.allowCloud
+  }
+
+  /** Reserve tokens for auto-compaction. Mutable — the Room can change it at
+   *  runtime; only new participants pick up the change. */
+  private compactionReserveTokens: number = 38000
+
+  setCompactionReserveTokens(value: number): void {
+    this.compactionReserveTokens = value
+  }
+
+  getCompactionReserveTokens(): number {
+    return this.compactionReserveTokens
+  }
+
   /** Participants that should take part in the loop, in insertion order. */
   activeParticipants(): Participant[] {
     return [...this.participants.values()].filter((p) => p.active)
@@ -99,6 +136,9 @@ export class Registry {
       (event, data) => this.hub.broadcast(event, data, this.roomId),
       this.workspaceDir,
       this.orchestrator,
+      this.defaultThinkingLevel,
+      this.allowCloud,
+      this.compactionReserveTokens,
     )
     // Catch a new participant up on everything said so far before its first turn.
     participant.cursor = 0
@@ -131,6 +171,9 @@ export class Registry {
       (event, data) => this.hub.broadcast(event, data, this.roomId),
       this.workspaceDir,
       this.orchestrator,
+      this.defaultThinkingLevel,
+      this.allowCloud,
+      this.compactionReserveTokens,
     )
     replacement.cursor = 0
     replacement.active = wasActive
@@ -239,7 +282,7 @@ export class Registry {
 
   /** True if a "provider/id" ref is a model the UI is allowed to assign. */
   isAllowedModel(ref: string): boolean {
-    return isAllowedModel_(this.resolved, ref, this.explicitlyEnabledProviders)
+    return isAllowedModel_(this.resolved, this.allowCloud, ref, this.explicitlyEnabledProviders)
   }
 
   // ── Provider auth (for /provider slash command) ──────────────────────────

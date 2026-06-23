@@ -2,10 +2,35 @@
   "name": "local-default",
   "personas": [
     {
+      "id": "planner",
+      "name": "Planner",
+      "color": "#4A90D9",
+      "icon": "📋",
+      "tools": [
+        "read",
+        "grep",
+        "find",
+        "ls",
+        "bash",
+        "edit",
+        "write",
+        "web_search",
+        "web_read",
+        "youtube_transcript",
+        "youcom_search",
+        "arxiv_search"
+      ],
+      "compactionInstructions": "Preserve all plans created, their steps and status, and architectural decisions. Discard source code reads done only for verification.",
+      "thinkingLevel": "high",
+      "model": "local/Qwopus3.6-27B-v2-MTP-Q4_K_M.gguf",
+      "active": true,
+      "parallel": false
+    },
+    {
       "id": "scout",
       "name": "Scout",
       "color": "#5DCAA5",
-      "icon": "\ud83d\udd0d",
+      "icon": "🔍",
       "tools": [
         "read",
         "grep",
@@ -17,6 +42,8 @@
         "arxiv_search",
         "youcom_search"
       ],
+      "compactionInstructions": "Preserve all discovered file paths, structural observations, and anomalies found. Discard exploratory dead-ends and paths that led nowhere.",
+      "model": "local/Qwopus3.6-27B-v2-MTP-Q4_K_M.gguf",
       "active": true,
       "parallel": false
     },
@@ -24,7 +51,7 @@
       "id": "builder",
       "name": "Builder",
       "color": "#EF9F27",
-      "icon": "\ud83d\udd28",
+      "icon": "🔨",
       "tools": [
         "read",
         "bash",
@@ -34,6 +61,9 @@
         "find",
         "ls"
       ],
+      "compactionInstructions": "Preserve all code changes made, bugs encountered, and architectural decisions. Discard intermediate failed attempts and tool calls that were superseded.",
+      "model": "local/Qwopus3.6-27B-v2-MTP-Q4_K_M.gguf",
+      "thinkingLevel": "high",
       "active": true,
       "parallel": false
     },
@@ -41,13 +71,20 @@
       "id": "auditor",
       "name": "Auditor",
       "color": "#AFA9EC",
-      "icon": "\ud83d\udee1\ufe0f",
+      "icon": "🛡️",
       "tools": [
         "read",
         "grep",
         "find",
-        "ls"
+        "ls",
+        "bash",
+        "edit",
+        "write",
+        "web_search",
+        "web_read"
       ],
+      "compactionInstructions": "Preserve all findings (open and resolved), severity assessments, and verification status. Discard read-only exploration that found no issues.",
+      "model": "local/Qwopus3.6-27B-v2-MTP-Q4_K_M.gguf",
       "active": true,
       "parallel": false
     },
@@ -55,7 +92,7 @@
       "id": "scribe",
       "name": "Scribe",
       "color": "#F09975",
-      "icon": "\u270f\ufe0f",
+      "icon": "✏️",
       "tools": [
         "read",
         "write",
@@ -64,23 +101,8 @@
         "find",
         "ls"
       ],
-      "active": true,
-      "parallel": false
-    },
-    {
-      "id": "planner",
-      "name": "Planner",
-      "color": "#4A90D9",
-      "icon": "\ud83d\udccb",
-      "tools": [
-        "read",
-        "grep",
-        "find",
-        "ls",
-        "spawn_room",
-        "check_room",
-        "destroy_room"
-      ],
+      "compactionInstructions": "Preserve all documentation written, memory updates, and knowledge distilled. Discard read-only exploration used only to gather context.",
+      "model": "local/Qwopus3.6-27B-v2-MTP-Q4_K_M.gguf",
       "active": true,
       "parallel": false
     },
@@ -88,7 +110,7 @@
       "id": "tester",
       "name": "Tester",
       "color": "#97C459",
-      "icon": "\ud83e\uddea",
+      "icon": "🧪",
       "tools": [
         "read",
         "bash",
@@ -96,6 +118,8 @@
         "find",
         "ls"
       ],
+      "compactionInstructions": "Preserve all test results, pass/fail counts, and bugs found. Discard intermediate test runs that were superseded by later runs.",
+      "model": "local/Qwopus3.6-27B-v2-MTP-Q4_K_M.gguf",
       "active": true,
       "parallel": false
     },
@@ -103,16 +127,24 @@
       "id": "fetcher",
       "name": "Fetcher",
       "color": "#5DADE2",
-      "icon": "\ud83c\udf10",
+      "icon": "🌐",
       "tools": [
-        "web_read",
-        "bash",
         "read",
+        "bash",
         "write",
         "grep",
         "find",
-        "ls"
+        "ls",
+        "web_read",
+        "web_search",
+        "youtube_transcript",
+        "youcom_search",
+        "arxiv_search",
+        "edit"
       ],
+      "compactionInstructions": "Preserve all URLs fetched and their key findings. Discard failed fetch attempts and retry traces.",
+      "thinkingLevel": "high",
+      "model": "local/Qwopus3.6-27B-v2-MTP-Q4_K_M.gguf",
       "active": true,
       "parallel": false
     }

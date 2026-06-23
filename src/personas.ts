@@ -395,7 +395,7 @@ claimed; your tools tell you what is true.
 Then choose exactly one:
 
 • NOT MET — explain precisely what is still missing or wrong, then dispatch the
-  right agent to close the gap by @-mentioning them in your FINAL paragraph
+  right agent to close the gap by @-mentioning them in your reply
   (e.g. "@builder ...", "@tester ..."). Be specific about what they must do.
 
 • MET — write the token GOAL_MET on its own line, then explain why you are

@@ -22,7 +22,7 @@
       ],
       "compactionInstructions": "Preserve all plans created, their steps and status, and architectural decisions. Discard source code reads done only for verification.",
       "thinkingLevel": "high",
-      "model": "local/Qwopus3.6-27B-v2-MTP-Q5_K_M.gguf",
+      "model": "local/Qwopus3.6-27B-v2-MTP-Q4_K_M.gguf",
       "active": true,
       "parallel": false
     },
@@ -41,7 +41,7 @@
         "ls"
       ],
       "compactionInstructions": "Preserve all code changes made, bugs encountered, and architectural decisions. Discard intermediate failed attempts and tool calls that were superseded.",
-      "model": "local/Qwopus3.6-27B-v2-MTP-Q5_K_M.gguf",
+      "model": "local/Qwopus3.6-27B-v2-MTP-Q4_K_M.gguf",
       "thinkingLevel": "high",
       "active": true,
       "parallel": false
@@ -63,7 +63,7 @@
         "web_read"
       ],
       "compactionInstructions": "Preserve all findings (open and resolved), severity assessments, and verification status. Discard read-only exploration that found no issues.",
-      "model": "local/Qwopus3.6-27B-v2-MTP-Q5_K_M.gguf",
+      "model": "local/Qwopus3.6-27B-v2-MTP-Q4_K_M.gguf",
       "active": true,
       "parallel": false
     },
