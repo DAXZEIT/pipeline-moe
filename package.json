@@ -4,6 +4,9 @@
   "private": true,
   "type": "module",
   "description": "Pipeline-MoE — multi-agent chat room orchestrating N stateful pi AgentSession instances over a shared workspace.",
+  "workspaces": [
+    "packages/*"
+  ],
   "scripts": {
     "predev": "bash scripts/predev.sh",
     "dev": "concurrently -n api,web -c blue,green \"npm run dev:backend\" \"npm run dev:frontend\"",
