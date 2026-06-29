@@ -1,5 +1,5 @@
 import { Box } from "ink"
-import { useEffect, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import type { RoomStore, Api } from "@pipeline-moe/client-core"
 import { useRoomStore } from "./useRoomStore"
 import { Roster } from "./components/Roster"
@@ -13,8 +13,22 @@ import { AgentForm } from "./components/overlays/AgentForm"
 import { lookup } from "./commands/registry"
 import type { CommandContext, Overlay } from "./commands/types"
 
-export function App({ store, api }: { store: RoomStore; api: Api }) {
-  // Load the snapshot + open the SSE stream on mount; tear down on exit.
+export function App({
+  makeStore,
+  api,
+  initialRoomId,
+}: {
+  makeStore: (roomId: string) => RoomStore
+  api: Api
+  initialRoomId: string
+}) {
+  // The active room. Switching rooms swaps the store entirely (the store is
+  // bound to one roomId at construction), mirroring the web's per-room store.
+  const [roomId, setRoomId] = useState(initialRoomId)
+  const store = useMemo(() => makeStore(roomId), [makeStore, roomId])
+
+  // Load the snapshot + open the SSE stream when the store changes; the cleanup
+  // stops the previous room's stream before the next one starts.
   useEffect(() => {
     store.start()
     return () => store.stop()
@@ -23,6 +37,9 @@ export function App({ store, api }: { store: RoomStore; api: Api }) {
   const state = useRoomStore(store)
   const [overlay, setOverlay] = useState<Overlay | null>(null)
   const closeOverlay = () => setOverlay(null)
+  const switchRoom = (id: string) => {
+    if (id !== roomId) setRoomId(id)
+  }
 
   const runCommand = (input: string) => {
     const body = input.slice(1) // strip leading "/"
@@ -39,6 +56,7 @@ export function App({ store, api }: { store: RoomStore; api: Api }) {
       api,
       state,
       notify: (m, l) => store.pushNotice(m, l),
+      switchRoom,
       openOverlay: setOverlay,
       closeOverlay,
     }

@@ -18,11 +18,9 @@ function arg(flag: string, fallback: string): string {
 const apiBase = arg("--server", process.env.PMOE_SERVER ?? "http://localhost:5300")
 const roomId = arg("--room", "default")
 
-const store = createRoomStore({ apiBase, roomId, eventSourceFactory: nodeEventSourceFactory })
 const { api } = createApi(apiBase)
+const makeStore = (id: string) =>
+  createRoomStore({ apiBase, roomId: id, eventSourceFactory: nodeEventSourceFactory })
 
-const { waitUntilExit } = render(<App store={store} api={api} />)
-waitUntilExit().then(() => {
-  store.stop()
-  process.exit(0)
-})
+const { waitUntilExit } = render(<App makeStore={makeStore} api={api} initialRoomId={roomId} />)
+waitUntilExit().then(() => process.exit(0))

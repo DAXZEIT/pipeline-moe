@@ -186,6 +186,65 @@ export const COMMANDS: Command[] = [
     },
   },
   {
+    name: "rooms",
+    summary: "Switch to another room (open or closed)",
+    run: async (ctx) => {
+      try {
+        const [open, closed] = await Promise.all([ctx.api.listRooms(), ctx.api.resumableRooms()])
+        const openIds = new Set(open.map((r) => r.roomId))
+        const closedOnly = closed.filter((r) => !openIds.has(r.roomId))
+        const needsResume = new Set(closedOnly.map((r) => r.roomId))
+        const items = [
+          ...open.map((r) => ({
+            id: r.roomId,
+            label: `${r.roomId === ctx.store.roomId ? "● " : "  "}${r.name}`,
+            hint: `${r.participantCount} agents${r.goalStatus && r.goalStatus !== "none" ? ` · ${r.goalStatus}` : ""}`,
+          })),
+          ...closedOnly.map((r) => ({ id: r.roomId, label: `  ${r.name}`, hint: `closed · ${r.messageCount} msg` })),
+        ]
+        ctx.openOverlay({
+          kind: "select",
+          title: "Rooms",
+          items,
+          emptyText: "No rooms.",
+          onSelect: (id) => {
+            if (id === ctx.store.roomId) return
+            if (needsResume.has(id)) {
+              ctx.api
+                .resumeRoom(id)
+                .then(() => {
+                  ctx.switchRoom(id)
+                  ctx.notify(`Resumed room "${id}".`)
+                })
+                .catch(() => ctx.notify(`Failed to resume room "${id}".`, "error"))
+            } else {
+              ctx.switchRoom(id)
+              ctx.notify(`Switched to room "${id}".`)
+            }
+          },
+        })
+      } catch {
+        ctx.notify("Failed to load rooms.", "error")
+      }
+    },
+  },
+  {
+    name: "newroom",
+    summary: "Create a new room and switch to it",
+    usage: "<name>",
+    run: (ctx, args) => {
+      const name = args.trim()
+      if (!name) return ctx.notify("Usage: /newroom <name>", "error")
+      ctx.api
+        .createRoom({ name })
+        .then((room) => {
+          ctx.switchRoom(room.roomId)
+          ctx.notify(`Created and switched to room "${name}".`)
+        })
+        .catch(() => ctx.notify(`Failed to create room "${name}".`, "error"))
+    },
+  },
+  {
     name: "lineup",
     summary: "Edit the room line-up (reorder, pause, add, kick)",
     run: (ctx) => ctx.openOverlay({ kind: "lineup" }),
