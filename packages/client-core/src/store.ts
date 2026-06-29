@@ -352,5 +352,5 @@ export function createRoomStore(opts: RoomStoreOptions) {
     },
   }
 
-  return { roomId, getSnapshot, subscribe, start, stop, actions }
+  return { roomId, getSnapshot, subscribe, start, stop, actions, pushNotice }
 }

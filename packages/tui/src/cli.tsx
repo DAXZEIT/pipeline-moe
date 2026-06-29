@@ -6,7 +6,7 @@
 //   pmoe [--server http://localhost:5300] [--room default]
 
 import { render } from "ink"
-import { createRoomStore } from "@pipeline-moe/client-core"
+import { createRoomStore, createApi } from "@pipeline-moe/client-core"
 import { nodeEventSourceFactory } from "./nodeEventSource"
 import { App } from "./App"
 
@@ -19,8 +19,9 @@ const apiBase = arg("--server", process.env.PMOE_SERVER ?? "http://localhost:530
 const roomId = arg("--room", "default")
 
 const store = createRoomStore({ apiBase, roomId, eventSourceFactory: nodeEventSourceFactory })
+const { api } = createApi(apiBase)
 
-const { waitUntilExit } = render(<App store={store} />)
+const { waitUntilExit } = render(<App store={store} api={api} />)
 waitUntilExit().then(() => {
   store.stop()
   process.exit(0)
