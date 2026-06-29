@@ -19,7 +19,8 @@ async function json<T>(res: Response): Promise<T> {
   if (!res.ok) {
     let detail = ""
     try {
-      detail = (await res.json()).error ?? ""
+      const body = (await res.json()) as { error?: string }
+      detail = body.error ?? ""
     } catch {
       /* ignore */
     }

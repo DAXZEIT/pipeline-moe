@@ -1,0 +1,25 @@
+{
+  "name": "@pipeline-moe/tui",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Terminal client for pipeline-moe — a multi-room orchestration TUI built on @pipeline-moe/client-core and Ink.",
+  "bin": {
+    "pmoe": "./src/cli.tsx"
+  },
+  "scripts": {
+    "start": "tsx src/cli.tsx",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@pipeline-moe/client-core": "*",
+    "eventsource": "^3.0.2",
+    "ink": "^5.1.0",
+    "react": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.12",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0"
+  }
+}
