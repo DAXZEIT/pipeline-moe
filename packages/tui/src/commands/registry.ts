@@ -255,6 +255,37 @@ export const COMMANDS: Command[] = [
     run: (ctx) => ctx.openOverlay({ kind: "agentForm" }),
   },
   {
+    name: "providers",
+    summary: "Manage model providers (OAuth login)",
+    run: (ctx) => {
+      const items = ctx.state.providers.map((p) => ({
+        id: p.name,
+        label: `${p.configured ? "✓" : " "} ${p.displayName}`,
+        hint: p.configured
+          ? "configured"
+          : p.supportsOAuth
+            ? "⏎ to log in (OAuth)"
+            : "needs API key (web UI)",
+      }))
+      ctx.openOverlay({
+        kind: "select",
+        title: "Providers",
+        items,
+        emptyText: "No providers reported yet.",
+        onSelect: (name) => {
+          const p = ctx.state.providers.find((x) => x.name === name)
+          if (!p) return
+          if (p.supportsOAuth) {
+            ctx.store.actions.loginProvider(name)
+            ctx.notify(`Starting OAuth login for ${p.displayName}…`)
+          } else {
+            ctx.notify(`${p.displayName} needs an API key — add it from the web UI.`, "error")
+          }
+        },
+      })
+    },
+  },
+  {
     name: "template",
     summary: "Add an agent from a built-in template",
     run: async (ctx) => {

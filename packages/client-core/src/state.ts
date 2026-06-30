@@ -13,6 +13,7 @@
 import type {
   ConversationMeta,
   Message,
+  OAuthProgress,
   ProviderInfo,
   Receipt,
   RosterItem,
@@ -66,6 +67,8 @@ export interface RoomState {
   currentConversationId: string
   providers: ProviderInfo[]
   explicitlyEnabled: string[]
+  /** In-flight OAuth login flow, or null. Persists until success/error/dismiss. */
+  oauthProgress: OAuthProgress | null
 }
 
 /** The initial state of a freshly-opened room, before any snapshot or SSE. */
@@ -99,6 +102,7 @@ export const initialRoomState: RoomState = {
   currentConversationId: "",
   providers: [],
   explicitlyEnabled: [],
+  oauthProgress: null,
 }
 
 /**
@@ -387,7 +391,16 @@ export function reduce(state: RoomState, event: SseEvent): ReduceResult {
       } else {
         effect = { type: "notice", msg: data.message ?? "", level: "error" }
       }
-      return { state, effects: [effect] }
+      const oauthProgress: OAuthProgress = {
+        provider: data.provider ?? state.oauthProgress?.provider ?? "",
+        status: data.type,
+        verificationUri: data.verificationUri,
+        userCode: data.userCode,
+        url: data.url,
+        instructions: data.instructions,
+        message: data.message,
+      }
+      return { state: { ...state, oauthProgress }, effects: [effect] }
     }
 
     default:

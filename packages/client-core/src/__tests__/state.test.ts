@@ -287,6 +287,31 @@ describe("reduce — oauth_progress", () => {
     const { effects } = apply(baseState(), "oauth_progress", { type: "error", message: "denied" })
     expect(effects).toEqual([{ type: "notice", msg: "denied", level: "error" }])
   })
+
+  it("persists the progress in state for a stay-on-screen panel", () => {
+    const { state } = apply(baseState(), "oauth_progress", {
+      type: "device_code",
+      provider: "github",
+      verificationUri: "https://gh/login",
+      userCode: "ABCD",
+    })
+    expect(state.oauthProgress).toEqual({
+      provider: "github",
+      status: "device_code",
+      verificationUri: "https://gh/login",
+      userCode: "ABCD",
+      url: undefined,
+      instructions: undefined,
+      message: undefined,
+    })
+  })
+
+  it("carries the provider forward when a later event omits it", () => {
+    const after = apply(baseState(), "oauth_progress", { type: "device_code", provider: "github", userCode: "X" }).state
+    const { state } = apply(after, "oauth_progress", { type: "success", message: "done" })
+    expect(state.oauthProgress?.provider).toBe("github")
+    expect(state.oauthProgress?.status).toBe("success")
+  })
 })
 
 // ── resetTransient ───────────────────────────────────────────────────────────

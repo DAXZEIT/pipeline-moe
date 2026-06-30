@@ -7,6 +7,7 @@ import { Transcript } from "./components/Transcript"
 import { StatusBar } from "./components/StatusBar"
 import { CommandLine } from "./components/CommandLine"
 import { Notices } from "./components/Notices"
+import { OAuthPanel } from "./components/OAuthPanel"
 import { SelectOverlay } from "./components/overlays/SelectOverlay"
 import { LineupOverlay } from "./components/overlays/LineupOverlay"
 import { AgentForm } from "./components/overlays/AgentForm"
@@ -94,6 +95,13 @@ export function App({
         />
       ) : null}
       {overlay?.kind === "agentForm" ? <AgentForm store={store} isActive onClose={closeOverlay} /> : null}
+      {state.oauthProgress ? (
+        <OAuthPanel
+          progress={state.oauthProgress}
+          isActive={!overlay}
+          onDismiss={() => store.actions.dismissOAuth()}
+        />
+      ) : null}
 
       <Notices notices={state.notices} />
       <StatusBar
@@ -107,7 +115,7 @@ export function App({
       <CommandLine
         onSend={(text) => store.actions.send(text)}
         onCommand={runCommand}
-        isActive={!overlay}
+        isActive={!overlay && !state.oauthProgress}
         connected={state.connected}
       />
     </Box>

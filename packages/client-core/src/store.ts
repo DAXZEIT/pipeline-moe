@@ -350,6 +350,10 @@ export function createRoomStore(opts: RoomStoreOptions) {
         pushNotice(`OAuth login started for ${name} — follow the instructions in notifications.`)
       }).catch(fail)
     },
+
+    dismissOAuth: () => {
+      patch({ oauthProgress: null })
+    },
   }
 
   return { roomId, getSnapshot, subscribe, start, stop, actions, pushNotice }
