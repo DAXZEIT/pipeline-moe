@@ -1,7 +1,7 @@
 import { Box, Text, useInput, useStdout } from "ink"
 import { useRef, useState } from "react"
 import type { Message, RosterItem } from "@pipeline-moe/client-core"
-import { renderMarkdownLines } from "../markdown"
+import { renderMarkdownLines, renderStreamingMarkdownLines } from "../markdown"
 
 /**
  * The conversation view with line-accurate scrollback. Messages have wildly
@@ -10,10 +10,10 @@ import { renderMarkdownLines } from "../markdown"
  * every message — and the in-flight streaming buffers — into a single list of
  * wrapped display lines, then render a terminal-height-bounded window over that
  * list. PgUp/PgDn scroll it; offset 0 pins to the bottom so live tokens stream
- * in. Completed agent messages render as markdown (pre-wrapped ANSI lines from
- * renderMarkdownLines); user text and in-flight streaming stay raw — a
- * half-open code fence mid-stream would confuse any parser, so styling lands
- * when the turn finalizes.
+ * in. Agent messages render as markdown (pre-wrapped ANSI lines from
+ * markdown.ts) — including in-flight streaming, which parses safely because
+ * CommonMark runs an unclosed code fence to end-of-input and unclosed inline
+ * markers stay literal until their closer streams in. User text stays raw.
  */
 
 type Line = { text: string; color?: string; bold?: boolean; dim?: boolean; cursor?: boolean }
@@ -93,7 +93,7 @@ export function Transcript({
   for (const [id, text] of Object.entries(streaming)) {
     if (!text) continue
     lines.push({ text: nameOf(id, id), bold: true, color: colorOf(id), cursor: true })
-    for (const l of wrap(text, width)) lines.push({ text: l })
+    for (const l of renderStreamingMarkdownLines(text, width) ?? wrap(text, width)) lines.push({ text: l })
     lines.push({ text: "" })
   }
 
