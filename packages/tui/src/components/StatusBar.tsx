@@ -1,30 +1,51 @@
 import { Box, Text } from "ink"
-import type { RoutingMode } from "@pipeline-moe/client-core"
+import type { RosterItem, RoutingMode } from "@pipeline-moe/client-core"
 
+/** One-line room status. `connection` distinguishes the EventSource retrying
+ *  after a drop (reconnecting) from the initial connect, since the store only
+ *  exposes a boolean and the stream auto-retries until stopped. */
 export function StatusBar({
-  connected,
+  connection,
   turnActive,
-  runningAgentId,
+  runningAgent,
   routingMode,
   roomId,
   messageCount,
 }: {
-  connected: boolean
+  connection: "connecting" | "connected" | "reconnecting"
   turnActive: boolean
-  runningAgentId: string | null
+  runningAgent: RosterItem | null
   routingMode: RoutingMode
   roomId: string
   messageCount: number
 }) {
+  const conn =
+    connection === "connected"
+      ? { color: "green", label: "● connected" }
+      : connection === "reconnecting"
+        ? { color: "yellow", label: "◌ reconnecting…" }
+        : { color: "gray", label: "○ connecting…" }
   return (
     <Box paddingX={1}>
-      <Text color={connected ? "green" : "red"}>{connected ? "● connected" : "○ offline"}</Text>
+      <Text color={conn.color}>{conn.label}</Text>
       <Text>{"  "}</Text>
-      <Text color={turnActive ? "yellow" : "gray"}>
-        {turnActive ? `▶ running${runningAgentId ? ` @${runningAgentId}` : ""}` : "idle"}
-      </Text>
+      {turnActive ? (
+        <Text color="yellow">
+          ▶ running
+          {runningAgent ? (
+            <Text color={runningAgent.color}>
+              {" "}
+              {runningAgent.icon} {runningAgent.name}
+            </Text>
+          ) : null}
+        </Text>
+      ) : (
+        <Text color="gray">idle</Text>
+      )}
       <Text dimColor>
-        {"   "}routing:{routingMode}{"  "}room:{roomId}{"  "}msgs:{messageCount}
+        {"   "}routing:{routingMode}
+        {"  "}room:{roomId}
+        {"  "}msgs:{messageCount}
       </Text>
     </Box>
   )

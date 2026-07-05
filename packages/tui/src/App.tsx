@@ -36,6 +36,21 @@ export function App({
   }, [store])
 
   const state = useRoomStore(store)
+
+  // The store only exposes a connected boolean, but the EventSource keeps
+  // retrying after a drop — so "was connected, isn't now" means reconnecting,
+  // not just offline. Reset when the store (room) changes.
+  const [everConnected, setEverConnected] = useState(false)
+  useEffect(() => setEverConnected(false), [store])
+  useEffect(() => {
+    if (state.connected) setEverConnected(true)
+  }, [state.connected])
+  const connection = state.connected ? "connected" : everConnected ? "reconnecting" : "connecting"
+
+  const runningAgent = state.runningAgentId
+    ? state.roster.find((r) => r.id === state.runningAgentId) ?? null
+    : null
+
   const [overlay, setOverlay] = useState<Overlay | null>(null)
   const closeOverlay = () => setOverlay(null)
   const switchRoom = (id: string) => {
@@ -110,9 +125,9 @@ export function App({
 
       <Notices notices={state.notices} />
       <StatusBar
-        connected={state.connected}
+        connection={connection}
         turnActive={state.turnActive}
-        runningAgentId={state.runningAgentId}
+        runningAgent={runningAgent}
         routingMode={state.routingMode}
         roomId={store.roomId}
         messageCount={state.messages.length}
