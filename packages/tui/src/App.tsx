@@ -69,7 +69,12 @@ export function App({
       <Box flexGrow={1}>
         <Roster roster={state.roster} width={26} />
         <Box flexDirection="column" flexGrow={1} paddingX={1}>
-          <Transcript messages={state.messages} roster={state.roster} streaming={state.streaming} maxLines={6} />
+          <Transcript
+            messages={state.messages}
+            roster={state.roster}
+            streaming={state.streaming}
+            isActive={!overlay && !state.oauthProgress}
+          />
         </Box>
       </Box>
 
