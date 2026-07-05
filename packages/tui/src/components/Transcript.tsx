@@ -1,6 +1,7 @@
 import { Box, Text, useInput, useStdout } from "ink"
 import { useRef, useState } from "react"
 import type { Message, RosterItem } from "@pipeline-moe/client-core"
+import { renderMarkdownLines } from "../markdown"
 
 /**
  * The conversation view with line-accurate scrollback. Messages have wildly
@@ -9,7 +10,10 @@ import type { Message, RosterItem } from "@pipeline-moe/client-core"
  * every message — and the in-flight streaming buffers — into a single list of
  * wrapped display lines, then render a terminal-height-bounded window over that
  * list. PgUp/PgDn scroll it; offset 0 pins to the bottom so live tokens stream
- * in. Markdown is rendered raw for now — terminal markdown is a follow-up.
+ * in. Completed agent messages render as markdown (pre-wrapped ANSI lines from
+ * renderMarkdownLines); user text and in-flight streaming stay raw — a
+ * half-open code fence mid-stream would confuse any parser, so styling lands
+ * when the turn finalizes.
  */
 
 type Line = { text: string; color?: string; bold?: boolean; dim?: boolean; cursor?: boolean }
@@ -79,8 +83,11 @@ export function Transcript({
   const lines: Line[] = []
   for (const m of messages) {
     lines.push({ text: nameOf(m.author, m.authorName), bold: true, color: colorOf(m.author) })
-    if (m.text) for (const l of wrap(m.text, width)) lines.push({ text: l })
-    else lines.push({ text: "(no response)", dim: true })
+    if (m.text) {
+      const rendered =
+        m.author === "user" ? wrap(m.text, width) : renderMarkdownLines(m.text, width) ?? wrap(m.text, width)
+      for (const l of rendered) lines.push({ text: l })
+    } else lines.push({ text: "(no response)", dim: true })
     lines.push({ text: "" })
   }
   for (const [id, text] of Object.entries(streaming)) {
@@ -118,7 +125,10 @@ export function Transcript({
   return (
     <Box flexDirection="column" flexGrow={1}>
       {visible.map((l, i) => (
-        <Text key={start + i} bold={l.bold} color={l.color} dimColor={l.dim}>
+        // truncate-end guarantees one display line per entry even when a
+        // non-reflowable markdown block (code, table) exceeds the width —
+        // Ink re-wrapping it would silently break the line accounting.
+        <Text key={start + i} bold={l.bold} color={l.color} dimColor={l.dim} wrap="truncate-end">
           {l.text || " "}
           {l.cursor ? <Text color="yellow"> ▌</Text> : null}
         </Text>
