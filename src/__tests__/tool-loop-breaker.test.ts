@@ -36,8 +36,8 @@ describe("toolCallSignature", () => {
   })
 
   it("fingerprints Bash with command", () => {
-    const sig = toolCallSignature(makeActivity("Bash", { command: "sed -n '63,100p' /home/dax/src/types.ts" }))
-    expect(sig).toBe("bash|sed -n '63,100p' /home/dax/src/types.ts")
+    const sig = toolCallSignature(makeActivity("Bash", { command: "sed -n '63,100p' /home/user/src/types.ts" }))
+    expect(sig).toBe("bash|sed -n '63,100p' /home/user/src/types.ts")
   })
 
   it("fingerprints Read with path", () => {

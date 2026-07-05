@@ -65,7 +65,20 @@ describe("web_search tool", () => {
   let tool: ReturnType<typeof createWebSearchToolDefinition>
 
   beforeEach(() => {
+    // The tool reads SEARXNG_URL per call; point it at a test instance.
+    vi.stubEnv("SEARXNG_URL", "https://searx.test.example")
     tool = createWebSearchToolDefinition()
+  })
+
+  afterEach(() => {
+    vi.unstubAllEnvs()
+  })
+
+  test("reports a configuration error when SEARXNG_URL is unset", async () => {
+    vi.stubEnv("SEARXNG_URL", "")
+    const result = await tool.execute("tc1", { query: "test" }, undefined, undefined, {} as any)
+    expect((result.content[0] as { text: string }).text).toContain("SEARXNG_URL is not configured")
+    expect(mockFetch).not.toHaveBeenCalled()
   })
 
   test("has correct name and description", () => {
@@ -180,7 +193,7 @@ describe("web_search tool", () => {
     await tool.execute("tc1", { query: "hello world" }, undefined, undefined, {} as any)
 
     const url = mockFetch.mock.calls[0][0]
-    expect(url).toContain("https://searxng.example.org")
+    expect(url).toContain("https://searx.test.example")
     expect(url).toContain("q=hello+world")
     expect(url).toContain("format=json")
   })

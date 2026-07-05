@@ -2,6 +2,8 @@
 // Two modes: "search" (fast snippets) and "research" (autonomous synthesis).
 // API key from ~/.config/you.com/credentials.json — never exposed in results.
 
+import { homedir } from "node:os"
+import { join } from "node:path"
 import { Type } from "typebox"
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent"
 import type { AgentToolResult } from "@earendil-works/pi-coding-agent"
@@ -38,7 +40,7 @@ const youcomSearchSchema = Type.Object({
 })
 
 const YDC_API = "https://ydc-index.io"
-const API_KEY_FILE = "/home/dax/.config/you.com/credentials.json"
+const API_KEY_FILE = join(homedir(), ".config", "you.com", "credentials.json")
 const TIMEOUT_SEARCH_MS = 15_000
 const TIMEOUT_RESEARCH_MS = 60_000
 const MAX_CONTENT_LENGTH = 8000

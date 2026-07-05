@@ -8,7 +8,7 @@ import { isSshTarget, mountpointFor, MOUNT_BASE } from "../sshfs.js"
 
 describe("isSshTarget", () => {
   test("matches user@host:/absolute-path", () => {
-    expect(isSshTarget("dax@10.0.0.1:/home/dax")).toBe(true)
+    expect(isSshTarget("alice@10.0.0.1:/home/alice")).toBe(true)
     expect(isSshTarget("dax@vps.example.com:/srv/project")).toBe(true)
   })
 
@@ -17,11 +17,11 @@ describe("isSshTarget", () => {
   })
 
   test("trims surrounding whitespace before matching", () => {
-    expect(isSshTarget("  dax@10.0.0.1:/home/dax  ")).toBe(true)
+    expect(isSshTarget("  alice@10.0.0.1:/home/alice  ")).toBe(true)
   })
 
   test("rejects plain absolute local paths", () => {
-    expect(isSshTarget("/home/dax/projects/foo")).toBe(false)
+    expect(isSshTarget("/home/alice/projects/foo")).toBe(false)
     expect(isSshTarget("/tmp")).toBe(false)
   })
 

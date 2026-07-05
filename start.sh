@@ -9,7 +9,8 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
-LLAMA_SCRIPT="/home/dax/AI/launch_llama_server_Qwopusctx.sh"
+# Your llama-server launch script (override with the LLAMA_SCRIPT env var).
+LLAMA_SCRIPT="${LLAMA_SCRIPT:-$HOME/AI/launch_llama_server_Qwopusctx.sh}"
 
 # Allow cloud providers (Anthropic, DeepSeek…) whose API keys are already stored
 # in auth.json to be usable without re-enabling them in the UI after every restart.

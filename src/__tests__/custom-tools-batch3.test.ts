@@ -1,3 +1,5 @@
+import { homedir } from "node:os"
+import { join } from "node:path"
 import { describe, expect, test, vi, beforeEach } from "vitest"
 import { buildCustomTools, availableCustomTools } from "../custom-tools/index.js"
 import { createArxivSearchToolDefinition } from "../custom-tools/arxiv-search.js"
@@ -250,8 +252,8 @@ describe("arxiv_search — result formatting", () => {
 /* ── youcom_search — API key loading ──────────────── */
 
 describe("youcom_search — API key loading", () => {
-  test("API key file path is correct", () => {
-    const path = "/home/dax/.config/you.com/credentials.json"
+  test("API key file path is under the user's home config", () => {
+    const path = join(homedir(), ".config", "you.com", "credentials.json")
     expect(path).toContain("you.com")
     expect(path).toContain("credentials.json")
   })

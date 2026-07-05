@@ -148,7 +148,7 @@ export function CreateRoomDialog({ onClose, onCreated }: Props) {
               <input
                 type="text"
                 className="dialog-input"
-                placeholder="/home/dax/projects/foo  or  dax@10.0.0.1:/home/dax/foo"
+                placeholder="/path/to/project  or  user@host:/path/to/project"
                 value={workspaceDir}
                 onChange={(e) => setWorkspaceDir(e.target.value)}
               />

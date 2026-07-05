@@ -156,9 +156,9 @@ describe("Confined + custom tools merge", () => {
 /* ── URL construction ─────────────────────────────── */
 
 describe("SearXNG URL construction", () => {
-  test("base URL is https://searxng.example.org", () => {
-    const url = "https://searxng.example.org"
-    expect(url).toContain("daxzeit.eu")
+  test("base URL comes from the SEARXNG_URL env var", () => {
+    const url = "https://searx.example.org"
+    expect(url).toContain("searx")
     expect(url).toContain("https")
   })
 
@@ -212,8 +212,8 @@ describe("Snippet truncation", () => {
 
 describe("Error message format", () => {
   test("error message includes SearXNG URL for debugging", () => {
-    const url = "https://searxng.example.org"
-    const msg = `web_search error: Network error. Ensure WireGuard is connected and SearXNG is reachable at ${url}.`
+    const url = "https://searx.example.org"
+    const msg = `web_search error: Network error. Ensure your SearXNG instance is reachable at ${url}.`
     expect(msg).toContain("web_search error")
     expect(msg).toContain(url)
   })

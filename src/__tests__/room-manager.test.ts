@@ -457,10 +457,10 @@ describe("RoomManager", () => {
       // Simulates restoreRooms' degraded path: no live mount, but the intended
       // sshTarget is recorded so it survives the next save. Without this the
       // target is permanently lost after one restart with the remote down.
-      manager.createRoom("vps", "VPS", undefined, undefined, undefined, "dax@10.0.0.1:/home/dax")
+      manager.createRoom("vps", "VPS", undefined, undefined, undefined, "alice@10.0.0.1:/home/alice")
       await manager.saveManifest()
       const [entry] = (await manager.loadManifest()).filter((e) => e.roomId === "vps")
-      expect(entry).toEqual({ roomId: "vps", name: "VPS", sshTarget: "dax@10.0.0.1:/home/dax" })
+      expect(entry).toEqual({ roomId: "vps", name: "VPS", sshTarget: "alice@10.0.0.1:/home/alice" })
     })
 
     test("a degraded sshTarget survives an unrelated later mutation", async () => {

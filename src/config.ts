@@ -1,8 +1,17 @@
-// Runtime configuration, read from environment (with .env support via tsx is
-// not automatic — we read process.env directly; use `node --env-file=.env` or
-// export vars). Defaults are chosen to work out of the box on the dax stack.
+// Runtime configuration, read from environment. A .env in the working
+// directory is loaded automatically (shell env takes precedence, same
+// semantics as node --env-file). Skipped under vitest so tests stay hermetic.
+// Defaults are chosen to work out of the box on a local llama-server stack.
 
 import { resolve } from "node:path"
+
+if (!process.env.VITEST) {
+  try {
+    process.loadEnvFile(resolve(process.cwd(), ".env"))
+  } catch {
+    // no .env — fine, env vars and defaults apply
+  }
+}
 
 export const config = {
   port: Number(process.env.PORT ?? 5300),

@@ -1,6 +1,6 @@
 // web_search — SearXNG tool definition
-// Wraps the local SearXNG instance at https://searxng.example.org/
-// accessible via WireGuard. Returns formatted results as text content.
+// Wraps a SearXNG instance (SEARXNG_URL env var — self-hosted or public).
+// Returns formatted results as text content.
 
 import { Type } from "typebox"
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent"
@@ -43,7 +43,8 @@ const webSearchSchema = Type.Object({
   ),
 })
 
-const SEARXNG_URL = "https://searxng.example.org"
+// Read per call so tests (and long-lived processes) see env changes.
+const searxngUrl = () => process.env.SEARXNG_URL ?? ""
 const TIMEOUT_MS = 15_000
 
 async function searchSearxng(
@@ -51,7 +52,17 @@ async function searchSearxng(
   limit: number,
   categories?: string[],
 ): Promise<AgentToolResult<undefined>> {
-  const url = new URL("/search", SEARXNG_URL)
+  const base = searxngUrl()
+  if (!base) {
+    return {
+      content: [{
+        type: "text",
+        text: "web_search error: SEARXNG_URL is not configured. Set it in .env to your SearXNG instance (self-hosted or public, JSON format enabled).",
+      }],
+      details: undefined,
+    }
+  }
+  const url = new URL("/search", base)
   url.searchParams.set("q", query)
   url.searchParams.set("format", "json")
   url.searchParams.set("limit", String(limit))
@@ -106,7 +117,7 @@ async function searchSearxng(
     return {
       content: [{
         type: "text",
-        text: `web_search error: ${msg}. Ensure WireGuard is connected and SearXNG is reachable at ${SEARXNG_URL}.`,
+        text: `web_search error: ${msg}. Ensure your SearXNG instance is reachable at ${base}.`,
       }],
       details: undefined,
     }

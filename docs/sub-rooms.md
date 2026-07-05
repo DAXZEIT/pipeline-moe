@@ -193,9 +193,9 @@ so unbounded spawning starves the pipeline. Stop or destroy a room to free a slo
 By default, sub-rooms share the pipeline's workspace directory. You can scope
 a room to a different directory:
 
-- **Local path:** `"workspaceDir": "/home/dax/other-project"` — the room's
+- **Local path:** `"workspaceDir": "/path/to/other-project"` — the room's
   file tools are confined to this directory
-- **Remote (sshfs):** `"workspaceDir": "dax@10.0.0.1:/home/dax/project"` —
+- **Remote (sshfs):** `"workspaceDir": "user@host:/path/to/project"` —
   the pipeline mounts the remote path via sshfs automatically and unmounts
   on `destroy_room`
 
