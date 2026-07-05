@@ -1,19 +1,31 @@
 # Pipeline-MoE
 
-Multi-agent chat room backend. Orchestrates **N stateful `pi` agent sessions**
-(one per persona, same local model, different system prompts + tool sets) over a
-**shared workspace**, routes `@mentions` through a **serial queue**, and streams
-everything to a UI over **SSE**.
+A **multi-agent chat room** you can run entirely on local models. Orchestrates
+**N stateful `pi` agent sessions** (one per persona, same model, different
+system prompts + tool sets) over a **shared workspace**, routes `@mentions`
+through a **serial queue**, and streams everything to its clients over **SSE**.
+
+Two clients ship with it, built on a shared framework-agnostic core
+(`@pipeline-moe/client-core`):
+
+- **TUI** (`packages/tui`) — the flagship terminal client: multi-room, slash
+  commands, live markdown-rendered streaming, line-accurate scrollback, lineup
+  management, provider OAuth.
+- **Web UI** (`web/`) — the same rooms over React + Vite.
+
+Local-first by policy: cloud providers are hidden and rejected unless you
+explicitly opt in with `PIPELINE_ALLOW_CLOUD=1`.
 
 ```
-Chat room UI (React + Vite)
-        │  REST + SSE
-        ▼
+TUI (Ink)                Web UI (React + Vite)
+    ╰──────── @pipeline-moe/client-core ────────╯
+                    │  REST + SSE
+                    ▼
 Express backend  ──►  Registry of pi AgentSession instances
-  serial queue         scout / builder / auditor / scribe / tester
+  serial queue         scout / builder / auditor / scribe / tester …
   routing @mentions          │  each = createAgentSession(persona, tools)
   workspace diff             ▼
-                       llama-server :5000  (Qwopus 27B, --parallel 1)
+                       llama-server :5000  (any local GGUF, --parallel 1)
 ```
 
 Each participant is a real `pi` `AgentSession`: it keeps its **own conversation
@@ -26,26 +38,27 @@ receipt**.
 ## Run
 
 ```bash
-cd /home/dax/pipeline-moe
+git clone https://github.com/DAXZEIT/pipeline-moe && cd pipeline-moe
 npm install
 ```
 
-**Full launch (llama-server + backend + frontend):**
+**Server:**
 ```bash
-bash start.sh
-# or: npm run start:full
-```
-Starts llama-server first, waits for health, then launches backend and frontend
-with proper health gates. Ctrl+C kills all three cleanly.
-
-**Backend + frontend only (llama-server assumed running):**
-```bash
-npm run dev
-# or: node --env-file=.env node_modules/.bin/tsx src/server.ts
+npm start          # backend on :5300 (llama-server assumed running on :5000)
+npm run dev        # backend + web UI dev server (:5310)
+bash start.sh      # full launch: llama-server → backend → web UI, health-gated
+                   # (set LLAMA_SCRIPT to your llama-server launch script)
 ```
 
-Defaults: port `5300`, workspace `./workspace`, model = pi's default (your local
-provider in `~/.pi/agent/models.json`). Override via `.env` (see `.env.example`).
+**Terminal client:**
+```bash
+npm -C packages/tui start                        # connect to localhost:5300
+npm -C packages/tui start -- --server http://host:5300 --room default
+```
+
+Defaults: port `5300`, workspace = current directory, model = pi's default
+(your local provider in `~/.pi/agent/models.json`). A `.env` in the working
+directory is loaded automatically — copy `.env.example` and adjust.
 
 ## API
 
@@ -359,7 +372,8 @@ name to `VALID_TOOLS` and `ALL_TOOLS`.
    other agents need it added manually
 
 **First tool: `web_search`** — SearXNG via HTTP GET to
-`https://searxng.example.org/search?q=...&format=json`. No external dependencies,
+`$SEARXNG_URL/search?q=...&format=json` (set `SEARXNG_URL` in `.env` to your
+instance; the JSON output format must be enabled). No external dependencies,
 pure Node `fetch()`. Parameters: `query` (required), `limit` (1-20, default 5),
 `categories` (optional). Returns formatted results (title, URL, snippet —
 truncated at 200 chars). 15s timeout on fetch. Graceful error handling (network
@@ -382,3 +396,7 @@ default.
 | planner | read, grep, find, ls, ask_user |
 | tester | read, bash, grep, find, ls, ask_user |
 | fetcher | read, bash, write, grep, find, ls, web_read, ask_user |
+
+## License
+
+[MIT](LICENSE)
