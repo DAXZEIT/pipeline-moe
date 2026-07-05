@@ -1,23 +1,41 @@
 {
   "name": "@pipeline-moe/client-core",
   "version": "0.1.0",
-  "private": true,
   "license": "MIT",
   "type": "module",
-  "description": "Framework-agnostic client (typed REST surface + shared types) for a pipeline-moe server. Consumed by the web frontend and future terminal client.",
-  "main": "./src/index.ts",
-  "types": "./src/index.ts",
+  "description": "Framework-agnostic client for a pipeline-moe server: typed REST surface, pure SSE reducer, and an effectful room store. Consumed by the web and terminal clients.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/DAXZEIT/pipeline-moe.git",
+    "directory": "packages/client-core"
+  },
+  "keywords": [
+    "pipeline-moe",
+    "multi-agent",
+    "sse",
+    "client"
+  ],
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
   "exports": {
     ".": {
-      "types": "./src/index.ts",
-      "default": "./src/index.ts"
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
     },
     "./types": {
-      "types": "./src/types.ts",
-      "default": "./src/types.ts"
+      "types": "./dist/types.d.ts",
+      "default": "./dist/types.js"
     }
   },
+  "files": [
+    "dist"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "prepare": "tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {

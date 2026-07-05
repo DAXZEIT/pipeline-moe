@@ -6,8 +6,8 @@
 // framework-agnostic: it exposes a `subscribe`/`getSnapshot` contract that a
 // React `useSyncExternalStore` adapter or an Ink render loop can both consume.
 
-import { createApi } from "./api"
-import type { RoomApi } from "./api"
+import { createApi } from "./api.js"
+import type { RoomApi } from "./api.js"
 import {
   initialRoomState,
   reduce,
@@ -17,8 +17,8 @@ import {
   type RoomState,
   type SseEventName,
   type ThinkingLevel,
-} from "./state"
-import type { RouteDecision, RoutingMode } from "./types"
+} from "./state.js"
+import type { RouteDecision, RoutingMode } from "./types.js"
 
 // ── SSE transport abstraction ───────────────────────────────────────────────
 // The store doesn't know how events arrive — the host injects a factory. The

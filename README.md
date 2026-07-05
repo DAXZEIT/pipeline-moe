@@ -37,9 +37,11 @@ receipt**.
 
 ## Run
 
-**From npm** (server + bundled web UI, no clone needed):
+**From npm** (no clone needed):
 ```bash
-npx pipeline-moe serve     # API + web UI on :5300, workspace = current dir
+npx pipeline-moe serve         # server: API + bundled web UI on :5300
+npm i -g @pipeline-moe/tui     # terminal client
+pmoe                           # connect (defaults to localhost:5300)
 ```
 
 **From source:**
@@ -56,7 +58,7 @@ bash start.sh      # full launch: llama-server → backend → web UI, health-ga
                    # (set LLAMA_SCRIPT to your llama-server launch script)
 ```
 
-**Terminal client:**
+**Terminal client (from source):**
 ```bash
 npm -C packages/tui start                        # connect to localhost:5300
 npm -C packages/tui start -- --server http://host:5300 --room default

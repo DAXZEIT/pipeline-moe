@@ -13,7 +13,7 @@ import type {
   RoutingMode,
   RosterItem,
   WorkspaceFile,
-} from "./types"
+} from "./types.js"
 
 async function json<T>(res: Response): Promise<T> {
   if (!res.ok) {

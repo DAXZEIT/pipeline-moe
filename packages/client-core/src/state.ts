@@ -21,7 +21,7 @@ import type {
   RoutingMode,
   ToolActivity,
   WorkspaceFile,
-} from "./types"
+} from "./types.js"
 
 export type ThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh"
 
