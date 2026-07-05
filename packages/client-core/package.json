@@ -2,6 +2,7 @@
   "name": "@pipeline-moe/client-core",
   "version": "0.1.0",
   "private": true,
+  "license": "MIT",
   "type": "module",
   "description": "Framework-agnostic client (typed REST surface + shared types) for a pipeline-moe server. Consumed by the web frontend and future terminal client.",
   "main": "./src/index.ts",

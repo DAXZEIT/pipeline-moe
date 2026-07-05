@@ -7,11 +7,16 @@
 import { createHash } from "node:crypto"
 import { access, mkdir, readdir, readFile, stat, unlink, writeFile } from "node:fs/promises"
 import { readFileSync } from "node:fs"
-import { extname, join, resolve } from "node:path"
+import { dirname, extname, join, resolve } from "node:path"
+import { fileURLToPath } from "node:url"
 import cors from "cors"
 import rateLimit from "express-rate-limit"
 import express, { Router } from "express"
 import { config } from "./config.js"
+
+/** Package root (this file lives in <root>/src) — anchors paths that must
+ *  work when installed as a dependency and run from an arbitrary cwd. */
+const packageRoot = () => resolve(dirname(fileURLToPath(import.meta.url)), "..")
 import { downgradeUnavailableModels, isAllowedModel, listModels, resolveModel, type ResolvedModel } from "./model.js"
 import { listWorkspace } from "./receipts.js"
 import { BASE_PROMPT, BUILDER_OVERLAY, PLANNER_OVERLAY, SEED_PERSONAS } from "./personas.js"
@@ -1800,6 +1805,22 @@ async function main(): Promise<void> {
 
   // Mount the room-scoped router. CRUD routes above must come before this.
   app.use("/api/rooms/:roomId", requireRoom, roomRouter)
+
+  // Serve the built web UI when present (web/dist relative to the package
+  // root, not the cwd — `npx pipeline-moe serve` runs from anywhere). In dev
+  // the Vite server on :5310 is used instead and this directory is absent.
+  const webDist = resolve(packageRoot(), "web", "dist")
+  try {
+    readFileSync(join(webDist, "index.html"))
+    app.use(express.static(webDist))
+    // SPA fallback: any non-API GET serves the app shell.
+    app.get(/^\/(?!api\/).*/, (_req, res) => {
+      res.sendFile(join(webDist, "index.html"))
+    })
+    console.log(`[server] serving web UI from ${webDist}`)
+  } catch {
+    // no built web UI — API only
+  }
 
   const server = app.listen(config.port, "127.0.0.1", () => {
     console.log(`[server] Pipeline-MoE listening on http://localhost:${config.port}`)

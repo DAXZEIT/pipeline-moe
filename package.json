@@ -1,9 +1,38 @@
 {
   "name": "pipeline-moe",
   "version": "0.1.0",
-  "private": true,
   "type": "module",
-  "description": "Pipeline-MoE — multi-agent chat room orchestrating N stateful pi AgentSession instances over a shared workspace.",
+  "description": "Local-first multi-agent chat room — N stateful pi agent sessions over a shared workspace, with terminal and web clients.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/DAXZEIT/pipeline-moe.git"
+  },
+  "keywords": [
+    "multi-agent",
+    "orchestration",
+    "llm",
+    "local-llm",
+    "llama-server",
+    "agents",
+    "tui",
+    "sse"
+  ],
+  "engines": {
+    "node": ">=20.12"
+  },
+  "bin": {
+    "pipeline-moe": "./bin/pipeline-moe.mjs"
+  },
+  "files": [
+    "bin",
+    "src",
+    "!src/__tests__",
+    "presets",
+    "web/dist",
+    ".env.example",
+    "tsconfig.json"
+  ],
   "workspaces": [
     "packages/*"
   ],
@@ -14,6 +43,8 @@
     "dev:frontend": "npm -C web run dev",
     "start": "tsx src/server.ts",
     "start:full": "bash start.sh",
+    "build:web": "npm -C web run build",
+    "prepack": "npm -C web run build",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },
@@ -22,6 +53,7 @@
     "cors": "^2.8.5",
     "express": "^4.19.2",
     "express-rate-limit": "^8.5.2",
+    "tsx": "^4.19.0",
     "typebox": "^1.2.16",
     "youtube-transcript-plus": "^2.0.0"
   },
@@ -30,7 +62,6 @@
     "@types/express": "^4.17.21",
     "@types/node": "^22.0.0",
     "concurrently": "^10.0.3",
-    "tsx": "^4.19.0",
     "typescript": "^5.6.0",
     "vitest": "^4.1.9"
   }

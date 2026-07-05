@@ -37,6 +37,12 @@ receipt**.
 
 ## Run
 
+**From npm** (server + bundled web UI, no clone needed):
+```bash
+npx pipeline-moe serve     # API + web UI on :5300, workspace = current dir
+```
+
+**From source:**
 ```bash
 git clone https://github.com/DAXZEIT/pipeline-moe && cd pipeline-moe
 npm install
