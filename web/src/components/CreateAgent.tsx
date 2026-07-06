@@ -1,7 +1,6 @@
 import { useState } from "react"
 import type { api } from "../api"
-
-const ALL_TOOLS = ["read", "bash", "edit", "write", "grep", "find", "ls"]
+import { ALL_TOOLS } from "../tools"
 
 interface Props {
   onCancel: () => void
