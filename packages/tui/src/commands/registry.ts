@@ -369,12 +369,17 @@ export const COMMANDS: Command[] = [
               kind: "select",
               title: p.displayName,
               items: [
-                { id: "replace", label: "Replace API key" },
-                { id: "remove", label: "Remove API key" },
+                p.supportsOAuth
+                  ? { id: "replace", label: "Log in again (OAuth)" }
+                  : { id: "replace", label: "Replace API key" },
+                { id: "remove", label: "Remove credentials" },
               ],
               onSelect: (action) => {
                 if (action === "remove") ctx.store.actions.removeProvider(name)
-                else promptApiKey(ctx, name, p.displayName)
+                else if (p.supportsOAuth) {
+                  ctx.store.actions.loginProvider(name)
+                  ctx.notify(`Starting OAuth login for ${p.displayName}…`)
+                } else promptApiKey(ctx, name, p.displayName)
               },
             })
           } else if (p.supportsOAuth) {

@@ -665,23 +665,14 @@ async function main(): Promise<void> {
   // ── Providers ──────────────────────────────────────────────────────────────
 
   // List all known providers with their auth status (no secrets exposed).
-  app.get("/api/providers", (_req, res) => {
-    const allModels = resolved.modelRegistry.getAll()
-    const providerSet = new Set(allModels.map((m) => m.provider))
-    const providers = Array.from(providerSet).map((name) => {
-      const authStatus = resolved.modelRegistry.getProviderAuthStatus(name)
-      const models = allModels
-        .filter((m) => m.provider === name)
-        .map((m) => ({ id: m.id, name: (m as { name?: string }).name ?? m.id }))
-      return {
-        name,
-        displayName: resolved.modelRegistry.getProviderDisplayName(name),
-        ...authStatus,
-        explicitlyEnabled: explicitlyEnabledProviders.has(name),
-        models,
-      }
+  // Uses the same builder as the SSE "providers" broadcast — a REST-only
+  // duplicate here once shipped without supportsOAuth, so clients fetching
+  // over REST offered an API-key prompt for OAuth-capable providers.
+  app.get("/api/providers", async (_req, res) => {
+    res.json({
+      providers: await getProviderList(resolved, explicitlyEnabledProviders),
+      explicitlyEnabled: Array.from(explicitlyEnabledProviders),
     })
-    res.json({ providers, explicitlyEnabled: Array.from(explicitlyEnabledProviders) })
   })
 
   // Set an API key for a provider (persisted to auth.json).
