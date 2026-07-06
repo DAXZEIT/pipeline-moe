@@ -31,7 +31,9 @@ export function SelectOverlay({
   useInput(
     (_input, key) => {
       if (key.escape) return onCancel()
-      if (items.length === 0) return
+      // An empty list has nothing to pick — let any key dismiss it, so the
+      // overlay never reads as a stuck modal.
+      if (items.length === 0) return onCancel()
       if (key.upArrow) setIndex((i) => (i - 1 + items.length) % items.length)
       else if (key.downArrow) setIndex((i) => (i + 1) % items.length)
       else if (key.return) onSelect(items[index].id)

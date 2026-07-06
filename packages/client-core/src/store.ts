@@ -130,12 +130,13 @@ export function createRoomStore(opts: RoomStoreOptions) {
 
   // ── Lifecycle ─────────────────────────────────────────────────────────────
 
-  /** Load the REST snapshot and open the SSE stream. Idempotent-safe to call once. */
-  const start = () => {
-    // Clear transient fields before (re)loading — a reused store must not show a
-    // prior room's in-flight turn. Fresh stores are already clean; this is cheap.
-    set(resetTransient(state))
-
+  /**
+   * Fetch the full REST snapshot. Runs at start() and again on every SSE open:
+   * if the client came up before the server (or the server restarted), the
+   * initial fetches failed silently — re-running them on (re)connect is what
+   * lets providers/settings/conversations self-heal instead of staying empty.
+   */
+  const loadSnapshot = () => {
     rApi.transcript().then((m) => patch({ messages: m })).catch(() => {})
     rApi.workspace().then((w) => patch({ workspace: w })).catch(() => {})
     rApi.roster().then((r) => patch({ roster: r })).catch(() => {})
@@ -157,9 +158,20 @@ export function createRoomStore(opts: RoomStoreOptions) {
     }).catch(() => {})
     rApi.conversations().then((c) => patch({ conversations: c.list, currentConversationId: c.currentId })).catch(() => {})
     api.providers().then((d) => patch({ providers: d.providers, explicitlyEnabled: d.explicitlyEnabled })).catch(() => {})
+  }
+
+  /** Load the REST snapshot and open the SSE stream. Idempotent-safe to call once. */
+  const start = () => {
+    // Clear transient fields before (re)loading — a reused store must not show a
+    // prior room's in-flight turn. Fresh stores are already clean; this is cheap.
+    set(resetTransient(state))
+    loadSnapshot()
 
     conn = makeEventSource(sseUrl, {
-      onOpen: () => patch({ connected: true }),
+      onOpen: () => {
+        patch({ connected: true })
+        loadSnapshot()
+      },
       onError: () => patch({ connected: false }),
       onEvent,
     })
