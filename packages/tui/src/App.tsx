@@ -155,6 +155,7 @@ export function App({
             messages={state.messages}
             roster={state.roster}
             streaming={state.streaming}
+            liveReasoning={state.liveReasoning}
             isActive={!overlay && !state.oauthProgress}
           />
         </Box>

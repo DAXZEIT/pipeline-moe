@@ -54,15 +54,18 @@ export function Transcript({
   messages,
   roster,
   streaming,
+  liveReasoning,
   isActive,
 }: {
   messages: Message[]
   roster: RosterItem[]
   streaming: Record<string, string>
+  liveReasoning: Record<string, string>
   isActive: boolean
 }) {
   const { rows, columns } = useTerminalSize()
   const [offset, setOffset] = useState(0) // display lines scrolled up from the bottom
+  const [showThoughts, setShowThoughts] = useState(false)
   const maxOffsetRef = useRef(0)
   const pageRef = useRef(1)
 
@@ -81,8 +84,26 @@ export function Transcript({
 
   // Flatten the whole transcript into display lines.
   const lines: Line[] = []
+
+  // The web UI's collapsible 💭 block: collapsed to one line by default
+  // (reasoning traces can dwarf the reply), Ctrl+T expands them all. A live
+  // trace shows its last lines so you can watch the agent think.
+  const pushThought = (reasoning: string, live: boolean) => {
+    const wrapped = wrap(reasoning.trim(), Math.max(10, width - 2))
+    if (showThoughts) {
+      lines.push({ text: live ? "💭 thinking…" : "💭 thought", dim: true })
+      for (const l of wrapped) lines.push({ text: "  " + l, dim: true })
+    } else if (live) {
+      lines.push({ text: "💭 thinking…", dim: true })
+      for (const l of wrapped.slice(-2)) lines.push({ text: "  " + l, dim: true })
+    } else {
+      lines.push({ text: `💭 thought (${wrapped.length} line${wrapped.length === 1 ? "" : "s"} · ctrl+t)`, dim: true })
+    }
+  }
+
   for (const m of messages) {
     lines.push({ text: nameOf(m.author, m.authorName), bold: true, color: colorOf(m.author) })
+    if (m.reasoning) pushThought(m.reasoning, false)
     if (m.text) {
       const rendered =
         m.author === "user" ? wrap(m.text, width) : renderMarkdownLines(m.text, width) ?? wrap(m.text, width)
@@ -90,10 +111,16 @@ export function Transcript({
     } else lines.push({ text: "(no response)", dim: true })
     lines.push({ text: "" })
   }
-  for (const [id, text] of Object.entries(streaming)) {
-    if (!text) continue
+  // Live blocks: an agent can be reasoning before its first text token, so
+  // walk the union of both buffers.
+  const liveIds = [...new Set([...Object.keys(streaming), ...Object.keys(liveReasoning)])]
+  for (const id of liveIds) {
+    const text = streaming[id] ?? ""
+    const reasoning = liveReasoning[id] ?? ""
+    if (!text && !reasoning) continue
     lines.push({ text: nameOf(id, id), bold: true, color: colorOf(id), cursor: true })
-    for (const l of renderStreamingMarkdownLines(text, width) ?? wrap(text, width)) lines.push({ text: l })
+    if (reasoning) pushThought(reasoning, !text)
+    if (text) for (const l of renderStreamingMarkdownLines(text, width) ?? wrap(text, width)) lines.push({ text: l })
     lines.push({ text: "" })
   }
 
@@ -107,9 +134,11 @@ export function Transcript({
   const visible = lines.slice(start, end)
 
   useInput(
-    (_input, key) => {
+    (input, key) => {
       if (key.pageUp) setOffset((o) => Math.min(maxOffsetRef.current, o + pageRef.current))
       else if (key.pageDown) setOffset((o) => Math.max(0, o - pageRef.current))
+      // Ctrl+T toggles thought expansion; the command line ignores ctrl-chords.
+      else if (key.ctrl && input === "t") setShowThoughts((s) => !s)
     },
     { isActive },
   )
