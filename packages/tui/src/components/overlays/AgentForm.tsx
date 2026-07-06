@@ -58,7 +58,11 @@ export function AgentForm({
         store.pushNotice(`Agent "${values.name.trim()}" created.`)
         onClose()
       })
-      .catch(() => {})
+      // Surface the failure in the form itself — a swallowed rejection leaves
+      // Create looking like it did nothing at all.
+      .catch((err: unknown) =>
+        setError(err instanceof Error && err.message ? err.message : "Create failed — server unreachable?"),
+      )
   }
 
   useInput(
@@ -73,11 +77,21 @@ export function AgentForm({
       if (onCreate) return
       const field = FIELDS[focus].key
       if (key.backspace || key.delete) {
+        setError(null)
         setValues((v) => ({ ...v, [field]: v[field].slice(0, -1) }))
         return
       }
       if (key.ctrl || key.meta) return
-      if (input) setValues((v) => ({ ...v, [field]: v[field] + input }))
+      if (input) {
+        // Pastes and coalesced keystrokes can arrive as one chunk with \r/\n
+        // embedded — raw control characters shred the box layout, so flatten
+        // newlines to spaces and drop the rest.
+        const clean = input.replace(/[\r\n\t]+/g, " ").replace(/[\u0000-\u001f\u007f]/g, "")
+        if (clean) {
+          setError(null)
+          setValues((v) => ({ ...v, [field]: v[field] + clean }))
+        }
+      }
     },
     { isActive },
   )
