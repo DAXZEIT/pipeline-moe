@@ -372,6 +372,10 @@ export function createRoomStore(opts: RoomStoreOptions) {
       }).catch(fail)
     },
 
+    submitOAuthInput: (provider: string, value: string) => {
+      api.oauthInput(provider, value).catch(fail)
+    },
+
     dismissOAuth: () => {
       patch({ oauthProgress: null })
     },

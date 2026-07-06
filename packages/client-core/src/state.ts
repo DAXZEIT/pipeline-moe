@@ -371,19 +371,22 @@ export function reduce(state: RoomState, event: SseEvent): ReduceResult {
 
     case "oauth_progress": {
       const data = event.data as {
-        type: "device_code" | "auth_url" | "progress" | "success" | "error"
+        type: "device_code" | "auth_url" | "prompt" | "progress" | "success" | "error"
         provider?: string
         verificationUri?: string
         userCode?: string
         url?: string
         instructions?: string
         message?: string
+        placeholder?: string
       }
       let effect: Effect
       if (data.type === "device_code") {
         effect = { type: "notice", msg: `OAuth for ${data.provider}: visit ${data.verificationUri}, enter code ${data.userCode}`, level: "info" }
       } else if (data.type === "auth_url") {
         effect = { type: "notice", msg: `OAuth for ${data.provider}: ${data.instructions || "visit " + data.url}`, level: "info" }
+      } else if (data.type === "prompt") {
+        effect = { type: "notice", msg: `OAuth ${data.provider}: ${data.message ?? "input required"}`, level: "info" }
       } else if (data.type === "progress") {
         effect = { type: "notice", msg: `OAuth ${data.provider}: ${data.message}`, level: "info" }
       } else if (data.type === "success") {
@@ -391,14 +394,18 @@ export function reduce(state: RoomState, event: SseEvent): ReduceResult {
       } else {
         effect = { type: "notice", msg: data.message ?? "", level: "error" }
       }
+      // Carry link details across steps: a later "prompt"/"progress" event must
+      // not wipe the auth URL the user may still need on screen.
+      const prev = state.oauthProgress
       const oauthProgress: OAuthProgress = {
-        provider: data.provider ?? state.oauthProgress?.provider ?? "",
+        provider: data.provider ?? prev?.provider ?? "",
         status: data.type,
-        verificationUri: data.verificationUri,
-        userCode: data.userCode,
-        url: data.url,
-        instructions: data.instructions,
+        verificationUri: data.verificationUri ?? prev?.verificationUri,
+        userCode: data.userCode ?? prev?.userCode,
+        url: data.url ?? prev?.url,
+        instructions: data.instructions ?? prev?.instructions,
         message: data.message,
+        placeholder: data.placeholder ?? prev?.placeholder,
       }
       return { state: { ...state, oauthProgress }, effects: [effect] }
     }

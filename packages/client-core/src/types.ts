@@ -185,12 +185,14 @@ export interface ResumableRoom {
 /** Live state of an in-flight OAuth device/auth flow (from oauth_progress SSE). */
 export interface OAuthProgress {
   provider: string
-  status: "device_code" | "auth_url" | "progress" | "success" | "error"
+  status: "device_code" | "auth_url" | "prompt" | "progress" | "success" | "error"
   verificationUri?: string
   userCode?: string
   url?: string
   instructions?: string
   message?: string
+  /** Input hint when the flow asks for a pasted code/redirect URL (status "prompt"). */
+  placeholder?: string
 }
 
 /** A provider listed by GET /api/providers. */

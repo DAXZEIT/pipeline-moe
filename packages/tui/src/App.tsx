@@ -1,3 +1,4 @@
+import { spawn } from "node:child_process"
 import { Box } from "ink"
 import { useEffect, useMemo, useState } from "react"
 import type { RoomStore, Api } from "@pipeline-moe/client-core"
@@ -51,6 +52,19 @@ export function App({
   const runningAgent = state.runningAgentId
     ? state.roster.find((r) => r.id === state.runningAgentId) ?? null
     : null
+
+  // Open the OAuth authorization URL in the local browser as soon as it
+  // arrives — the TUI runs where the user is, so this is the right place to
+  // launch it (the server may be headless/remote). Best-effort: if it fails,
+  // the panel still shows the URL to open manually.
+  const oauthUrl = state.oauthProgress?.status === "auth_url" ? state.oauthProgress.url : undefined
+  useEffect(() => {
+    if (!oauthUrl) return
+    const opener = process.platform === "darwin" ? "open" : "xdg-open"
+    try {
+      spawn(opener, [oauthUrl], { detached: true, stdio: "ignore" }).on("error", () => {}).unref()
+    } catch {}
+  }, [oauthUrl])
 
   const [overlay, setOverlay] = useState<Overlay | null>(null)
   const closeOverlay = () => setOverlay(null)
@@ -139,6 +153,7 @@ export function App({
           progress={state.oauthProgress}
           isActive={!overlay}
           onDismiss={() => store.actions.dismissOAuth()}
+          onSubmitInput={(value) => store.actions.submitOAuthInput(state.oauthProgress!.provider, value)}
         />
       ) : null}
 

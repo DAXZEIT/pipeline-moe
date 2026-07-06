@@ -717,6 +717,10 @@ async function main(): Promise<void> {
     }
   })
 
+  // Pending manual inputs for in-flight OAuth flows (pasted redirect URL or
+  // authorization code), keyed by provider. Resolved by the /login/input route.
+  const pendingOAuthInputs = new Map<string, (value: string) => void>()
+
   // Start OAuth login flow for a provider (device-code or auth URL).
   app.post("/api/providers/:name/login", async (req, res) => {
     const name = req.params.name
@@ -760,14 +764,26 @@ async function main(): Promise<void> {
               message,
             })
           },
+          // Manual completion path: providers like Anthropic race a localhost
+          // callback server against a pasted redirect URL. Without this
+          // callback the flow waits on the callback forever when the browser
+          // is on another machine. The promise resolves when a client POSTs
+          // /login/input; cleanup happens in the outer finally.
+          onManualCodeInput: () =>
+            new Promise<string>((resolve) => {
+              pendingOAuthInputs.set(providerName, resolve)
+            }),
           onPrompt: async (prompt) => {
-            // For headless: reject prompts that require user input
+            // Ask the clients for input over SSE and wait for /login/input.
             hub.broadcast("oauth_progress", {
               provider: providerName,
-              type: "error",
-              message: `OAuth requires interactive prompt: "${prompt.message}" — use the pi CLI for this provider.`,
+              type: "prompt",
+              message: prompt.message,
+              placeholder: (prompt as { placeholder?: string }).placeholder,
             })
-            throw new Error("interactive prompt not supported in headless mode")
+            return new Promise<string>((resolve) => {
+              pendingOAuthInputs.set(providerName, resolve)
+            })
           },
           onSelect: async () => {
             hub.broadcast("oauth_progress", {
@@ -797,10 +813,31 @@ async function main(): Promise<void> {
           type: "error",
           message: msg,
         })
+      } finally {
+        pendingOAuthInputs.delete(providerName)
       }
     })
 
     res.status(202).json({ accepted: true, provider: name })
+  })
+
+  // Feed manual input (pasted redirect URL / authorization code) into an
+  // in-flight OAuth login for this provider.
+  app.post("/api/providers/:name/login/input", (req, res) => {
+    const name = req.params.name
+    const resolveInput = pendingOAuthInputs.get(name)
+    if (!resolveInput) {
+      res.status(404).json({ error: `no OAuth flow waiting for input for "${name}"` })
+      return
+    }
+    const value = String((req.body as { value?: unknown } | undefined)?.value ?? "").trim()
+    if (!value) {
+      res.status(400).json({ error: "value is required" })
+      return
+    }
+    pendingOAuthInputs.delete(name)
+    resolveInput(value)
+    res.json({ ok: true })
   })
 
   // Remove credentials for a provider.

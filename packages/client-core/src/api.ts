@@ -322,6 +322,14 @@ export function createApi(API_BASE: string) {
         json<{ accepted: boolean; provider: string }>(r),
       ),
 
+    /** Answer an in-flight OAuth flow (pasted redirect URL / authorization code). */
+    oauthInput: (name: string, value: string) =>
+      fetch(`${API_BASE}/api/providers/${name}/login/input`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ value }),
+      }).then((r) => json<{ ok: boolean }>(r)),
+
     // ── Room CRUD (process-global) ──────────────────────────────────────────
 
     personaTemplates: () =>
