@@ -2,6 +2,7 @@ import { Box, Text, useInput } from "ink"
 import { useState } from "react"
 import type { RoomStore } from "@pipeline-moe/client-core"
 import { useRoomStore } from "../../useRoomStore"
+import { shortModel } from "../../commands/registry"
 
 /**
  * Interactive line-up editor. Reads the live roster from the store so reorder/
@@ -59,7 +60,7 @@ export function LineupOverlay({
         <Text dimColor>Empty room — press a to add an agent.</Text>
       ) : (
         roster.map((p, idx) => (
-          <Box key={p.id}>
+          <Box key={p.id} justifyContent="space-between">
             <Text color={idx === i ? "cyan" : undefined} inverse={idx === i}>
               {idx === i ? "▶ " : "  "}
               <Text color={p.color}>
@@ -69,6 +70,7 @@ export function LineupOverlay({
               {p.active ? "●active" : "○paused"}
               {p.parallel ? " ∥" : ""}
             </Text>
+            <Text dimColor> {shortModel(p.model) ?? "room default"}</Text>
           </Box>
         ))
       )}

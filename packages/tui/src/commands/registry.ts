@@ -27,6 +27,46 @@ function splitTarget(args: string): { target: string; rest: string } {
   return { target: trimmed.slice(0, sp), rest: trimmed.slice(sp + 1).trim() }
 }
 
+/** Compact display form of a model ref: drop the provider prefix and .gguf. */
+export function shortModel(ref: string | undefined): string | null {
+  if (!ref) return null
+  const tail = ref.split("/").pop() ?? ref
+  return tail.replace(/\.gguf$/i, "")
+}
+
+/** List available models and PATCH the chosen one onto the agent. */
+async function openModelPicker(ctx: CommandContext, agentId: string): Promise<void> {
+  const agent = ctx.state.roster.find((p) => p.id === agentId)
+  try {
+    const { models } = await ctx.api.models()
+    ctx.openOverlay({
+      kind: "select",
+      title: `Model for ${agent?.icon ?? ""} ${agent?.name ?? agentId}`,
+      items: [
+        {
+          id: "",
+          label: `${!agent?.model ? "● " : "  "}Room default`,
+          hint: "inherit the room's model",
+        },
+        ...models.map((m) => ({
+          id: m.ref,
+          label: `${m.ref === agent?.model ? "● " : "  "}${m.local ? "🖥 " : "☁ "}${m.name}`,
+          hint: m.provider,
+        })),
+      ],
+      emptyText: "No models reported by the server.",
+      onSelect: (ref) => {
+        ctx.store.actions
+          .updateParticipant(agentId, { model: ref || null })
+          .then(() => ctx.notify(`@${agentId} → ${ref ? shortModel(ref) : "room default"}`))
+          .catch(() => {})
+      },
+    })
+  } catch {
+    ctx.notify("Failed to load models.", "error")
+  }
+}
+
 /** Raise the masked key prompt for a provider and submit it to the store. */
 function promptApiKey(ctx: CommandContext, name: string, displayName: string): void {
   ctx.openOverlay({
@@ -264,6 +304,30 @@ export const COMMANDS: Command[] = [
     name: "agent",
     summary: "Create a new agent",
     run: (ctx) => ctx.openOverlay({ kind: "agentForm" }),
+  },
+  {
+    name: "model",
+    summary: "Swap an agent's model on the fly",
+    usage: "[@agent]",
+    run: async (ctx, args) => {
+      const token = args.trim()
+      if (!token) {
+        // No target — pick the agent first, then chain into the model picker.
+        ctx.openOverlay({
+          kind: "select",
+          title: "Change model for…",
+          items: ctx.state.roster.map((p) => ({
+            id: p.id,
+            label: `${p.icon} ${p.name}`,
+            hint: shortModel(p.model) ?? "room default",
+          })),
+          emptyText: "Empty room.",
+          onSelect: (id) => void openModelPicker(ctx, id),
+        })
+        return
+      }
+      withAgent(ctx, token, (id) => void openModelPicker(ctx, id))
+    },
   },
   {
     name: "providers",
