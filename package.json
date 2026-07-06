@@ -1,6 +1,6 @@
 {
   "name": "pipeline-moe",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "type": "module",
   "description": "Local-first multi-agent chat room — N stateful pi agent sessions over a shared workspace, with terminal and web clients.",
   "license": "MIT",
