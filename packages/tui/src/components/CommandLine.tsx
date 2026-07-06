@@ -13,11 +13,14 @@ import { matchCommands } from "../commands/registry"
 export function CommandLine({
   onSend,
   onCommand,
+  onRoomNav,
   isActive,
   connected,
 }: {
   onSend: (text: string) => void
   onCommand: (input: string) => void
+  /** ←/→ on an empty line cycles rooms (the arrows keep their cursor role while typing). */
+  onRoomNav?: (dir: -1 | 1) => void
   isActive: boolean
   connected: boolean
 }) {
@@ -72,10 +75,12 @@ export function CommandLine({
         return
       }
       if (key.leftArrow) {
+        if (!value && onRoomNav) return onRoomNav(-1)
         setCursor((c) => Math.max(0, c - 1))
         return
       }
       if (key.rightArrow) {
+        if (!value && onRoomNav) return onRoomNav(1)
         setCursor((c) => Math.min(value.length, c + 1))
         return
       }

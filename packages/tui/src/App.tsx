@@ -1,9 +1,10 @@
 import { spawn } from "node:child_process"
 import { Box } from "ink"
-import { useEffect, useMemo, useState } from "react"
-import type { RoomStore, Api } from "@pipeline-moe/client-core"
+import { useCallback, useEffect, useMemo, useState } from "react"
+import type { RoomStore, Api, RoomSummary } from "@pipeline-moe/client-core"
 import { useRoomStore } from "./useRoomStore"
 import { Roster } from "./components/Roster"
+import { RoomTabs } from "./components/RoomTabs"
 import { Transcript } from "./components/Transcript"
 import { StatusBar } from "./components/StatusBar"
 import { CommandLine } from "./components/CommandLine"
@@ -73,6 +74,29 @@ export function App({
     if (id !== roomId) setRoomId(id)
   }
 
+  // Open-room list for the tab bar. Rooms appear/disappear outside this
+  // client's control (the web UI, Planner's spawn_room), so refresh on
+  // connect/switch and keep a light poll as the catch-all.
+  const [rooms, setRooms] = useState<RoomSummary[]>([])
+  const refreshRooms = useCallback(() => {
+    api.listRooms().then(setRooms).catch(() => {})
+  }, [api])
+  useEffect(() => {
+    refreshRooms()
+    const t = setInterval(refreshRooms, 15_000)
+    return () => clearInterval(t)
+  }, [refreshRooms, store])
+  useEffect(() => {
+    if (state.connected) refreshRooms()
+  }, [state.connected, refreshRooms])
+
+  const roomNav = (dir: -1 | 1) => {
+    if (rooms.length < 2) return
+    const ids = rooms.map((r) => r.roomId)
+    const at = ids.indexOf(roomId)
+    switchRoom(ids[(Math.max(at, 0) + dir + ids.length) % ids.length])
+  }
+
   const runCommand = (input: string) => {
     const body = input.slice(1) // strip leading "/"
     const sp = body.indexOf(" ")
@@ -97,6 +121,7 @@ export function App({
 
   return (
     <Box flexDirection="column" flexGrow={1}>
+      <RoomTabs rooms={rooms} current={roomId} />
       <Box flexGrow={1}>
         <Roster roster={state.roster} width={26} />
         <Box flexDirection="column" flexGrow={1} paddingX={1}>
@@ -179,6 +204,7 @@ export function App({
       <CommandLine
         onSend={(text) => store.actions.send(text)}
         onCommand={runCommand}
+        onRoomNav={roomNav}
         isActive={!overlay && !state.oauthProgress}
         connected={state.connected}
       />
