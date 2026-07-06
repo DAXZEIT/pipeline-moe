@@ -16,6 +16,7 @@ import { LineupOverlay } from "./components/overlays/LineupOverlay"
 import { AgentForm } from "./components/overlays/AgentForm"
 import { RoomForm } from "./components/overlays/RoomForm"
 import { PromptOverlay } from "./components/overlays/PromptOverlay"
+import { EditAgentForm } from "./components/overlays/EditAgentForm"
 import { PresetDetailOverlay } from "./components/overlays/PresetDetailOverlay"
 import { lookup } from "./commands/registry"
 import type { CommandContext, Overlay } from "./commands/types"
@@ -216,6 +217,9 @@ export function App({
       ) : null}
       {overlay?.kind === "prompt" ? (
         <PromptOverlay agentId={overlay.agentId} store={store} isActive onClose={closeOverlay} />
+      ) : null}
+      {overlay?.kind === "editAgent" ? (
+        <EditAgentForm agentId={overlay.agentId} store={store} isActive onClose={closeOverlay} />
       ) : null}
       {overlay?.kind === "presetDetail" ? (
         <PresetDetailOverlay

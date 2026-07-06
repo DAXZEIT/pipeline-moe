@@ -468,6 +468,25 @@ export const COMMANDS: Command[] = [
     },
   },
   {
+    name: "edit",
+    summary: "Edit an agent's name, icon, color, tools",
+    usage: "[@agent]",
+    run: (ctx, args) => {
+      const token = args.trim()
+      if (!token) {
+        const roster = ctx.store.getSnapshot().roster
+        return ctx.openOverlay({
+          kind: "select",
+          title: "Edit agent\u2026",
+          items: roster.map((p) => ({ id: p.id, label: `${p.icon} ${p.name}`, hint: p.id })),
+          emptyText: "Empty room.",
+          onSelect: (id) => ctx.openOverlay({ kind: "editAgent", agentId: id }),
+        })
+      }
+      withAgent(ctx, token, (id) => ctx.openOverlay({ kind: "editAgent", agentId: id }))
+    },
+  },
+  {
     name: "providers",
     summary: "Manage model providers (API keys, OAuth login)",
     run: (ctx) => {

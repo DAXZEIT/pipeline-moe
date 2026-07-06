@@ -5,7 +5,7 @@ import type { RoomStore } from "@pipeline-moe/client-core"
 // Everything the server's parsePersona accepts (src/validation.ts VALID_TOOLS)
 // — the web UI's chip row shows only the first seven, but the web tools are
 // just as valid, so the TUI offers the full set.
-const ALL_TOOLS = [
+export const ALL_TOOLS = [
   "read",
   "bash",
   "edit",
