@@ -3,6 +3,16 @@ import { useState } from "react"
 import type { OAuthProgress } from "@pipeline-moe/client-core"
 
 /**
+ * OSC 8 terminal hyperlink (same encoding pi uses): supporting terminals
+ * (Ghostty, kitty, WezTerm, iTerm2…) make the text clickable — which survives
+ * line-wrapping, unlike selecting a wrapped URL by hand. Terminals without
+ * support ignore the escapes and show the plain text.
+ */
+const link = (text: string, url: string) => `\u001B]8;;${url}\u0007${text}\u001B]8;;\u0007`
+
+const clickHint = process.platform === "darwin" ? "⌘+click to open ↗" : "Ctrl+click to open ↗"
+
+/**
  * Persistent OAuth flow panel. Unlike the 5s notice, this stays on screen until
  * the flow reaches success/error (or the user dismisses), so a device-code URL +
  * code remains visible long enough to authenticate in a browser.
@@ -61,8 +71,14 @@ export function OAuthPanel({
       {progress.status === "device_code" ? (
         <>
           <Text>
-            Visit <Text color="cyan" underline>{progress.verificationUri}</Text>
+            Visit{" "}
+            <Text color="cyan" underline>
+              {progress.verificationUri ? link(progress.verificationUri, progress.verificationUri) : ""}
+            </Text>
           </Text>
+          {progress.verificationUri ? (
+            <Text dimColor>{link(clickHint, progress.verificationUri)}</Text>
+          ) : null}
           <Text>
             Enter code <Text bold color="yellow">{progress.userCode}</Text>
           </Text>
@@ -74,9 +90,12 @@ export function OAuthPanel({
             <Text>{progress.status === "prompt" ? progress.message : progress.instructions}</Text>
           ) : null}
           {progress.url ? (
-            <Text color="cyan" underline wrap="wrap">
-              {progress.url}
-            </Text>
+            <>
+              <Text color="cyan" underline wrap="wrap">
+                {link(progress.url, progress.url)}
+              </Text>
+              <Text dimColor>{link(clickHint, progress.url)}</Text>
+            </>
           ) : null}
           <Box>
             <Text color="yellow">› </Text>
@@ -95,7 +114,7 @@ export function OAuthPanel({
       {progress.status === "error" ? <Text color="red">✗ {progress.message || "Login failed."}</Text> : null}
 
       <Text dimColor>
-        {done ? "esc / ⏎ dismiss" : wantsInput ? "finish in your browser · ⏎ submit pasted URL · esc to hide" : "finish in your browser · esc to hide"}
+        {done ? "esc / ⏎ dismiss" : wantsInput ? "finish in your browser · ⏎ submit pasted URL · esc cancel" : "finish in your browser · esc cancel"}
       </Text>
     </Box>
   )

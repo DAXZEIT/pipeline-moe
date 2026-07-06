@@ -330,6 +330,12 @@ export function createApi(API_BASE: string) {
         body: JSON.stringify({ value }),
       }).then((r) => json<{ ok: boolean }>(r)),
 
+    /** Cancel an in-flight OAuth flow (frees pi's localhost callback port). */
+    cancelLogin: (name: string) =>
+      fetch(`${API_BASE}/api/providers/${name}/login`, { method: "DELETE" }).then((r) =>
+        json<{ ok: boolean }>(r),
+      ),
+
     // ── Room CRUD (process-global) ──────────────────────────────────────────
 
     personaTemplates: () =>

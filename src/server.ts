@@ -718,8 +718,13 @@ async function main(): Promise<void> {
   })
 
   // Pending manual inputs for in-flight OAuth flows (pasted redirect URL or
-  // authorization code), keyed by provider. Resolved by the /login/input route.
-  const pendingOAuthInputs = new Map<string, (value: string) => void>()
+  // authorization code), keyed by provider. Resolved by the /login/input route,
+  // rejected by DELETE /login (cancel) — rejecting is what makes pi's flow
+  // abort and release the localhost callback port instead of waiting forever.
+  const pendingOAuthInputs = new Map<
+    string,
+    { resolve: (value: string) => void; reject: (err: Error) => void }
+  >()
 
   // Start OAuth login flow for a provider (device-code or auth URL).
   app.post("/api/providers/:name/login", async (req, res) => {
@@ -735,9 +740,22 @@ async function main(): Promise<void> {
       return
     }
 
+    // Retrying while a previous flow for this provider is still waiting would
+    // collide on pi's fixed callback port (EADDRINUSE) — abort the old flow
+    // first so a retry always gets a fresh start.
+    const stale = pendingOAuthInputs.get(name)
+    if (stale) {
+      pendingOAuthInputs.delete(name)
+      stale.reject(new Error("Login restarted"))
+      await new Promise((r) => setTimeout(r, 100)) // let the old flow release the port
+    }
+
     // Start the login flow in the background — communicate progress via SSE.
     // Return 202 immediately so the client can wait for SSE events.
     const providerName = name // capture for closure
+    // Identity of THIS attempt's pending entry: the finally below must only
+    // clear the map when the entry is still ours, never a newer attempt's.
+    let myEntry: { resolve: (value: string) => void; reject: (err: Error) => void } | undefined
     setImmediate(async () => {
       try {
         await resolved.authStorage.login(name, {
@@ -770,8 +788,9 @@ async function main(): Promise<void> {
           // is on another machine. The promise resolves when a client POSTs
           // /login/input; cleanup happens in the outer finally.
           onManualCodeInput: () =>
-            new Promise<string>((resolve) => {
-              pendingOAuthInputs.set(providerName, resolve)
+            new Promise<string>((resolve, reject) => {
+              myEntry = { resolve, reject }
+              pendingOAuthInputs.set(providerName, myEntry)
             }),
           onPrompt: async (prompt) => {
             // Ask the clients for input over SSE and wait for /login/input.
@@ -781,8 +800,9 @@ async function main(): Promise<void> {
               message: prompt.message,
               placeholder: (prompt as { placeholder?: string }).placeholder,
             })
-            return new Promise<string>((resolve) => {
-              pendingOAuthInputs.set(providerName, resolve)
+            return new Promise<string>((resolve, reject) => {
+              myEntry = { resolve, reject }
+              pendingOAuthInputs.set(providerName, myEntry)
             })
           },
           onSelect: async () => {
@@ -814,7 +834,9 @@ async function main(): Promise<void> {
           message: msg,
         })
       } finally {
-        pendingOAuthInputs.delete(providerName)
+        if (myEntry && pendingOAuthInputs.get(providerName) === myEntry) {
+          pendingOAuthInputs.delete(providerName)
+        }
       }
     })
 
@@ -836,7 +858,21 @@ async function main(): Promise<void> {
       return
     }
     pendingOAuthInputs.delete(name)
-    resolveInput(value)
+    resolveInput.resolve(value)
+    res.json({ ok: true })
+  })
+
+  // Cancel an in-flight OAuth login: rejecting the pending input makes pi's
+  // flow abort and release its localhost callback port.
+  app.delete("/api/providers/:name/login", (req, res) => {
+    const name = req.params.name
+    const pending = pendingOAuthInputs.get(name)
+    if (!pending) {
+      res.status(404).json({ error: `no OAuth flow in flight for "${name}"` })
+      return
+    }
+    pendingOAuthInputs.delete(name)
+    pending.reject(new Error("Login cancelled"))
     res.json({ ok: true })
   })
 

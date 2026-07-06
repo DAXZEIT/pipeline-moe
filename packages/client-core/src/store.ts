@@ -377,6 +377,11 @@ export function createRoomStore(opts: RoomStoreOptions) {
     },
 
     dismissOAuth: () => {
+      // Cancel any in-flight flow server-side (404 = already finished, fine) —
+      // an abandoned flow would otherwise hold pi's callback port forever.
+      const provider = state.oauthProgress?.provider
+      const active = state.oauthProgress && state.oauthProgress.status !== "success" && state.oauthProgress.status !== "error"
+      if (provider && active) api.cancelLogin(provider).catch(() => {})
       patch({ oauthProgress: null })
     },
   }
