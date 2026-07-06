@@ -100,6 +100,62 @@ async function openModelPicker(ctx: CommandContext, agentId: string, chain = fal
  * models, tools, flags — in a detail view before loading or applying it.
  * Esc in the detail chains back here; a preview beats blind-loading a roster.
  */
+// Fallback when the server doesn't report availableThinkingLevels (older
+// server or no live session yet) — mirrors src/types.ts.
+const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh"]
+
+function openAgentThinkingPicker(ctx: CommandContext): void {
+  const roster = ctx.store.getSnapshot().roster
+  ctx.openOverlay({
+    kind: "select",
+    title: "Thinking level for\u2026",
+    items: roster.map((p) => ({
+      id: p.id,
+      label: `${p.icon} ${p.name}`,
+      hint: p.thinkingLevel ?? "default",
+    })),
+    emptyText: "Empty room.",
+    onSelect: (id) => void openThinkingPicker(ctx, id, true),
+  })
+}
+
+async function openThinkingPicker(ctx: CommandContext, agentId: string, chain = false): Promise<void> {
+  try {
+    // The detail endpoint knows which levels the agent's current model
+    // actually supports (a local Qwen and a cloud Claude differ here).
+    const detail = await ctx.store.actions.getParticipant(agentId)
+    const levels = detail.availableThinkingLevels?.length ? detail.availableThinkingLevels : THINKING_LEVELS
+    const current = detail.thinkingLevel
+    ctx.openOverlay({
+      kind: "select",
+      title: `Thinking for ${detail.icon} ${detail.name}`,
+      items: [
+        {
+          id: "",
+          label: `${!current ? "\u25cf " : "  "}Default`,
+          hint: "inherit the global PIPELINE_THINKING setting",
+        },
+        ...levels.map((l) => ({ id: l, label: `${l === current ? "\u25cf " : "  "}${l}` })),
+      ],
+      onSelect: (level) => {
+        ctx.store.actions
+          .updateParticipant(agentId, { thinkingLevel: level || null })
+          .then(() => {
+            ctx.notify(`@${agentId} thinking \u2192 ${level || "default"}`)
+            if (chain) openAgentThinkingPicker(ctx)
+          })
+          .catch(() => {
+            if (chain) openAgentThinkingPicker(ctx)
+          })
+      },
+      // Esc = back to the agent picker when we came from it, not out.
+      onCancel: chain ? () => openAgentThinkingPicker(ctx) : undefined,
+    })
+  } catch {
+    ctx.notify("Failed to load agent detail.", "error")
+  }
+}
+
 async function openPresetPicker(ctx: CommandContext): Promise<void> {
   try {
     const presets = await ctx.api.presets()
@@ -378,6 +434,16 @@ export const COMMANDS: Command[] = [
       const token = args.trim()
       if (!token) return openAgentModelPicker(ctx)
       withAgent(ctx, token, (id) => void openModelPicker(ctx, id))
+    },
+  },
+  {
+    name: "thinking",
+    summary: "Set an agent's thinking level (matters for cloud models)",
+    usage: "[@agent]",
+    run: (ctx, args) => {
+      const token = args.trim()
+      if (!token) return openAgentThinkingPicker(ctx)
+      withAgent(ctx, token, (id) => void openThinkingPicker(ctx, id))
     },
   },
   {
