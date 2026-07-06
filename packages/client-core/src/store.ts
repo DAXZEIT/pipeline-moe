@@ -241,7 +241,13 @@ export function createRoomStore(opts: RoomStoreOptions) {
     getParticipant: (id: string) => rApi.participant(id),
 
     updateParticipant: (id: string, patchBody: Parameters<RoomApi["updateAgent"]>[1]) =>
-      rApi.updateAgent(id, patchBody).catch((err) => {
+      rApi.updateAgent(id, patchBody).then((updated) => {
+        // The response is the fresh RosterItem — fold it in immediately so UIs
+        // reading the snapshot right after (e.g. a reopened picker) see the
+        // change without waiting for the roster broadcast.
+        patch({ roster: state.roster.map((p) => (p.id === updated.id ? { ...p, ...updated } : p)) })
+        return updated
+      }).catch((err) => {
         fail(err)
         throw err
       }),

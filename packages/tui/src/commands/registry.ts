@@ -34,9 +34,30 @@ export function shortModel(ref: string | undefined): string | null {
   return tail.replace(/\.gguf$/i, "")
 }
 
+/**
+ * The agent picker of the /model loop. Reads the roster from a live snapshot
+ * (not the dispatch-time ctx.state) so hints reflect swaps made moments ago;
+ * each selection chains into the model picker, which returns here — one
+ * /model session can realign the whole lineup. Esc exits the loop.
+ */
+function openAgentModelPicker(ctx: CommandContext): void {
+  const roster = ctx.store.getSnapshot().roster
+  ctx.openOverlay({
+    kind: "select",
+    title: "Change model for…",
+    items: roster.map((p) => ({
+      id: p.id,
+      label: `${p.icon} ${p.name}`,
+      hint: shortModel(p.model) ?? "room default",
+    })),
+    emptyText: "Empty room.",
+    onSelect: (id) => void openModelPicker(ctx, id, true),
+  })
+}
+
 /** List available models and PATCH the chosen one onto the agent. */
-async function openModelPicker(ctx: CommandContext, agentId: string): Promise<void> {
-  const agent = ctx.state.roster.find((p) => p.id === agentId)
+async function openModelPicker(ctx: CommandContext, agentId: string, chain = false): Promise<void> {
+  const agent = ctx.store.getSnapshot().roster.find((p) => p.id === agentId)
   try {
     const { models } = await ctx.api.models()
     ctx.openOverlay({
@@ -58,9 +79,16 @@ async function openModelPicker(ctx: CommandContext, agentId: string): Promise<vo
       onSelect: (ref) => {
         ctx.store.actions
           .updateParticipant(agentId, { model: ref || null })
-          .then(() => ctx.notify(`@${agentId} → ${ref ? shortModel(ref) : "room default"}`))
-          .catch(() => {})
+          .then(() => {
+            ctx.notify(`@${agentId} → ${ref ? shortModel(ref) : "room default"}`)
+            if (chain) openAgentModelPicker(ctx)
+          })
+          .catch(() => {
+            if (chain) openAgentModelPicker(ctx)
+          })
       },
+      // Esc = back to the agent picker when we came from it, not out.
+      onCancel: chain ? () => openAgentModelPicker(ctx) : undefined,
     })
   } catch {
     ctx.notify("Failed to load models.", "error")
@@ -309,23 +337,9 @@ export const COMMANDS: Command[] = [
     name: "model",
     summary: "Swap an agent's model on the fly",
     usage: "[@agent]",
-    run: async (ctx, args) => {
+    run: (ctx, args) => {
       const token = args.trim()
-      if (!token) {
-        // No target — pick the agent first, then chain into the model picker.
-        ctx.openOverlay({
-          kind: "select",
-          title: "Change model for…",
-          items: ctx.state.roster.map((p) => ({
-            id: p.id,
-            label: `${p.icon} ${p.name}`,
-            hint: shortModel(p.model) ?? "room default",
-          })),
-          emptyText: "Empty room.",
-          onSelect: (id) => void openModelPicker(ctx, id),
-        })
-        return
-      }
+      if (!token) return openAgentModelPicker(ctx)
       withAgent(ctx, token, (id) => void openModelPicker(ctx, id))
     },
   },

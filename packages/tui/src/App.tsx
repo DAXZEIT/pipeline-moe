@@ -106,7 +106,10 @@ export function App({
             closeOverlay()
             overlay.onSelect(id)
           }}
-          onCancel={closeOverlay}
+          onCancel={() => {
+            closeOverlay()
+            overlay.onCancel?.()
+          }}
         />
       ) : null}
       {overlay?.kind === "textInput" ? (

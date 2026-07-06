@@ -20,6 +20,8 @@ export type Overlay =
       items: SelectItem[]
       emptyText?: string
       onSelect: (id: string) => void
+      /** Runs after Esc closes the overlay — lets a submenu reopen its parent. */
+      onCancel?: () => void
     }
   | {
       kind: "textInput"
