@@ -1,4 +1,5 @@
-import { Box, Text, useInput, useStdout } from "ink"
+import { Box, Text, useInput } from "ink"
+import { useTerminalSize } from "../useTerminalSize"
 import { useRef, useState } from "react"
 import type { Message, RosterItem } from "@pipeline-moe/client-core"
 import { renderMarkdownLines, renderStreamingMarkdownLines } from "../markdown"
@@ -60,13 +61,12 @@ export function Transcript({
   streaming: Record<string, string>
   isActive: boolean
 }) {
-  const { stdout } = useStdout()
+  const { rows, columns } = useTerminalSize()
   const [offset, setOffset] = useState(0) // display lines scrolled up from the bottom
   const maxOffsetRef = useRef(0)
   const pageRef = useRef(1)
 
-  const rows = stdout?.rows ?? 24
-  const cols = stdout?.columns ?? 80
+  const cols = columns
   // Reserve rows for the status bar, command line, notices and borders so the
   // transcript never overflows its flex slot. One line is kept for the footer.
   const height = Math.max(4, rows - 8)

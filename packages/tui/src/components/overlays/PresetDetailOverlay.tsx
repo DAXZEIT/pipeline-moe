@@ -1,4 +1,5 @@
-import { Box, Text, useInput, useStdout } from "ink"
+import { Box, Text, useInput } from "ink"
+import { useTerminalSize } from "../../useTerminalSize"
 import type { RoomStore, PresetFile } from "@pipeline-moe/client-core"
 import { shortModel } from "../../commands/registry"
 
@@ -23,7 +24,7 @@ export function PresetDetailOverlay({
   onBack?: () => void
   isActive: boolean
 }) {
-  const { stdout } = useStdout()
+  const { rows } = useTerminalSize()
 
   useInput(
     (input, key) => {
@@ -53,7 +54,6 @@ export function PresetDetailOverlay({
 
   // Two rows per persona (name+model, tools) — cap to the terminal height and
   // say how many more there are rather than pushing the chrome off-screen.
-  const rows = stdout?.rows ?? 24
   const maxPersonas = Math.max(2, Math.floor((rows - 12) / 2))
   const shown = preset.personas.slice(0, maxPersonas)
   const hidden = preset.personas.length - shown.length

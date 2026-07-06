@@ -1,4 +1,5 @@
-import { Box, Text, useInput, useStdout } from "ink"
+import { Box, Text, useInput } from "ink"
+import { useTerminalSize } from "../../useTerminalSize"
 import { useState } from "react"
 import type { SelectItem } from "../../commands/types"
 
@@ -28,7 +29,7 @@ export function SelectOverlay({
 }) {
   const [index, setIndex] = useState(0)
   const [query, setQuery] = useState("")
-  const { stdout } = useStdout()
+  const { rows } = useTerminalSize()
 
   const q = query.toLowerCase()
   const filtered = q
@@ -67,7 +68,6 @@ export function SelectOverlay({
 
   // Reserve rows for the surrounding chrome (transcript, status bar, command
   // line, borders) so the overlay itself never overflows a short terminal.
-  const rows = stdout?.rows ?? 24
   const maxVisible = Math.max(3, Math.min(12, rows - 10))
   const visible = Math.min(filtered.length, maxVisible)
 
