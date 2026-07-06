@@ -14,6 +14,7 @@ export function CommandLine({
   onSend,
   onCommand,
   onRoomNav,
+  onEmptyEnter,
   isActive,
   connected,
 }: {
@@ -21,6 +22,8 @@ export function CommandLine({
   onCommand: (input: string) => void
   /** ←/→ on an empty line cycles rooms (the arrows keep their cursor role while typing). */
   onRoomNav?: (dir: -1 | 1) => void
+  /** ⏎ on an empty line — used by the tab bar's "+ room" tab. */
+  onEmptyEnter?: () => void
   isActive: boolean
   connected: boolean
 }) {
@@ -50,6 +53,8 @@ export function CommandLine({
           if (matches.length > 0) onCommand("/" + matches[idx].name)
           else if (text.startsWith("/")) onCommand(text)
           else onSend(text)
+        } else if (onEmptyEnter) {
+          onEmptyEnter()
         }
         reset()
         return

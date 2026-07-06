@@ -14,6 +14,7 @@ import { SelectOverlay } from "./components/overlays/SelectOverlay"
 import { TextInputOverlay } from "./components/overlays/TextInputOverlay"
 import { LineupOverlay } from "./components/overlays/LineupOverlay"
 import { AgentForm } from "./components/overlays/AgentForm"
+import { RoomForm } from "./components/overlays/RoomForm"
 import { PresetDetailOverlay } from "./components/overlays/PresetDetailOverlay"
 import { lookup } from "./commands/registry"
 import type { CommandContext, Overlay } from "./commands/types"
@@ -70,7 +71,11 @@ export function App({
 
   const [overlay, setOverlay] = useState<Overlay | null>(null)
   const closeOverlay = () => setOverlay(null)
+  // The trailing "+ room" tab is a cursor position, not a room — selected via
+  // ←/→ like the others; ⏎ on it opens the create-room form.
+  const [plusSelected, setPlusSelected] = useState(false)
   const switchRoom = (id: string) => {
+    setPlusSelected(false)
     if (id !== roomId) setRoomId(id)
   }
 
@@ -91,11 +96,32 @@ export function App({
   }, [state.connected, refreshRooms])
 
   const roomNav = (dir: -1 | 1) => {
-    if (rooms.length < 2) return
+    // Cycle over [room0..roomN, +] — landing on the + slot selects it instead
+    // of switching.
     const ids = rooms.map((r) => r.roomId)
-    const at = ids.indexOf(roomId)
-    switchRoom(ids[(Math.max(at, 0) + dir + ids.length) % ids.length])
+    const n = ids.length
+    const at = plusSelected ? n : Math.max(ids.indexOf(roomId), 0)
+    const next = (at + dir + n + 1) % (n + 1)
+    if (next === n) {
+      setPlusSelected(true)
+      return
+    }
+    setPlusSelected(false)
+    if (ids[next] !== roomId) setRoomId(ids[next])
   }
+
+  const onEmptyEnter = () => {
+    if (plusSelected) setOverlay({ kind: "roomForm" })
+  }
+
+  // A notice pushed in the same tick as a room switch would land on the store
+  // being disposed — park it and deliver once the new store is mounted.
+  const [pendingNotice, setPendingNotice] = useState<string | null>(null)
+  useEffect(() => {
+    if (!pendingNotice) return
+    store.pushNotice(pendingNotice)
+    setPendingNotice(null)
+  }, [store, pendingNotice])
 
   const runCommand = (input: string) => {
     const body = input.slice(1) // strip leading "/"
@@ -121,7 +147,7 @@ export function App({
 
   return (
     <Box flexDirection="column" flexGrow={1}>
-      <RoomTabs rooms={rooms} current={roomId} />
+      <RoomTabs rooms={rooms} current={roomId} plusSelected={plusSelected} />
       <Box flexGrow={1}>
         <Roster roster={state.roster} width={26} />
         <Box flexDirection="column" flexGrow={1} paddingX={1}>
@@ -174,6 +200,18 @@ export function App({
         />
       ) : null}
       {overlay?.kind === "agentForm" ? <AgentForm store={store} isActive onClose={closeOverlay} /> : null}
+      {overlay?.kind === "roomForm" ? (
+        <RoomForm
+          api={api}
+          isActive
+          onClose={closeOverlay}
+          onCreated={(id, name, hadGoal) => {
+            switchRoom(id)
+            refreshRooms()
+            setPendingNotice(`Created room "${name}"${hadGoal ? " — goal started." : "."}`)
+          }}
+        />
+      ) : null}
       {overlay?.kind === "presetDetail" ? (
         <PresetDetailOverlay
           preset={overlay.preset}
@@ -205,6 +243,7 @@ export function App({
         onSend={(text) => store.actions.send(text)}
         onCommand={runCommand}
         onRoomNav={roomNav}
+        onEmptyEnter={onEmptyEnter}
         isActive={!overlay && !state.oauthProgress}
         connected={state.connected}
       />

@@ -33,6 +33,7 @@ export type Overlay =
     }
   | { kind: "lineup" }
   | { kind: "agentForm" }
+  | { kind: "roomForm" }
   | {
       kind: "presetDetail"
       preset: PresetFile

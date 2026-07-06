@@ -345,10 +345,12 @@ export const COMMANDS: Command[] = [
   {
     name: "newroom",
     summary: "Create a new room and switch to it",
-    usage: "<name>",
+    usage: "[name]",
     run: (ctx, args) => {
       const name = args.trim()
-      if (!name) return ctx.notify("Usage: /newroom <name>", "error")
+      // Bare /newroom opens the full form (preset, workdir, goal) — same as
+      // the tab bar's "+ room" tab.
+      if (!name) return ctx.openOverlay({ kind: "roomForm" })
       ctx.api
         .createRoom({ name })
         .then((room) => {
