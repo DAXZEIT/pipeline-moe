@@ -1,9 +1,14 @@
 # Pipeline-MoE
 
-A **multi-agent chat room** you can run entirely on local models. Orchestrates
-**N stateful `pi` agent sessions** (one per persona, same model, different
+**Think frontier, run local.** A multi-agent chat room over N stateful
+[`pi`](https://github.com/earendil-works/pi) sessions, one shared workspace, and
+your own GPU.
+
+Orchestrates **N stateful `pi` agent sessions** (one per persona, different
 system prompts + tool sets) over a **shared workspace**, routes `@mentions`
 through a **serial queue**, and streams everything to its clients over **SSE**.
+Plan with a frontier model, execute on a local 27B, swap any agent to cloud
+when the project demands it.
 
 Two clients ship with it, built on a shared framework-agnostic core
 (`@pipeline-moe/client-core`):
@@ -16,6 +21,33 @@ Two clients ship with it, built on a shared framework-agnostic core
 Local-first by policy: cloud providers are hidden and rejected unless you
 explicitly opt in with `PIPELINE_ALLOW_CLOUD=1`.
 
+### Example Lineup — Tiered Orchestration
+
+| Tier | Persona | Model | Where |
+|---|---|---|---|
+| Frontier | planner | Claude Opus 4.6 | API |
+| Frontier | auditor | Claude Sonnet 5 | API |
+| Local | builder, tester, scribe, fetcher, scout | Qwopus 3.6 27B (Q5_K_M) | llama-server, RTX 3090 |
+
+The planner and auditor need calibrated reasoning and judgment — they decide
+*what* to build and *whether* it's correct. The execution agents need to follow
+instructions, use tools, and write code — a well-distilled local 27B does this
+at 50 tok/s with zero API cost.
+
+If a project exceeds the local model's capabilities, swap a single agent up to
+frontier (e.g. builder → Opus 4.8) without touching the rest of the lineup.
+
+### Presets
+
+| Preset | Builder | Planner | Auditor | Rest | Cost |
+|---|---|---|---|---|---|
+| `local-default` | Qwopus 27B | Qwopus 27B | Qwopus 27B | Qwopus 27B | $0 |
+| `cloud-sprint` | Qwopus 27B | Opus 4.6 | Sonnet 5 | Qwopus 27B | ~$$ |
+| `cloud-heavy` | Opus 4.8 | Opus 4.6 | Sonnet 5 | Qwopus 27B | ~$$$ |
+
+You pay for frontier only on the roles that need it, only when the project
+justifies it. The rest runs free on your GPU.
+
 ```
 TUI (Ink)                Web UI (React + Vite)
     ╰──────── @pipeline-moe/client-core ────────╯
@@ -25,7 +57,10 @@ Express backend  ──►  Registry of pi AgentSession instances
   serial queue         scout / builder / auditor / scribe / tester …
   routing @mentions          │  each = createAgentSession(persona, tools)
   workspace diff             ▼
-                       llama-server :5000  (any local GGUF, --parallel 1)
+                    ┌────────┴────────┐
+              llama-server        Cloud APIs
+           (any local GGUF)    (Anthropic, etc.)
+              :5000               on opt-in
 ```
 
 Each participant is a real `pi` `AgentSession`: it keeps its **own conversation
@@ -57,6 +92,7 @@ npm run dev        # backend + web UI dev server (:5310)
 bash start.sh      # full launch: llama-server → backend → web UI, health-gated
                    # (set LLAMA_SCRIPT to your llama-server launch script)
 ```
+
 
 **Terminal client (from source):**
 ```bash
