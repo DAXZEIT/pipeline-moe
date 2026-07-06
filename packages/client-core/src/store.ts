@@ -342,8 +342,10 @@ export function createRoomStore(opts: RoomStoreOptions) {
     addProvider: (name: string, key: string) => {
       api.addProvider(name, key).then(() => {
         pushNotice(`Provider "${name}" configured.`)
-        // Refresh models so the dropdown picks up new models.
+        // Refresh models so the dropdown picks up new models, and the provider
+        // list so the configured flag flips without a reconnect.
         api.models().catch(() => {})
+        api.providers().then((d) => patch({ providers: d.providers, explicitlyEnabled: d.explicitlyEnabled })).catch(() => {})
       }).catch(fail)
     },
 
@@ -354,6 +356,7 @@ export function createRoomStore(opts: RoomStoreOptions) {
           msg += ` Note: ${r.agentsUsing.join(", ")} may need model reassigned.`
         }
         pushNotice(msg)
+        api.providers().then((d) => patch({ providers: d.providers, explicitlyEnabled: d.explicitlyEnabled })).catch(() => {})
       }).catch(fail)
     },
 

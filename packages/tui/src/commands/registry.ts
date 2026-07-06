@@ -27,6 +27,17 @@ function splitTarget(args: string): { target: string; rest: string } {
   return { target: trimmed.slice(0, sp), rest: trimmed.slice(sp + 1).trim() }
 }
 
+/** Raise the masked key prompt for a provider and submit it to the store. */
+function promptApiKey(ctx: CommandContext, name: string, displayName: string): void {
+  ctx.openOverlay({
+    kind: "textInput",
+    title: `API key for ${displayName}`,
+    placeholder: "paste key, ⏎ to save",
+    mask: true,
+    onSubmit: (key) => ctx.store.actions.addProvider(name, key),
+  })
+}
+
 // A small helper that resolves an agent token and notifies on failure.
 function withAgent(ctx: CommandContext, token: string, fn: (id: string) => void): void {
   const id = resolveAgent(ctx.state, token)
@@ -256,16 +267,16 @@ export const COMMANDS: Command[] = [
   },
   {
     name: "providers",
-    summary: "Manage model providers (OAuth login)",
+    summary: "Manage model providers (API keys, OAuth login)",
     run: (ctx) => {
       const items = ctx.state.providers.map((p) => ({
         id: p.name,
         label: `${p.configured ? "✓" : " "} ${p.displayName}`,
         hint: p.configured
-          ? "configured"
+          ? "configured · ⏎ to manage"
           : p.supportsOAuth
             ? "⏎ to log in (OAuth)"
-            : "needs API key (web UI)",
+            : "⏎ to add API key",
       }))
       ctx.openOverlay({
         kind: "select",
@@ -275,11 +286,24 @@ export const COMMANDS: Command[] = [
         onSelect: (name) => {
           const p = ctx.state.providers.find((x) => x.name === name)
           if (!p) return
-          if (p.supportsOAuth) {
+          if (p.configured) {
+            ctx.openOverlay({
+              kind: "select",
+              title: p.displayName,
+              items: [
+                { id: "replace", label: "Replace API key" },
+                { id: "remove", label: "Remove API key" },
+              ],
+              onSelect: (action) => {
+                if (action === "remove") ctx.store.actions.removeProvider(name)
+                else promptApiKey(ctx, name, p.displayName)
+              },
+            })
+          } else if (p.supportsOAuth) {
             ctx.store.actions.loginProvider(name)
             ctx.notify(`Starting OAuth login for ${p.displayName}…`)
           } else {
-            ctx.notify(`${p.displayName} needs an API key — add it from the web UI.`, "error")
+            promptApiKey(ctx, name, p.displayName)
           }
         },
       })

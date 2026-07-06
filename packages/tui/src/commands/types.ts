@@ -10,7 +10,8 @@ export interface SelectItem {
 
 /**
  * A modal the command line can raise over the transcript. `select` is the
- * reusable list picker; `lineup` and `agentForm` are bespoke interactive forms.
+ * reusable list picker; `textInput` a one-line prompt (maskable, for secrets);
+ * `lineup` and `agentForm` are bespoke interactive forms.
  */
 export type Overlay =
   | {
@@ -19,6 +20,14 @@ export type Overlay =
       items: SelectItem[]
       emptyText?: string
       onSelect: (id: string) => void
+    }
+  | {
+      kind: "textInput"
+      title: string
+      placeholder?: string
+      /** Render the value as bullets (all but the last 4 chars) — for API keys. */
+      mask?: boolean
+      onSubmit: (value: string) => void
     }
   | { kind: "lineup" }
   | { kind: "agentForm" }

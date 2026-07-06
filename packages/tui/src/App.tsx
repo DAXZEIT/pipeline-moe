@@ -9,6 +9,7 @@ import { CommandLine } from "./components/CommandLine"
 import { Notices } from "./components/Notices"
 import { OAuthPanel } from "./components/OAuthPanel"
 import { SelectOverlay } from "./components/overlays/SelectOverlay"
+import { TextInputOverlay } from "./components/overlays/TextInputOverlay"
 import { LineupOverlay } from "./components/overlays/LineupOverlay"
 import { AgentForm } from "./components/overlays/AgentForm"
 import { lookup } from "./commands/registry"
@@ -100,8 +101,23 @@ export function App({
           emptyText={overlay.emptyText}
           isActive
           onSelect={(id) => {
-            overlay.onSelect(id)
+            // Close before dispatching: onSelect may open a follow-up overlay
+            // (e.g. the API-key prompt), which a trailing close would clobber.
             closeOverlay()
+            overlay.onSelect(id)
+          }}
+          onCancel={closeOverlay}
+        />
+      ) : null}
+      {overlay?.kind === "textInput" ? (
+        <TextInputOverlay
+          title={overlay.title}
+          placeholder={overlay.placeholder}
+          mask={overlay.mask}
+          isActive
+          onSubmit={(value) => {
+            closeOverlay()
+            overlay.onSubmit(value)
           }}
           onCancel={closeOverlay}
         />
