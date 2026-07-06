@@ -1,4 +1,4 @@
-import type { RoomStore, Api, RoomState } from "@pipeline-moe/client-core"
+import type { RoomStore, Api, RoomState, PresetFile } from "@pipeline-moe/client-core"
 
 /** One selectable row in a generic SelectOverlay. */
 export interface SelectItem {
@@ -33,6 +33,12 @@ export type Overlay =
     }
   | { kind: "lineup" }
   | { kind: "agentForm" }
+  | {
+      kind: "presetDetail"
+      preset: PresetFile
+      /** Reopen the preset list when Esc backs out of the detail view. */
+      onBack?: () => void
+    }
 
 /** Everything a command needs to act, injected by the App at dispatch time. */
 export interface CommandContext {

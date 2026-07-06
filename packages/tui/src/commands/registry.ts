@@ -95,6 +95,41 @@ async function openModelPicker(ctx: CommandContext, agentId: string, chain = fal
   }
 }
 
+/**
+ * The preset browser: pick a preset by name, then inspect its personas —
+ * models, tools, flags — in a detail view before loading or applying it.
+ * Esc in the detail chains back here; a preview beats blind-loading a roster.
+ */
+async function openPresetPicker(ctx: CommandContext): Promise<void> {
+  try {
+    const presets = await ctx.api.presets()
+    ctx.openOverlay({
+      kind: "select",
+      title: "Presets",
+      items: presets.map((p) => ({
+        id: p.name,
+        label: p.name,
+        hint: p.personas
+          .map((a) => a.icon)
+          .join("")
+          .concat(`  ${p.personas.length} agents`),
+      })),
+      emptyText: "No saved presets — /preset save <name> stores the current line-up.",
+      onSelect: (name) => {
+        const preset = presets.find((p) => p.name === name)
+        if (!preset) return
+        ctx.openOverlay({
+          kind: "presetDetail",
+          preset,
+          onBack: () => void openPresetPicker(ctx),
+        })
+      },
+    })
+  } catch {
+    ctx.notify("Failed to load presets.", "error")
+  }
+}
+
 /** Raise the masked key prompt for a provider and submit it to the store. */
 function promptApiKey(ctx: CommandContext, name: string, displayName: string): void {
   ctx.openOverlay({
@@ -425,20 +460,7 @@ export const COMMANDS: Command[] = [
         return
       }
       if (sub === "load" || sub === "") {
-        try {
-          const presets = await ctx.api.presets()
-          ctx.openOverlay({
-            kind: "select",
-            title: "Load preset (replaces line-up)",
-            items: presets.map((p) => ({ id: p.name, label: p.name, hint: `${p.personas.length} agents` })),
-            emptyText: "No saved presets.",
-            onSelect: (name) => {
-              ctx.store.actions.loadPreset(name).then(() => ctx.notify(`Loaded preset "${name}".`)).catch(() => {})
-            },
-          })
-        } catch {
-          ctx.notify("Failed to load presets.", "error")
-        }
+        await openPresetPicker(ctx)
         return
       }
       ctx.notify("Usage: /preset save <name> | /preset load", "error")

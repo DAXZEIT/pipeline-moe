@@ -13,6 +13,7 @@ import { SelectOverlay } from "./components/overlays/SelectOverlay"
 import { TextInputOverlay } from "./components/overlays/TextInputOverlay"
 import { LineupOverlay } from "./components/overlays/LineupOverlay"
 import { AgentForm } from "./components/overlays/AgentForm"
+import { PresetDetailOverlay } from "./components/overlays/PresetDetailOverlay"
 import { lookup } from "./commands/registry"
 import type { CommandContext, Overlay } from "./commands/types"
 
@@ -148,6 +149,15 @@ export function App({
         />
       ) : null}
       {overlay?.kind === "agentForm" ? <AgentForm store={store} isActive onClose={closeOverlay} /> : null}
+      {overlay?.kind === "presetDetail" ? (
+        <PresetDetailOverlay
+          preset={overlay.preset}
+          store={store}
+          isActive
+          onClose={closeOverlay}
+          onBack={overlay.onBack}
+        />
+      ) : null}
       {state.oauthProgress ? (
         <OAuthPanel
           progress={state.oauthProgress}
