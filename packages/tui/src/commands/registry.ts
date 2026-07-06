@@ -156,6 +156,17 @@ async function openThinkingPicker(ctx: CommandContext, agentId: string, chain = 
   }
 }
 
+function openAgentPromptPicker(ctx: CommandContext): void {
+  const roster = ctx.store.getSnapshot().roster
+  ctx.openOverlay({
+    kind: "select",
+    title: "System prompt of\u2026",
+    items: roster.map((p) => ({ id: p.id, label: `${p.icon} ${p.name}`, hint: p.id })),
+    emptyText: "Empty room.",
+    onSelect: (id) => ctx.openOverlay({ kind: "prompt", agentId: id }),
+  })
+}
+
 async function openPresetPicker(ctx: CommandContext): Promise<void> {
   try {
     const presets = await ctx.api.presets()
@@ -444,6 +455,16 @@ export const COMMANDS: Command[] = [
       const token = args.trim()
       if (!token) return openAgentThinkingPicker(ctx)
       withAgent(ctx, token, (id) => void openThinkingPicker(ctx, id))
+    },
+  },
+  {
+    name: "prompt",
+    summary: "View / edit an agent's system prompt ($EDITOR)",
+    usage: "[@agent]",
+    run: (ctx, args) => {
+      const token = args.trim()
+      if (!token) return openAgentPromptPicker(ctx)
+      withAgent(ctx, token, (id) => ctx.openOverlay({ kind: "prompt", agentId: id }))
     },
   },
   {

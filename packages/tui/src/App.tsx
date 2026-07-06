@@ -15,6 +15,7 @@ import { TextInputOverlay } from "./components/overlays/TextInputOverlay"
 import { LineupOverlay } from "./components/overlays/LineupOverlay"
 import { AgentForm } from "./components/overlays/AgentForm"
 import { RoomForm } from "./components/overlays/RoomForm"
+import { PromptOverlay } from "./components/overlays/PromptOverlay"
 import { PresetDetailOverlay } from "./components/overlays/PresetDetailOverlay"
 import { lookup } from "./commands/registry"
 import type { CommandContext, Overlay } from "./commands/types"
@@ -212,6 +213,9 @@ export function App({
             setPendingNotice(`Created room "${name}"${hadGoal ? " — goal started." : "."}`)
           }}
         />
+      ) : null}
+      {overlay?.kind === "prompt" ? (
+        <PromptOverlay agentId={overlay.agentId} store={store} isActive onClose={closeOverlay} />
       ) : null}
       {overlay?.kind === "presetDetail" ? (
         <PresetDetailOverlay

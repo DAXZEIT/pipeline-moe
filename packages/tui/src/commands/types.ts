@@ -34,6 +34,7 @@ export type Overlay =
   | { kind: "lineup" }
   | { kind: "agentForm" }
   | { kind: "roomForm" }
+  | { kind: "prompt"; agentId: string }
   | {
       kind: "presetDetail"
       preset: PresetFile
