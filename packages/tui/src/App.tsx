@@ -353,6 +353,7 @@ export function App({
             roster={state.roster}
             streaming={state.streaming}
             liveReasoning={state.liveReasoning}
+            liveActivity={state.liveActivity}
             isActive={!overlay && !state.oauthProgress}
             scrollRef={transcriptScrollRef}
           />

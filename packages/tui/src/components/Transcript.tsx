@@ -1,8 +1,9 @@
 import { Box, Text, useInput } from "ink"
 import { useTerminalSize } from "../useTerminalSize"
 import { useRef, useState } from "react"
-import type { Message, RosterItem } from "@pipeline-moe/client-core"
+import type { Message, RosterItem, ToolActivity } from "@pipeline-moe/client-core"
 import { renderMarkdownLines, renderStreamingMarkdownLines } from "../markdown"
+import { summarizeArgs, TOOL_ICON, statusBadge } from "../activity"
 
 /**
  * The conversation view with line-accurate scrollback. Messages have wildly
@@ -55,6 +56,7 @@ export function Transcript({
   roster,
   streaming,
   liveReasoning,
+  liveActivity,
   isActive,
   scrollRef,
 }: {
@@ -62,6 +64,7 @@ export function Transcript({
   roster: RosterItem[]
   streaming: Record<string, string>
   liveReasoning: Record<string, string>
+  liveActivity: Record<string, ToolActivity[]>
   isActive: boolean
   /** Receives a line scroller (+up / −down) — driven by ↑/↓ from the command
    *  line, which is what the mouse wheel sends in alternate-scroll mode. */
@@ -70,6 +73,7 @@ export function Transcript({
   const { rows, columns } = useTerminalSize()
   const [offset, setOffset] = useState(0) // display lines scrolled up from the bottom
   const [showThoughts, setShowThoughts] = useState(false)
+  const [showTools, setShowTools] = useState(false)
   const maxOffsetRef = useRef(0)
   const pageRef = useRef(1)
 
@@ -106,9 +110,34 @@ export function Transcript({
     }
   }
 
+  // ── Tool call activity ───────────────────────────────────────────────
+
+  const pushActivity = (activity: ToolActivity[], live: boolean) => {
+    if (activity.length === 0) return
+    const hasRunning = live && activity.some((a) => a.status === "running")
+    const suffix = hasRunning ? " · running…" : ""
+    if (showTools || live) {
+      // Expanded: header + one line per tool call
+      lines.push({ text: `🔧 ${activity.length} tool ${activity.length === 1 ? "call" : "calls"}${suffix}`, dim: true })
+      const argWidth = Math.max(10, width - 32) // leave room for icon + name + badge
+      for (const a of activity) {
+        const icon = TOOL_ICON[a.toolName] ?? "🔧"
+        const args = summarizeArgs(a)
+        const badge = statusBadge(a.status)
+        const truncated = args.length > argWidth ? args.slice(0, argWidth - 1) + "…" : args
+        const line = `  ${icon} ${a.toolName}${truncated ? " " + truncated : ""}  ${badge.text}`
+        lines.push({ text: line, color: badge.color === "green" ? undefined : badge.color })
+      }
+    } else {
+      // Collapsed: single summary line
+      lines.push({ text: `🔧 ${activity.length} tool ${activity.length === 1 ? "call" : "calls"} · ctrl+o`, dim: true })
+    }
+  }
+
   for (const m of messages) {
     lines.push({ text: nameOf(m.author, m.authorName), bold: true, color: colorOf(m.author) })
     if (m.reasoning) pushThought(m.reasoning, false)
+    if (m.activity?.length) pushActivity(m.activity, false)
     if (m.text) {
       // Shell output is raw text — markdown rendering would mangle it
       // (# comments become headers, indentation collapses).
@@ -122,13 +151,15 @@ export function Transcript({
   }
   // Live blocks: an agent can be reasoning before its first text token, so
   // walk the union of both buffers.
-  const liveIds = [...new Set([...Object.keys(streaming), ...Object.keys(liveReasoning)])]
+  const liveIds = [...new Set([...Object.keys(streaming), ...Object.keys(liveReasoning), ...Object.keys(liveActivity)])]
   for (const id of liveIds) {
     const text = streaming[id] ?? ""
     const reasoning = liveReasoning[id] ?? ""
-    if (!text && !reasoning) continue
+    const acts = liveActivity[id] ?? []
+    if (!text && !reasoning && acts.length === 0) continue
     lines.push({ text: nameOf(id, id), bold: true, color: colorOf(id), cursor: true })
     if (reasoning) pushThought(reasoning, !text)
+    if (acts.length) pushActivity(acts, true)
     if (text) for (const l of renderStreamingMarkdownLines(text, width) ?? wrap(text, width)) lines.push({ text: l })
     lines.push({ text: "" })
   }
@@ -155,6 +186,8 @@ export function Transcript({
       else if (key.ctrl && key.downArrow) setOffset(0)
       // Ctrl+T toggles thought expansion; the command line ignores ctrl-chords.
       else if (key.ctrl && input === "t") setShowThoughts((s) => !s)
+      // Ctrl+O toggles tool call activity expansion.
+      else if (key.ctrl && input === "o") setShowTools((s) => !s)
     },
     { isActive },
   )
