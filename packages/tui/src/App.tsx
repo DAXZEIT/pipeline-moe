@@ -166,6 +166,18 @@ export function App({
     if (plusSelected) openRoomEntry()
   }
 
+  // "!" shell mode — the command runs server-side in the room's workspace and
+  // the transcript entry (shared context) arrives over SSE like any message.
+  const runShell = (command: string) => {
+    store.pushNotice(`$ ${command} — running…`)
+    store.actions.runShell(command).catch((err: unknown) =>
+      store.pushNotice(
+        err instanceof Error && err.message ? err.message : "Shell failed — server unreachable?",
+        "error",
+      ),
+    )
+  }
+
   // ⇧⇥ cycles the routing mode without typing /route. The status bar reflects
   // the change as soon as the server broadcasts the settings.
   const cycleRouting = () => {
@@ -326,6 +338,7 @@ export function App({
         onRoomNav={roomNav}
         onEmptyEnter={onEmptyEnter}
         onRoutingCycle={cycleRouting}
+        onShell={runShell}
         isActive={!overlay && !state.oauthProgress}
         connected={state.connected}
       />

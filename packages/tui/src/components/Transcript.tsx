@@ -78,7 +78,8 @@ export function Transcript({
   const width = Math.max(20, cols - 30)
 
   const byId = new Map(roster.map((r) => [r.id, r]))
-  const colorOf = (author: string) => (author === "user" ? "white" : byId.get(author)?.color ?? "magenta")
+  const colorOf = (author: string) =>
+    author === "user" ? "white" : author === "shell" ? "yellow" : byId.get(author)?.color ?? "magenta"
   const nameOf = (author: string, fallback: string) =>
     author === "user" ? "You" : byId.get(author)?.name ?? fallback
 
@@ -105,8 +106,12 @@ export function Transcript({
     lines.push({ text: nameOf(m.author, m.authorName), bold: true, color: colorOf(m.author) })
     if (m.reasoning) pushThought(m.reasoning, false)
     if (m.text) {
+      // Shell output is raw text — markdown rendering would mangle it
+      // (# comments become headers, indentation collapses).
       const rendered =
-        m.author === "user" ? wrap(m.text, width) : renderMarkdownLines(m.text, width) ?? wrap(m.text, width)
+        m.author === "user" || m.author === "shell"
+          ? wrap(m.text, width)
+          : renderMarkdownLines(m.text, width) ?? wrap(m.text, width)
       for (const l of rendered) lines.push({ text: l })
     } else lines.push({ text: "(no response)", dim: true })
     lines.push({ text: "" })

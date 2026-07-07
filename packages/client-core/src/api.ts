@@ -82,6 +82,15 @@ export function createApi(API_BASE: string) {
           body: JSON.stringify({ text, ...(images && images.length > 0 ? { images } : {}) }),
         }).then((r) => json<{ accepted: boolean }>(r)),
 
+      /** Run a shell command in this room's workspace; the command + output are
+       *  posted to the shared transcript (author "shell") as context for all agents. */
+      runShell: (command: string) =>
+        fetch(`${base}/shell`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ command }),
+        }).then((r) => json<Message>(r)),
+
       setActive: (id: string, active: boolean) =>
         fetch(`${base}/participants/${id}`, {
           method: "PATCH",

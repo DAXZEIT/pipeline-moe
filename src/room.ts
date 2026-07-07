@@ -2,6 +2,7 @@
 // receipts. One room per process. All model work is serialised here, which
 // also matches llama-server running with --parallel 1.
 
+import { execFile } from "node:child_process"
 import { rm } from "node:fs/promises"
 import { resolve } from "node:path"
 import { config } from "./config.js"
@@ -623,7 +624,7 @@ export class Room {
     this.transcript.push(entry)
 
     // Circuit breaker — only for agents, not user
-    if (this.circuitBreakerEnabled && author !== "user" && this.checkRepetition(author, text)) {
+    if (this.circuitBreakerEnabled && author !== "user" && author !== "shell" && this.checkRepetition(author, text)) {
       this.aborted = true
       this.circuitBreakerAgentId = author
       const msg = `Circuit breaker: @${authorName} repeated similar output ${REPEAT_THRESHOLD} times — stopping.`
@@ -632,7 +633,7 @@ export class Room {
     }
 
     // Tool-call loop breaker — detect repeated identical tool calls
-    if (this.circuitBreakerEnabled && author !== "user" && activity && activity.length > 0 && !this.aborted) {
+    if (this.circuitBreakerEnabled && author !== "user" && author !== "shell" && activity && activity.length > 0 && !this.aborted) {
       const result = checkToolLoop(this.transcript, author, activity)
       if (result.tripped) {
         this.aborted = true
@@ -804,6 +805,35 @@ export class Room {
       if (e.author === evaluatorId) return Room.GOAL_MET_RE.test(e.text)
     }
     return false
+  }
+
+  /** Run a user shell command in the room's workspace and post `$ cmd` + its
+   *  output to the shared transcript (author "shell") — Claude Code's `!`
+   *  mode, but the result becomes context every agent sees on its next turn.
+   *  No routing, no agent turn, no circuit breaker. Output is clipped so one
+   *  `cat` of a huge file can't blow up the transcript. */
+  async runShell(command: string): Promise<TranscriptEntry> {
+    const output = await new Promise<{ text: string; code: number | string | null }>((done) => {
+      execFile(
+        "bash",
+        ["-c", command],
+        { cwd: this.workspaceDir, timeout: 30_000, maxBuffer: 1024 * 1024 },
+        (err, stdout, stderr) => {
+          const merged = [stdout, stderr].filter((s) => s.length > 0).join("")
+          const code = err ? ((err as NodeJS.ErrnoException & { code?: number | string }).code ?? 1) : 0
+          done({ text: merged || (err && !merged ? err.message : ""), code })
+        },
+      )
+    })
+    const max = 8000
+    const clipped =
+      output.text.length > max ? `${output.text.slice(0, max)}\n… (+${output.text.length - max} chars)` : output.text
+    const text =
+      `$ ${command}\n${clipped.trimEnd() || "(no output)"}` +
+      (output.code !== 0 ? `\n(exit ${output.code})` : "")
+    const entry = this.post("shell", "Shell", text)
+    void this.saveCurrent()
+    return entry
   }
 
   /** Steer a running agent mid-turn. Posts a (steered) notice to the transcript

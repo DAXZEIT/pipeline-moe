@@ -16,6 +16,7 @@ export function CommandLine({
   onRoomNav,
   onEmptyEnter,
   onRoutingCycle,
+  onShell,
   isActive,
   connected,
 }: {
@@ -27,6 +28,8 @@ export function CommandLine({
   onEmptyEnter?: () => void
   /** ⇧⇥ cycles the routing mode (auto → semi → manual). */
   onRoutingCycle?: () => void
+  /** "!" shell mode: run a command in the room's workspace (shared context). */
+  onShell?: (command: string) => void
   isActive: boolean
   connected: boolean
 }) {
@@ -35,6 +38,7 @@ export function CommandLine({
   const [pIndex, setPIndex] = useState(0)
 
   const isSlash = value.startsWith("/")
+  const isBang = value.startsWith("!")
   const head = isSlash ? value.slice(1).split(" ")[0] : ""
   const showPalette = isSlash && !value.includes(" ")
   const matches = showPalette ? matchCommands(head) : []
@@ -61,7 +65,10 @@ export function CommandLine({
           // (so "/r"⏎ on ▶/resume runs /resume, not the ambiguous "/r").
           if (matches.length > 0) onCommand("/" + matches[idx].name)
           else if (text.startsWith("/")) onCommand(text)
-          else onSend(text)
+          else if (text.startsWith("!") && onShell) {
+            const cmd = text.slice(1).trim()
+            if (cmd) onShell(cmd)
+          } else onSend(text)
         } else if (onEmptyEnter) {
           onEmptyEnter()
         }
@@ -133,10 +140,10 @@ export function CommandLine({
     { isActive },
   )
 
-  // The visible text drops the leading "/" (shown as a colored prompt glyph), so
-  // the cursor maps one slot left when in slash mode.
-  const disp = isSlash ? value.slice(1) : value
-  const dcur = isSlash ? Math.max(0, cursor - 1) : cursor
+  // The visible text drops the leading "/" or "!" (shown as a colored prompt
+  // glyph), so the cursor maps one slot left in slash/bang mode.
+  const disp = isSlash || isBang ? value.slice(1) : value
+  const dcur = isSlash || isBang ? Math.max(0, cursor - 1) : cursor
   const before = disp.slice(0, dcur)
   const atChar = disp[dcur] ?? " "
   const after = disp.slice(dcur + 1)
@@ -158,7 +165,9 @@ export function CommandLine({
         </Box>
       ) : null}
       <Box borderStyle="round" borderColor={isActive && connected ? "cyan" : "gray"} paddingX={1}>
-        <Text color={isSlash ? "yellow" : "cyan"}>{isSlash ? "/ " : "› "}</Text>
+        <Text color={isSlash ? "yellow" : isBang ? "red" : "cyan"}>
+          {isSlash ? "/ " : isBang ? "! " : "› "}
+        </Text>
         {value ? (
           <Text>
             {before}
@@ -166,7 +175,7 @@ export function CommandLine({
             {after}
           </Text>
         ) : (
-          <Text dimColor>Message the room · / for commands · ⇧⇥ routing · Ctrl+C to quit</Text>
+          <Text dimColor>Message the room · / commands · ! shell · ⇧⇥ routing · Ctrl+C quit</Text>
         )}
       </Box>
     </Box>

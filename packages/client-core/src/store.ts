@@ -196,6 +196,11 @@ export function createRoomStore(opts: RoomStoreOptions) {
       rApi.sendMessage(text, images).catch(fail)
     },
 
+    /** `!` shell mode: run a command in the room's workspace. The transcript
+     *  entry arrives over SSE like any message; the promise resolves when the
+     *  command completes (or rejects on transport/server error). */
+    runShell: (command: string) => rApi.runShell(command),
+
     setActive: (id: string, active: boolean) => {
       rApi.setActive(id, active).catch(fail)
     },

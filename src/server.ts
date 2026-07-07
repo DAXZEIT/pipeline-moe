@@ -1258,6 +1258,21 @@ async function main(): Promise<void> {
     res.status(202).json({ accepted: true })
   })
 
+  // Run a user shell command in the room's workspace; the command + output
+  // land in the shared transcript as context for every agent.
+  app.post("/api/shell", rateLimit({ windowMs: 60_000, max: 30, standardHeaders: true, legacyHeaders: false }), async (req, res) => {
+    const command = String(req.body?.command ?? "").trim()
+    if (!command) {
+      res.status(400).json({ error: "`command` is required" })
+      return
+    }
+    try {
+      res.json(await room.runShell(command))
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : String(err) })
+    }
+  })
+
   // Compact a specific agent's session context.
   app.post("/api/participants/:id/compact", async (req, res) => {
     const { id } = req.params
@@ -1742,6 +1757,19 @@ async function main(): Promise<void> {
     const images = await saveIncomingImages(req.body?.images)
     roomOf(req).submit(text, images.length > 0 ? images : undefined)
     res.status(202).json({ accepted: true })
+  })
+
+  roomRouter.post("/shell", rateLimit({ windowMs: 60_000, max: 30, standardHeaders: true, legacyHeaders: false }), async (req, res) => {
+    const command = String(req.body?.command ?? "").trim()
+    if (!command) {
+      res.status(400).json({ error: "`command` is required" })
+      return
+    }
+    try {
+      res.json(await roomOf(req).runShell(command))
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : String(err) })
+    }
   })
 
   roomRouter.post("/messages/steer", async (req, res) => {
