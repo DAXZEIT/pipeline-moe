@@ -903,6 +903,18 @@ body {
 .bubble-agent.streaming {
   opacity: 0.92;
 }
+/* `!` shell records — raw terminal text on a dark slab. */
+.bubble-shell {
+  background: #0d1017;
+  border-left: 3px solid #d9a938;
+  font-family: ui-monospace, "JetBrains Mono", "Fira Code", monospace;
+  font-size: 12.5px;
+  margin: 0;
+  overflow-x: auto;
+}
+.shell-head {
+  color: #d9a938;
+}
 .caret {
   display: inline-block;
   width: 7px;

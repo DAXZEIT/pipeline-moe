@@ -12,6 +12,9 @@ interface Props {
   onSend: (text: string, images?: string[]) => void
   onAbort: () => void
   onSteer: (text: string, target: string) => void
+  /** "!" shell mode: run a command in the room's workspace (server-side);
+   *  the command + output land in the shared transcript. */
+  onShell?: (command: string) => void
 }
 
 /** Acceptable image mime types for paste/drag-drop. */
@@ -43,7 +46,7 @@ function fileToDataUri(file: File): Promise<string> {
   })
 }
 
-export function Composer({ roster, turnActive, runningAgentId, paused, pausedQuestion, pausedAskerId, onSend, onAbort, onSteer }: Props) {
+export function Composer({ roster, turnActive, runningAgentId, paused, pausedQuestion, pausedAskerId, onSend, onAbort, onSteer, onShell }: Props) {
   const [value, setValue] = useState("")
   const [trigger, setTrigger] = useState<"@" | "/" | null>(null)
   const [partial, setPartial] = useState<string | null>(null)
@@ -164,6 +167,18 @@ export function Composer({ roster, turnActive, runningAgentId, paused, pausedQue
     const text = value.trim()
     if (!text && pendingImages.length === 0) return
 
+    // "!" prefix = shell mode, whatever else is going on — an explicit prefix
+    // should never be reinterpreted as a steer or a plain message.
+    if (text.startsWith("!") && onShell) {
+      const cmd = text.slice(1).trim()
+      if (cmd) onShell(cmd)
+      setValue("")
+      setTrigger(null)
+      setPartial(null)
+      setPendingImages([])
+      return
+    }
+
     if (turnActive && runningAgentId) {
       // Steer mode: redirect the running agent.
       onSteer(text, runningAgentId)
@@ -267,7 +282,7 @@ export function Composer({ roster, turnActive, runningAgentId, paused, pausedQue
           className="composer-input"
           rows={3}
           value={value}
-          placeholder={paused ? "Type your answer…" : "Message the room — @ mentions, / commands, paste or drop images"}
+          placeholder={paused ? "Type your answer…" : "Message the room — @ mentions, / commands, ! shell, paste or drop images"}
           onPaste={handlePaste}
           onDragOver={handleDragOver}
           onDragLeave={handleDragLeave}

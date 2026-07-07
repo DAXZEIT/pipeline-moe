@@ -148,6 +148,13 @@ export function RoomView({
           onSend={room.send}
           onAbort={room.abort}
           onSteer={room.steer}
+          onShell={(cmd) => {
+            // The transcript entry arrives over SSE when the command finishes;
+            // surface transport/server failures as a notice instead of silence.
+            room.runShell(cmd).catch((err: unknown) =>
+              room.pushNotice(err instanceof Error && err.message ? err.message : "Shell failed.", "error"),
+            )
+          }}
         />
       </main>
 

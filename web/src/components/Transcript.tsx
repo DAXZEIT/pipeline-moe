@@ -102,6 +102,18 @@ export function Transcript({
             </div>
           )
         }
+        if (m.author === "shell") {
+          // A `!` command + its output — raw terminal text, not markdown.
+          return (
+            <div key={m.index} className="row agent">
+              <div className="agent-head shell-head">
+                <span>❯</span>
+                <span className="agent-name">Shell</span>
+              </div>
+              <pre className="bubble bubble-shell">{m.text}</pre>
+            </div>
+          )
+        }
         const r = byId(m.author)
         const color = r?.color ?? "#9aa0b5"
         return (

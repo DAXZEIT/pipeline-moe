@@ -24,5 +24,5 @@ export function useRoom(roomId?: string) {
 
   const state = useSyncExternalStore(store.subscribe, store.getSnapshot)
 
-  return { ...state, ...store.actions }
+  return { ...state, ...store.actions, pushNotice: store.pushNotice }
 }
