@@ -149,6 +149,10 @@ export function Transcript({
     (input, key) => {
       if (key.pageUp) setOffset((o) => Math.min(maxOffsetRef.current, o + pageRef.current))
       else if (key.pageDown) setOffset((o) => Math.max(0, o - pageRef.current))
+      // Ctrl+↑/↓ jump to the very top/bottom in one press — paging through a
+      // long resumed conversation line-by-line is painfully slow otherwise.
+      else if (key.ctrl && key.upArrow) setOffset(maxOffsetRef.current)
+      else if (key.ctrl && key.downArrow) setOffset(0)
       // Ctrl+T toggles thought expansion; the command line ignores ctrl-chords.
       else if (key.ctrl && input === "t") setShowThoughts((s) => !s)
     },
@@ -159,8 +163,8 @@ export function Transcript({
   const footer =
     lines.length > bodyHeight
       ? atBottom
-        ? "⟨ PgUp to scroll back ⟩"
-        : `⟨ ${effOffset} line${effOffset === 1 ? "" : "s"} below · PgDn to catch up ⟩`
+        ? "⟨ PgUp to scroll back · ⌃↑ jump to top ⟩"
+        : `⟨ ${effOffset} line${effOffset === 1 ? "" : "s"} below · PgDn to catch up · ⌃↓ jump to bottom ⟩`
       : ""
 
   return (

@@ -101,11 +101,14 @@ export function CommandLine({
       }
       // Outside the palette, ↑/↓ scroll the transcript — this is also what the
       // mouse wheel emits in the alt screen (alternate-scroll mode 1007).
-      if (key.upArrow) {
+      // Ctrl+↑/↓ is left alone here — Transcript's own useInput claims that
+      // combo to jump to the very top/bottom (see the final ctrl/meta/tab
+      // catch-all below, which swallows it before it can insert text).
+      if (key.upArrow && !key.ctrl) {
         onScroll?.(1)
         return
       }
-      if (key.downArrow) {
+      if (key.downArrow && !key.ctrl) {
         onScroll?.(-1)
         return
       }
