@@ -252,12 +252,33 @@ export function App({
     const exit = userStopped
       ? 130
       : res.status ?? (res.signal === "SIGTERM" ? 143 : res.signal ? 1 : 0)
-    store.actions.postShellRecord(command, output, exit).catch((err: unknown) =>
-      store.pushNotice(
-        err instanceof Error && err.message ? err.message : "Failed to record shell output.",
-        "error",
-      ),
-    )
+
+    // The user decides AFTER the run whether the capture becomes shared
+    // context — an hour of ping output would otherwise spam every agent's
+    // next turn with no way to stop it. ⏎ on the default sends; Esc keeps it
+    // private. (The 8KB server-side clip still applies to what is sent.)
+    const lineCount = output ? output.split("\n").filter((l) => l.trim()).length : 0
+    setOverlay({
+      kind: "select",
+      title: `Share shell output? — ${lineCount} line${lineCount === 1 ? "" : "s"} captured`,
+      items: [
+        { id: "send", label: "Send to chat", hint: "shared context for all agents" },
+        { id: "keep", label: "Keep private", hint: "nothing posted" },
+      ],
+      onSelect: (choice) => {
+        if (choice !== "send") {
+          store.pushNotice(`$ ${command} — output kept private.`)
+          return
+        }
+        store.actions.postShellRecord(command, output, exit).catch((err: unknown) =>
+          store.pushNotice(
+            err instanceof Error && err.message ? err.message : "Failed to record shell output.",
+            "error",
+          ),
+        )
+      },
+      onCancel: () => store.pushNotice(`$ ${command} — output kept private.`),
+    })
   }
 
   // ⇧⇥ cycles the routing mode without typing /route. The status bar reflects
