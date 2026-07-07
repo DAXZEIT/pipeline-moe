@@ -23,5 +23,5 @@ export function statsLine(r: RosterItem): string | null {
   parts.push(`${t}/${w}`)
   if (cachePct != null) parts.push(`cache ${cachePct}%`)
 
-  return parts.join(" · ")
+  return parts.join(" ")
 }

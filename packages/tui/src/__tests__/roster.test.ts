@@ -10,6 +10,7 @@ const baseStats = {
   userMessages: 5,
   assistantMessages: 5,
   totalMessages: 10,
+  cost: 0.12,
 }
 
 const baseRoster = (partial: Partial<RosterItem> = {}): RosterItem => ({
@@ -21,6 +22,7 @@ const baseRoster = (partial: Partial<RosterItem> = {}): RosterItem => ({
   status: "idle",
   parallel: false,
   model: "test/model",
+  tools: [],
   ...partial,
 })
 
@@ -91,7 +93,7 @@ describe("statsLine", () => {
     })
     const line = statsLine(r!)
     expect(line).toContain("43K/1000K")
-    expect(line).toContain(" · ")
+    expect(line).toContain(" ")
     expect(line).toContain("cache")
   })
 

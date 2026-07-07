@@ -25,6 +25,17 @@ export interface RosterItem {
   thinkingLevel?: "off" | "minimal" | "low" | "medium" | "high" | "xhigh"
   /** May run concurrently with adjacent parallel-flagged agents. */
   parallel: boolean
+  /** Context token usage — populated after each turn. */
+  contextUsage?: { tokens: number | null; contextWindow: number; percent: number | null }
+  /** Session stats — populated after each turn. */
+  sessionStats?: {
+    userMessages: number
+    assistantMessages: number
+    toolCalls: number
+    totalMessages: number
+    tokens: { input: number; output: number; cacheRead: number; cacheWrite: number; total: number }
+    cost: number
+  }
 }
 
 export class Registry {
@@ -124,18 +135,25 @@ export class Registry {
   }
 
   roster(): RosterItem[] {
-    return [...this.participants.values()].map((p) => ({
-      id: p.persona.id,
-      name: p.persona.name,
-      color: p.persona.color,
-      icon: p.persona.icon,
-      tools: p.persona.tools,
-      active: p.active,
-      status: p.status,
-      model: p.persona.model,
-      thinkingLevel: p.persona.thinkingLevel,
-      parallel: p.parallel,
-    }))
+    return [...this.participants.values()].map((p) => {
+      const item: RosterItem = {
+        id: p.persona.id,
+        name: p.persona.name,
+        color: p.persona.color,
+        icon: p.persona.icon,
+        tools: p.persona.tools,
+        active: p.active,
+        status: p.status,
+        model: p.persona.model,
+        thinkingLevel: p.persona.thinkingLevel,
+        parallel: p.parallel,
+      }
+      const usage = p.getContextUsage?.()
+      if (usage) item.contextUsage = usage
+      const stats = p.getSessionStats?.()
+      if (stats) item.sessionStats = stats
+      return item
+    })
   }
 
   broadcastRoster(): void {

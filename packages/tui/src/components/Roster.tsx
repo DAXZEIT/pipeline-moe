@@ -50,7 +50,7 @@ export function Roster({ roster, width }: { roster: RosterItem[]; width: number 
             ) : null}
             {sl != null ? (
               <Text dimColor color={p.contextUsage?.percent != null && p.contextUsage.percent > 80 ? "yellow" : undefined} wrap="truncate-end">
-                {"  "}{sl}
+                {" "}{sl}
               </Text>
             ) : null}
           </Box>
