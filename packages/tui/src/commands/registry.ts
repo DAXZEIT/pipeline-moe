@@ -559,6 +559,42 @@ export const COMMANDS: Command[] = [
     },
   },
   {
+    name: "pi-update",
+    summary: "Update the server's pi runtime (fresh model catalog)",
+    run: async (ctx) => {
+      ctx.notify("Checking pi version…")
+      try {
+        const s = await ctx.api.piStatus()
+        if (!s.current) return ctx.notify("Couldn't read the installed pi version on the server.", "error")
+        if (s.updating) return ctx.notify("A pi update is already running.", "error")
+        if (!s.latest) return ctx.notify(`pi ${s.current} installed — npm registry unreachable, can't check for updates.`, "error")
+        if (!s.updateAvailable) return ctx.notify(`pi ${s.current} — already the latest.`)
+        ctx.openOverlay({
+          kind: "select",
+          title: `Update pi ${s.current} → ${s.latest}?`,
+          items: [
+            { id: "update", label: "Update now", hint: "npm install on the server" },
+            { id: "cancel", label: "Cancel" },
+          ],
+          onSelect: (id) => {
+            if (id !== "update") return
+            ctx.notify(`Updating pi ${s.current} → ${s.latest}… (can take a minute)`)
+            ctx.api
+              .piUpdate()
+              .then((r) =>
+                ctx.notify(`pi updated ${r.from ?? "?"} → ${r.to ?? "?"} — restart the server to load it.`),
+              )
+              .catch((err: unknown) =>
+                ctx.notify(err instanceof Error && err.message ? err.message : "pi update failed.", "error"),
+              )
+          },
+        })
+      } catch (err) {
+        ctx.notify(err instanceof Error && err.message ? err.message : "Couldn't check pi version.", "error")
+      }
+    },
+  },
+  {
     name: "prompt",
     summary: "View / edit an agent's system prompt ($EDITOR)",
     usage: "[@agent]",

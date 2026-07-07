@@ -1,3 +1,5 @@
+import { useEffect, useState } from "react"
+import { api } from "../api"
 import type { RosterItem } from "../types"
 
 const THINKING_LEVELS: Array<"off" | "minimal" | "low" | "medium" | "high" | "xhigh"> = [
@@ -22,6 +24,68 @@ interface Props {
   onSetAllowCloud: (enabled: boolean) => void
   onSetCompactionReserveTokens: (n: number) => void
   onSetMaxChainHops: (n: number) => void
+}
+
+/** Self-contained "pi runtime" section: shows the installed vs latest version
+ *  of the agent runtime and updates it in place. pi's model catalog is frozen
+ *  per version, so new cloud models only appear after this bump + a restart. */
+function PiRuntimeSection() {
+  const [status, setStatus] = useState<{
+    current: string | null
+    latest: string | null
+    updateAvailable: boolean
+  } | null>(null)
+  const [phase, setPhase] = useState<"idle" | "updating" | "done" | "error">("idle")
+  const [message, setMessage] = useState<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    api
+      .piStatus()
+      .then((s) => !cancelled && setStatus(s))
+      .catch(() => !cancelled && setMessage("Couldn't check pi version."))
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  const update = () => {
+    setPhase("updating")
+    setMessage(null)
+    api
+      .piUpdate()
+      .then((r) => {
+        setPhase("done")
+        setMessage(`Updated ${r.from ?? "?"} → ${r.to ?? "?"} — restart the server to load it.`)
+      })
+      .catch((err: unknown) => {
+        setPhase("error")
+        setMessage(err instanceof Error && err.message ? err.message : "Update failed.")
+      })
+  }
+
+  return (
+    <div className="settings-section">
+      <h3 className="settings-section-title">pi runtime</h3>
+
+      <div className="settings-field">
+        <span className="settings-label">Version</span>
+        <span className="settings-value">
+          {status ? (status.current ?? "unknown") : "checking…"}
+          {status?.updateAvailable ? ` → ${status.latest} available` : status?.latest ? " (latest)" : ""}
+        </span>
+        {status?.updateAvailable && phase !== "done" && (
+          <button className="settings-button" onClick={update} disabled={phase === "updating"}>
+            {phase === "updating" ? "Updating…" : `Update to ${status.latest}`}
+          </button>
+        )}
+        <span className="settings-hint">
+          {message ??
+            "Agent runtime + model catalog — new cloud models ship with pi updates; a server restart applies them"}
+        </span>
+      </div>
+    </div>
+  )
 }
 
 /** Settings tab for the side panel.
@@ -199,6 +263,8 @@ export function SettingsPanel({
           </span>
         </div>
       </div>
+
+      <PiRuntimeSection />
 
       <div className="settings-section">
         <h3 className="settings-section-title">Limits</h3>

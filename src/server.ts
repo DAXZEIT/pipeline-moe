@@ -4,6 +4,7 @@
 // instances (one per participant) sharing a workspace, routes @mentions to
 // them via a serial queue, and streams everything to the UI over SSE.
 
+import { execFile } from "node:child_process"
 import { createHash } from "node:crypto"
 import { access, mkdir, readdir, readFile, stat, unlink, writeFile } from "node:fs/promises"
 import { readFileSync } from "node:fs"
@@ -17,6 +18,37 @@ import { config } from "./config.js"
 /** Package root (this file lives in <root>/src) — anchors paths that must
  *  work when installed as a dependency and run from an arbitrary cwd. */
 const packageRoot = () => resolve(dirname(fileURLToPath(import.meta.url)), "..")
+
+/** The agent runtime dependency. Its built-in model catalog is frozen at the
+ *  installed version — new cloud models only appear after a bump. */
+const PI_PACKAGE = "@earendil-works/pi-coding-agent"
+
+/** Version of the pi runtime this process would load. pi is ESM-only (no CJS
+ *  export condition), so require.resolve can't see it — walk up the
+ *  node_modules chain instead, which also handles hoisted installs. */
+function installedPiVersion(): string | null {
+  for (let dir = packageRoot(); ; dir = dirname(dir)) {
+    try {
+      const pkg = JSON.parse(
+        readFileSync(join(dir, "node_modules", PI_PACKAGE, "package.json"), "utf8"),
+      ) as { version?: string }
+      return pkg.version ?? null
+    } catch {
+      // Not at this level — keep walking up.
+    }
+    if (dir === dirname(dir)) return null
+  }
+}
+
+/** Run npm in the package root. Rejects with stderr (npm puts errors there). */
+function npmExec(args: string[], timeout: number): Promise<string> {
+  return new Promise((res, rej) => {
+    execFile("npm", args, { cwd: packageRoot(), timeout, encoding: "utf8" }, (err, stdout, stderr) => {
+      if (err) rej(new Error(stderr.trim() || err.message))
+      else res(stdout)
+    })
+  })
+}
 
 /** Startup banner, printed once when the server starts listening. Colors only
  *  on a TTY so piped logs (systemd, files) stay clean. */
@@ -1293,6 +1325,49 @@ async function main(): Promise<void> {
     const output = String(req.body?.output ?? "").slice(0, 64_000)
     const exitCode = typeof req.body?.exitCode === "number" ? req.body.exitCode : null
     res.json(room.postShellRecord(command, output, exitCode))
+  })
+
+  // ── pi runtime updates (process-global) ────────────────────────────────────
+  // pi releases near-daily and its model catalog is frozen per version, so new
+  // cloud models only show up after a dependency bump. These endpoints let a
+  // client run that bump in place; the server must restart to load it.
+
+  let piUpdating = false
+
+  app.get("/api/pi", async (_req, res) => {
+    const current = installedPiVersion()
+    let latest: string | null = null
+    try {
+      latest = (await npmExec(["view", PI_PACKAGE, "version"], 15_000)).trim() || null
+    } catch {
+      // Registry unreachable (offline) — report the installed version only.
+    }
+    res.json({
+      package: PI_PACKAGE,
+      current,
+      latest,
+      updateAvailable: !!current && !!latest && current !== latest,
+      updating: piUpdating,
+    })
+  })
+
+  app.post("/api/pi/update", async (_req, res) => {
+    if (piUpdating) {
+      res.status(409).json({ error: "a pi update is already running" })
+      return
+    }
+    piUpdating = true
+    const from = installedPiVersion()
+    try {
+      await npmExec(["install", `${PI_PACKAGE}@latest`, "--no-audit", "--no-fund"], 300_000)
+      const to = installedPiVersion()
+      console.log(`[pi-update] ${from ?? "?"} → ${to ?? "?"} installed — restart to load it`)
+      res.json({ ok: true, from, to, restartRequired: true })
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : String(err) })
+    } finally {
+      piUpdating = false
+    }
   })
 
   // Compact a specific agent's session context.

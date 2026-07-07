@@ -372,6 +372,25 @@ export function createApi(API_BASE: string) {
     listRooms: () =>
       fetch(`${API_BASE}/api/rooms`).then((r) => json<RoomSummary[]>(r)),
 
+    /** pi runtime version status — the server's agent runtime + model catalog. */
+    piStatus: () =>
+      fetch(`${API_BASE}/api/pi`).then((r) =>
+        json<{
+          package: string
+          current: string | null
+          latest: string | null
+          updateAvailable: boolean
+          updating: boolean
+        }>(r),
+      ),
+
+    /** Update the server's pi runtime to latest (npm install in place).
+     *  The server must be restarted afterwards to load the new version. */
+    piUpdate: () =>
+      fetch(`${API_BASE}/api/pi/update`, { method: "POST" }).then((r) =>
+        json<{ ok: boolean; from: string | null; to: string | null; restartRequired: boolean }>(r),
+      ),
+
     /** Fork a live room's discussion into a new room (same workspace, copied
      *  roster + transcript, fresh agent sessions). Returns the new room. */
     forkRoom: (roomId: string, name?: string) =>
