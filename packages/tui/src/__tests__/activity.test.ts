@@ -54,6 +54,11 @@ describe("summarizeArgs", () => {
     const a = baseActivity({ args: "not-an-object" as unknown as ToolActivity["args"] })
     expect(summarizeArgs(a)).toBe("")
   })
+
+  it("falls through to JSON.stringify for array-typed args", () => {
+    const a = baseActivity({ args: ["arg1", "arg2"] as unknown as ToolActivity["args"] })
+    expect(summarizeArgs(a)).toBe('["arg1","arg2"]')
+  })
 })
 
 // ── statusBadge ──────────────────────────────────────────────────────────────

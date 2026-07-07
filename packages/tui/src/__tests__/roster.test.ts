@@ -1,31 +1,6 @@
 import { describe, it, expect } from "vitest"
 import type { RosterItem } from "@pipeline-moe/client-core"
-
-// ── Inline helpers (mirror Roster.tsx) ──────────────────────────────────────
-
-function fmt(n: number): string {
-  if (n >= 1000) return `${(n / 1000).toFixed(n >= 10000 ? 0 : 1)}K`
-  return String(n)
-}
-
-function statsLine(r: RosterItem): string | null {
-  const ctx = r.contextUsage
-  const st = r.sessionStats
-  if (!ctx && !st) return null
-
-  const t = ctx?.tokens != null ? fmt(ctx.tokens) : "—"
-  const w = ctx?.contextWindow != null ? fmt(ctx.contextWindow) : "—"
-
-  const cachePct = st?.tokens?.total != null && st.tokens.total > 0
-    ? Math.round((st.tokens.cacheRead / st.tokens.total) * 100)
-    : null
-
-  const parts: string[] = []
-  parts.push(`${t}/${w}`)
-  if (cachePct != null) parts.push(`cache ${cachePct}%`)
-
-  return parts.join(" · ")
-}
+import { fmt, statsLine } from "../roster-stats"
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
