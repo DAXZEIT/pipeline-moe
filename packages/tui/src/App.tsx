@@ -117,6 +117,15 @@ export function App({
     if (plusSelected) setOverlay({ kind: "roomForm" })
   }
 
+  // ⇧⇥ cycles the routing mode without typing /route. The status bar reflects
+  // the change as soon as the server broadcasts the settings.
+  const cycleRouting = () => {
+    const order = ["auto", "semi", "manual"] as const
+    const next = order[(order.indexOf(state.routingMode as (typeof order)[number]) + 1) % order.length]
+    store.actions.setRoutingMode(next)
+    store.pushNotice(`Routing mode → ${next}.`)
+  }
+
   // A notice pushed in the same tick as a room switch would land on the store
   // being disposed — park it and deliver once the new store is mounted.
   const [pendingNotice, setPendingNotice] = useState<string | null>(null)
@@ -265,6 +274,7 @@ export function App({
         onCommand={runCommand}
         onRoomNav={roomNav}
         onEmptyEnter={onEmptyEnter}
+        onRoutingCycle={cycleRouting}
         isActive={!overlay && !state.oauthProgress}
         connected={state.connected}
       />

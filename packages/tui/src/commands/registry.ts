@@ -81,7 +81,10 @@ async function openModelPicker(ctx: CommandContext, agentId: string, chain = fal
           .updateParticipant(agentId, { model: ref || null })
           .then(() => {
             ctx.notify(`@${agentId} → ${ref ? shortModel(ref) : "room default"}`)
-            if (chain) openAgentModelPicker(ctx)
+            // Chain straight into the thinking picker: the new model may
+            // support a different set of levels, and the two settings are
+            // really one decision. Esc there = keep the current level.
+            void openThinkingPicker(ctx, agentId, false, chain ? () => openAgentModelPicker(ctx) : undefined)
           })
           .catch(() => {
             if (chain) openAgentModelPicker(ctx)
@@ -119,7 +122,15 @@ function openAgentThinkingPicker(ctx: CommandContext): void {
   })
 }
 
-async function openThinkingPicker(ctx: CommandContext, agentId: string, chain = false): Promise<void> {
+async function openThinkingPicker(
+  ctx: CommandContext,
+  agentId: string,
+  chain = false,
+  /** Where to go after choosing (or Esc). Overrides the /thinking agent-picker
+   *  loop — the /model flow passes its own agent picker here. */
+  returnTo?: () => void,
+): Promise<void> {
+  const back = returnTo ?? (chain ? () => openAgentThinkingPicker(ctx) : undefined)
   try {
     // The detail endpoint knows which levels the agent's current model
     // actually supports (a local Qwen and a cloud Claude differ here).
@@ -142,17 +153,18 @@ async function openThinkingPicker(ctx: CommandContext, agentId: string, chain = 
           .updateParticipant(agentId, { thinkingLevel: level || null })
           .then(() => {
             ctx.notify(`@${agentId} thinking \u2192 ${level || "default"}`)
-            if (chain) openAgentThinkingPicker(ctx)
+            back?.()
           })
           .catch(() => {
-            if (chain) openAgentThinkingPicker(ctx)
+            back?.()
           })
       },
-      // Esc = back to the agent picker when we came from it, not out.
-      onCancel: chain ? () => openAgentThinkingPicker(ctx) : undefined,
+      // Esc = back to where we came from (agent picker / model flow), not out.
+      onCancel: back,
     })
   } catch {
     ctx.notify("Failed to load agent detail.", "error")
+    back?.()
   }
 }
 
@@ -439,7 +451,7 @@ export const COMMANDS: Command[] = [
   },
   {
     name: "model",
-    summary: "Swap an agent's model on the fly",
+    summary: "Swap an agent's model, then pick its thinking level",
     usage: "[@agent]",
     run: (ctx, args) => {
       const token = args.trim()

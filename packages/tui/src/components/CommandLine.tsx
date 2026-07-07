@@ -15,6 +15,7 @@ export function CommandLine({
   onCommand,
   onRoomNav,
   onEmptyEnter,
+  onRoutingCycle,
   isActive,
   connected,
 }: {
@@ -24,6 +25,8 @@ export function CommandLine({
   onRoomNav?: (dir: -1 | 1) => void
   /** ⏎ on an empty line — used by the tab bar's "+ room" tab. */
   onEmptyEnter?: () => void
+  /** ⇧⇥ cycles the routing mode (auto → semi → manual). */
+  onRoutingCycle?: () => void
   isActive: boolean
   connected: boolean
 }) {
@@ -45,6 +48,12 @@ export function CommandLine({
 
   useInput(
     (input, key) => {
+      // ⇧⇥ cycles routing anytime the command line owns the keyboard — checked
+      // before the palette's plain-Tab completion, which must not swallow it.
+      if (key.tab && key.shift) {
+        onRoutingCycle?.()
+        return
+      }
       if (key.return) {
         const text = value.trim()
         if (text) {
@@ -157,7 +166,7 @@ export function CommandLine({
             {after}
           </Text>
         ) : (
-          <Text dimColor>Message the room · / for commands · Ctrl+C to quit</Text>
+          <Text dimColor>Message the room · / for commands · ⇧⇥ routing · Ctrl+C to quit</Text>
         )}
       </Box>
     </Box>
