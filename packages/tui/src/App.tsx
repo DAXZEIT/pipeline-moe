@@ -193,8 +193,8 @@ export function App({
   // posted to the shared transcript (context for every agent). Falls back to
   // the server-side runner when the workspace isn't local or there's no tty.
   const runShell = (command: string) => {
-    const serverSide = () => {
-      store.pushNotice(`$ ${command} — running on the server…`)
+    const serverSide = (why: string) => {
+      store.pushNotice(`$ ${command} — running non-interactively on the server (${why}).`)
       store.actions.runShell(command).catch((err: unknown) =>
         store.pushNotice(
           err instanceof Error && err.message ? err.message : "Shell failed — server unreachable?",
@@ -203,8 +203,10 @@ export function App({
       )
     }
     const ws = rooms.find((r) => r.roomId === roomId)?.workspaceDir
-    const cwd = ws && existsSync(ws) ? ws : null
-    if (!cwd || !process.stdin.isTTY) return serverSide()
+    if (!ws) return serverSide("server didn't report a workspace — restart it if it predates 0.1.11")
+    if (!existsSync(ws)) return serverSide("workspace not on this machine")
+    if (!process.stdin.isTTY) return serverSide("no tty")
+    const cwd = ws
 
     const dir = mkdtempSync(join(tmpdir(), "pmoe-shell-"))
     const capture = join(dir, "capture")
@@ -241,7 +243,7 @@ export function App({
       rmSync(dir, { recursive: true, force: true })
     } catch {}
 
-    if (res.error) return serverSide() // no `script` binary on this host
+    if (res.error) return serverSide("no `script` binary on this host")
     store.actions.postShellRecord(command, output, res.status).catch((err: unknown) =>
       store.pushNotice(
         err instanceof Error && err.message ? err.message : "Failed to record shell output.",

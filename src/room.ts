@@ -2,7 +2,7 @@
 // receipts. One room per process. All model work is serialised here, which
 // also matches llama-server running with --parallel 1.
 
-import { execFile } from "node:child_process"
+import { execFile, type ExecFileOptionsWithStringEncoding } from "node:child_process"
 import { rm } from "node:fs/promises"
 import { resolve } from "node:path"
 import { config } from "./config.js"
@@ -817,8 +817,19 @@ export class Room {
       execFile(
         "bash",
         ["-c", command],
-        { cwd: this.workspaceDir, timeout: 30_000, maxBuffer: 1024 * 1024 },
-        (err, stdout, stderr) => {
+        // detached → new session, NO controlling terminal: sudo/ssh password
+        // prompts fail fast with "a terminal is required" instead of hijacking
+        // the server console and hanging until the timeout. Interactive
+        // commands belong to the TUI's client-side runner. (`detached` is a
+        // spawn option execFile forwards at runtime; its typings omit it.)
+        {
+          cwd: this.workspaceDir,
+          timeout: 30_000,
+          maxBuffer: 1024 * 1024,
+          detached: true,
+          encoding: "utf8",
+        } as ExecFileOptionsWithStringEncoding,
+        (err: Error | null, stdout: string, stderr: string) => {
           const merged = [stdout, stderr].filter((s) => s.length > 0).join("")
           const code = err ? ((err as NodeJS.ErrnoException & { code?: number | string }).code ?? 1) : 0
           done({ text: merged || (err && !merged ? err.message : ""), code })
