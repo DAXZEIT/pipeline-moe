@@ -40,19 +40,65 @@ export function shortModel(ref: string | undefined): string | null {
  * each selection chains into the model picker, which returns here — one
  * /model session can realign the whole lineup. Esc exits the loop.
  */
+/** Sentinel id for the trailing "+ agent" row — persona ids are slugs
+ *  (lowercase, no "+"), so this can never collide with a real agent. */
+const ADD_AGENT = "+agent"
+
 function openAgentModelPicker(ctx: CommandContext): void {
   const roster = ctx.store.getSnapshot().roster
   ctx.openOverlay({
     kind: "select",
     title: "Change model for…",
-    items: roster.map((p) => ({
-      id: p.id,
-      label: `${p.icon} ${p.name}`,
-      hint: shortModel(p.model) ?? "room default",
-    })),
+    items: [
+      ...roster.map((p) => ({
+        id: p.id,
+        label: `${p.icon} ${p.name}`,
+        hint: shortModel(p.model) ?? "room default",
+      })),
+      { id: ADD_AGENT, label: "＋ agent", hint: "new, or clone a template" },
+    ],
     emptyText: "Empty room.",
-    onSelect: (id) => void openModelPicker(ctx, id, true),
+    onSelect: (id) => {
+      if (id === ADD_AGENT) return void openAddAgentPicker(ctx)
+      void openModelPicker(ctx, id, true)
+    },
   })
+}
+
+/** The "+ agent" flow: blank form, or clone a persona template. Cloning an
+ *  already-present persona auto-suffixes server-side (builder → Builder 2),
+ *  so a second Builder is one keystroke. Returns to the model picker either
+ *  way — this lives inside the /model loop. */
+async function openAddAgentPicker(ctx: CommandContext): Promise<void> {
+  try {
+    const templates = await ctx.api.personaTemplates()
+    ctx.openOverlay({
+      kind: "select",
+      title: "Add agent…",
+      items: [
+        { id: "", label: "＋ New agent", hint: "blank form" },
+        ...templates.map((t) => ({
+          id: t.id,
+          label: `${t.icon} ${t.name}`,
+          hint: t.model ? shortModel(t.model) ?? t.model : "room default",
+        })),
+      ],
+      onSelect: (id) => {
+        if (!id) return ctx.openOverlay({ kind: "agentForm" })
+        ctx.store.actions
+          .addFromTemplate(id)
+          .then((item) => {
+            ctx.notify(`Agent "${item.name}" added (@${item.id}).`)
+            openAgentModelPicker(ctx)
+          })
+          // The store already surfaced the error as a notice — just resume.
+          .catch(() => openAgentModelPicker(ctx))
+      },
+      onCancel: () => openAgentModelPicker(ctx),
+    })
+  } catch {
+    ctx.notify("Failed to load persona templates.", "error")
+  }
 }
 
 /** List available models and PATCH the chosen one onto the agent. */
