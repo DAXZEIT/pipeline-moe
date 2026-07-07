@@ -17,6 +17,26 @@ import { config } from "./config.js"
 /** Package root (this file lives in <root>/src) — anchors paths that must
  *  work when installed as a dependency and run from an arbitrary cwd. */
 const packageRoot = () => resolve(dirname(fileURLToPath(import.meta.url)), "..")
+
+/** Startup banner, printed once when the server starts listening. Colors only
+ *  on a TTY so piped logs (systemd, files) stay clean. */
+function printBanner(): void {
+  const tty = process.stdout.isTTY
+  const cyan = tty ? "\x1b[36m" : ""
+  const dim = tty ? "\x1b[2m" : ""
+  const reset = tty ? "\x1b[0m" : ""
+  let version = ""
+  try {
+    version = ` v${(JSON.parse(readFileSync(join(packageRoot(), "package.json"), "utf8")) as { version?: string }).version ?? ""}`
+  } catch {}
+  console.log(
+    `\n${cyan}` +
+      "╔═╗ ╦ ╔═╗ ╔═╗ ╦   ╦ ╔╗╔ ╔═╗      ╔╦╗     ╔═╗\n" +
+      "╠═╝ ║ ╠═╝ ╠═  ║   ║ ║║║ ╠═  ──▶  ║║║ ╔═╗ ╠═ \n" +
+      "╩   ╩ ╩   ╚═╝ ╩═╝ ╩ ╝╚╝ ╚═╝      ╩ ╩ ╚═╝ ╚═╝" +
+      `${reset}\n${dim}local-first multi-agent chat room${version}${reset}\n`,
+  )
+}
 import { downgradeUnavailableModels, isAllowedModel, listModels, resolveModel, type ResolvedModel } from "./model.js"
 import { listWorkspace } from "./receipts.js"
 import { BASE_PROMPT, BUILDER_OVERLAY, PLANNER_OVERLAY, SEED_PERSONAS } from "./personas.js"
@@ -1887,6 +1907,7 @@ async function main(): Promise<void> {
   }
 
   const server = app.listen(config.port, "127.0.0.1", () => {
+    printBanner()
     console.log(`[server] Pipeline-MoE listening on http://localhost:${config.port}`)
     console.log(`[server] workspace: ${config.workspaceDir}`)
   })
