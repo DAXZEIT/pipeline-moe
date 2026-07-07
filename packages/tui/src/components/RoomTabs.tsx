@@ -37,7 +37,7 @@ export function RoomTabs({
       <Text inverse={plusSelected} color={plusSelected ? "green" : undefined} dimColor={!plusSelected}>
         {" "}+ room{" "}
       </Text>
-      <Text dimColor>{plusSelected ? "  ⏎ create" : "  ←→ switch"}</Text>
+      <Text dimColor>{plusSelected ? "  ⏎ create / resume" : "  ←→ switch"}</Text>
     </Box>
   )
 }

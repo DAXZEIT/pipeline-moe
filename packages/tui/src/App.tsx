@@ -113,8 +113,57 @@ export function App({
     if (ids[next] !== roomId) setRoomId(ids[next])
   }
 
+  // ⏎ on the + tab: offer both paths — create a new room, or resume a closed
+  // one (the web UI's resumable-rooms list). Straight to the create form when
+  // there is nothing to resume (or the list can't be fetched).
+  const openRoomEntry = () => {
+    api
+      .resumableRooms()
+      .then((list) => {
+        if (list.length === 0) {
+          setOverlay({ kind: "roomForm" })
+          return
+        }
+        setOverlay({
+          kind: "select",
+          title: "Room…",
+          items: [
+            { id: "", label: "＋ Create new room" },
+            ...list.map((r) => ({
+              id: r.roomId,
+              label: `↻ ${r.name}`,
+              hint:
+                `${r.messageCount} msg${r.messageCount === 1 ? "" : "s"}` +
+                (r.lastActivity ? ` · ${new Date(r.lastActivity).toLocaleDateString()}` : ""),
+            })),
+          ],
+          onSelect: (id) => {
+            if (!id) {
+              setOverlay({ kind: "roomForm" })
+              return
+            }
+            const name = list.find((r) => r.roomId === id)?.name ?? id
+            api
+              .resumeRoom(id)
+              .then(() => {
+                switchRoom(id)
+                refreshRooms()
+                setPendingNotice(`Room "${name}" resumed.`)
+              })
+              .catch((err: unknown) =>
+                store.pushNotice(
+                  err instanceof Error && err.message ? err.message : "Resume failed — server unreachable?",
+                  "error",
+                ),
+              )
+          },
+        })
+      })
+      .catch(() => setOverlay({ kind: "roomForm" }))
+  }
+
   const onEmptyEnter = () => {
-    if (plusSelected) setOverlay({ kind: "roomForm" })
+    if (plusSelected) openRoomEntry()
   }
 
   // ⇧⇥ cycles the routing mode without typing /route. The status bar reflects
