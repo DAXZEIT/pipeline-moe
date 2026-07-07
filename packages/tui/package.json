@@ -1,6 +1,6 @@
 {
   "name": "@pipeline-moe/tui",
-  "version": "0.1.22",
+  "version": "0.1.23",
   "license": "MIT",
   "type": "module",
   "description": "Terminal client for pipeline-moe — a multi-room, multi-agent orchestration TUI built on @pipeline-moe/client-core and Ink.",

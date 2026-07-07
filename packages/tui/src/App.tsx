@@ -206,16 +206,18 @@ export function App({
     Promise.resolve(cmd.run(ctx, args)).catch(() => {})
   }
 
-  // Pin the whole app to the terminal height. If the frame ever grows taller
-  // than the screen (a tall overlay under a full transcript), Ink can no
-  // longer erase the lines that scrolled off — they stay behind as ghost
+  // Pin the whole app just under the terminal height. If the frame ever grows
+  // taller than the screen (a tall overlay under a full transcript), Ink can
+  // no longer erase the lines that scrolled off — they stay behind as ghost
   // frames. With a fixed-height root, the middle (roster + transcript) is the
   // only flexible region: it shrinks and clips while an overlay is open, and
-  // the frame never exceeds the screen.
+  // the frame never exceeds the screen. rows-1, not rows: at outputHeight >=
+  // rows Ink abandons incremental erase-and-redraw for a full clearTerminal
+  // on every frame, which flickers on each keystroke.
   const { rows } = useTerminalSize()
 
   return (
-    <Box flexDirection="column" height={rows} overflow="hidden">
+    <Box flexDirection="column" height={Math.max(8, rows - 1)} overflow="hidden">
       <Box flexDirection="column" flexShrink={0}>
         <RoomTabs rooms={rooms} current={roomId} plusSelected={plusSelected} />
       </Box>

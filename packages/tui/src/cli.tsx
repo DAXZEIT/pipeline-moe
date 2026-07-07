@@ -24,6 +24,21 @@ function arg(flag: string, fallback: string): string {
 // spec-defined no-op, and terminals without the protocol ignore the sequence.
 if (process.stdout.isTTY) process.stdout.write("\x1b[<u")
 
+// Synchronized output (DEC private mode 2026): bracket every frame write so
+// the terminal applies Ink's erase-and-redraw atomically instead of painting
+// the intermediate blank state — the source of menu-navigation flicker.
+// Terminals without support (rare now: Ghostty/kitty/WezTerm/recent tmux all
+// have it) ignore the sequences.
+if (process.stdout.isTTY) {
+  const rawWrite = process.stdout.write.bind(process.stdout)
+  process.stdout.write = ((chunk: string | Uint8Array, enc?: unknown, cb?: unknown) =>
+    rawWrite(
+      typeof chunk === "string" ? `\x1b[?2026h${chunk}\x1b[?2026l` : chunk,
+      enc as never,
+      cb as never,
+    )) as typeof process.stdout.write
+}
+
 // Diagnostic tap: PMOE_INPUT_LOG=<file> appends every stdin chunk Ink consumes,
 // JSON-escaped so escape sequences are readable. Costs nothing when unset.
 const inputLog = process.env.PMOE_INPUT_LOG
