@@ -831,8 +831,9 @@ export class Room {
         } as ExecFileOptionsWithStringEncoding,
         (err: Error | null, stdout: string, stderr: string) => {
           const merged = [stdout, stderr].filter((s) => s.length > 0).join("")
-          const code = err ? ((err as NodeJS.ErrnoException & { code?: number | string }).code ?? 1) : 0
-          done({ text: merged || (err && !merged ? err.message : ""), code })
+          const e = err as (NodeJS.ErrnoException & { code?: number | string; killed?: boolean }) | null
+          const code = e ? (e.killed ? "timeout" : (e.code ?? 1)) : 0
+          done({ text: merged || (e && !merged ? e.message : ""), code })
         },
       )
     })
@@ -846,9 +847,18 @@ export class Room {
   postShellRecord(command: string, output: string, exitCode: number | string | null): TranscriptEntry {
     const max = 8000
     const clipped = output.length > max ? `${output.slice(0, max)}\n… (+${output.length - max} chars)` : output
-    const text =
-      `$ ${command}\n${clipped.trimEnd() || "(no output)"}` +
-      (exitCode !== 0 && exitCode !== null ? `\n(exit ${exitCode})` : "")
+    // 130/143 = 128+SIGINT/SIGTERM: the user stopped the command (Ctrl+C on a
+    // ping, say). Label it as deliberate — "(exit 130)" reads as a failure and
+    // sends agents chasing an error that never happened.
+    const interrupted = exitCode === 130 || exitCode === 143 || exitCode === "SIGINT" || exitCode === "SIGTERM"
+    const suffix = interrupted
+      ? "\n(stopped by user — partial output, not an error)"
+      : exitCode === "timeout"
+        ? "\n(timed out after 30s — partial output)"
+        : exitCode !== 0 && exitCode !== null
+          ? `\n(exit ${exitCode})`
+          : ""
+    const text = `$ ${command}\n${clipped.trimEnd() || "(no output)"}` + suffix
     const entry = this.post("shell", "Shell", text)
     void this.saveCurrent()
     return entry

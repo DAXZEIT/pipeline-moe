@@ -244,7 +244,15 @@ export function App({
     } catch {}
 
     if (res.error) return serverSide("no `script` binary on this host")
-    store.actions.postShellRecord(command, output, res.status).catch((err: unknown) =>
+    // A user interrupt must not read as a failure. Signals map to their 128+n
+    // codes, and the pty's "^C" echo catches commands that trap SIGINT and
+    // then exit non-zero themselves (ping to an unreachable host, say) —
+    // the exit code alone can't distinguish that from a real error.
+    const userStopped = res.signal === "SIGINT" || /\^C/.test(output)
+    const exit = userStopped
+      ? 130
+      : res.status ?? (res.signal === "SIGTERM" ? 143 : res.signal ? 1 : 0)
+    store.actions.postShellRecord(command, output, exit).catch((err: unknown) =>
       store.pushNotice(
         err instanceof Error && err.message ? err.message : "Failed to record shell output.",
         "error",
