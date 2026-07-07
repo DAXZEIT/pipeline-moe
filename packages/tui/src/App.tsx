@@ -1,5 +1,8 @@
-import { spawn } from "node:child_process"
-import { Box } from "ink"
+import { spawn, spawnSync } from "node:child_process"
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
+import { Box, useStdin } from "ink"
 import { useCallback, useEffect, useMemo, useState } from "react"
 import type { RoomStore, Api, RoomSummary } from "@pipeline-moe/client-core"
 import { useRoomStore } from "./useRoomStore"
@@ -21,6 +24,21 @@ import { PresetDetailOverlay } from "./components/overlays/PresetDetailOverlay"
 import { lookup } from "./commands/registry"
 import type { CommandContext, Overlay } from "./commands/types"
 import { useTerminalSize } from "./useTerminalSize"
+
+/** Strip terminal escape sequences, CR rewrites (progress bars) and `script`
+ *  chatter from a PTY capture so the shared transcript gets clean plain text. */
+function cleanPtyCapture(raw: string): string {
+  const noEsc = raw
+    .replace(/\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g, "") // OSC — titles, hyperlinks
+    .replace(/\x1b\[[0-9;:?]*[ -/]*[@-~]/g, "") // CSI — colors, cursor moves
+    .replace(/\x1b[@-_=>]/g, "") // bare ESC sequences
+  return noEsc
+    .split("\n")
+    .map((l) => l.split("\r").filter(Boolean).pop() ?? "")
+    .map((l) => l.replace(/[\x00-\x08\x0b-\x1f\x7f]/g, ""))
+    .filter((l) => !/^Script (?:started|done) on /.test(l))
+    .join("\n")
+}
 
 export function App({
   makeStore,
@@ -166,13 +184,67 @@ export function App({
     if (plusSelected) openRoomEntry()
   }
 
-  // "!" shell mode — the command runs server-side in the room's workspace and
-  // the transcript entry (shared context) arrives over SSE like any message.
+  const { setRawMode } = useStdin()
+
+  // "!" shell mode. The command runs interactively in THIS terminal — Ink
+  // releases raw mode and the child owns the tty through a `script` PTY, so
+  // sudo password prompts and full-screen tools work — inside the room's
+  // workspace when that directory exists on this host. The capture is then
+  // posted to the shared transcript (context for every agent). Falls back to
+  // the server-side runner when the workspace isn't local or there's no tty.
   const runShell = (command: string) => {
-    store.pushNotice(`$ ${command} — running…`)
-    store.actions.runShell(command).catch((err: unknown) =>
+    const serverSide = () => {
+      store.pushNotice(`$ ${command} — running on the server…`)
+      store.actions.runShell(command).catch((err: unknown) =>
+        store.pushNotice(
+          err instanceof Error && err.message ? err.message : "Shell failed — server unreachable?",
+          "error",
+        ),
+      )
+    }
+    const ws = rooms.find((r) => r.roomId === roomId)?.workspaceDir
+    const cwd = ws && existsSync(ws) ? ws : null
+    if (!cwd || !process.stdin.isTTY) return serverSide()
+
+    const dir = mkdtempSync(join(tmpdir(), "pmoe-shell-"))
+    const capture = join(dir, "capture")
+    setRawMode(false)
+    // Belt and suspenders: force cooked mode at the fd level SYNCHRONOUSLY.
+    // `script` snapshots the outer tty's termios for the child pty — if it is
+    // still raw (icrnl off), Enter stays a literal ^M and `read`/sudo prompts
+    // never complete. Node restores the saved cooked termios here.
+    try {
+      process.stdin.setRawMode(false)
+    } catch {}
+    process.stdout.write(`\n$ ${command}\n`)
+    // script -c runs the command through $SHELL — pin it to bash so `!` has
+    // the same shell semantics as the server-side runner regardless of the
+    // user's login shell (zsh's `read -p` means coprocess, fish differs more).
+    const env = { ...process.env, SHELL: "/bin/bash" }
+    const res =
+      process.platform === "darwin"
+        ? spawnSync("script", ["-q", capture, "bash", "-c", command], { stdio: "inherit", cwd, env })
+        : spawnSync("script", ["-qefc", command, capture], { stdio: "inherit", cwd, env })
+    // Repaint on a clean screen — Ink's incremental erase counters know
+    // nothing about the foreign output the command just printed.
+    process.stdout.write("\x1b[2J\x1b[3J\x1b[H")
+    try {
+      process.stdin.setRawMode(true)
+    } catch {}
+    setRawMode(true)
+
+    let output = ""
+    try {
+      output = cleanPtyCapture(readFileSync(capture, "utf8"))
+    } catch {}
+    try {
+      rmSync(dir, { recursive: true, force: true })
+    } catch {}
+
+    if (res.error) return serverSide() // no `script` binary on this host
+    store.actions.postShellRecord(command, output, res.status).catch((err: unknown) =>
       store.pushNotice(
-        err instanceof Error && err.message ? err.message : "Shell failed — server unreachable?",
+        err instanceof Error && err.message ? err.message : "Failed to record shell output.",
         "error",
       ),
     )

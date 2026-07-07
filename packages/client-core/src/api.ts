@@ -91,6 +91,15 @@ export function createApi(API_BASE: string) {
           body: JSON.stringify({ command }),
         }).then((r) => json<Message>(r)),
 
+      /** Post a shell command the client already ran interactively (TUI `!`
+       *  mode) — no server-side execution, just the shared-context record. */
+      postShellRecord: (command: string, output: string, exitCode: number | null) =>
+        fetch(`${base}/shell/record`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ command, output, exitCode }),
+        }).then((r) => json<Message>(r)),
+
       setActive: (id: string, active: boolean) =>
         fetch(`${base}/participants/${id}`, {
           method: "PATCH",

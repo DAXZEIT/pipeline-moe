@@ -170,6 +170,10 @@ export interface RoomSummary {
   participantCount: number
   goalStatus: string
   goalText: string | null
+  /** The room's workspace directory on the server host. Clients on the same
+   *  host can run `!` shell commands directly inside it. Optional for
+   *  back-compat with older servers. */
+  workspaceDir?: string
 }
 
 /** A closed room with on-disk data, listed by GET /api/rooms/resumable. */

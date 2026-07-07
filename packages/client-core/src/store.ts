@@ -201,6 +201,11 @@ export function createRoomStore(opts: RoomStoreOptions) {
      *  command completes (or rejects on transport/server error). */
     runShell: (command: string) => rApi.runShell(command),
 
+    /** Record an interactively-run shell command (TUI `!` mode) so its output
+     *  joins the shared transcript without re-executing anything. */
+    postShellRecord: (command: string, output: string, exitCode: number | null) =>
+      rApi.postShellRecord(command, output, exitCode),
+
     setActive: (id: string, active: boolean) => {
       rApi.setActive(id, active).catch(fail)
     },

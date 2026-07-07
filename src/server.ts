@@ -1273,6 +1273,19 @@ async function main(): Promise<void> {
     }
   })
 
+  // Record a shell command a client already ran interactively in its own
+  // terminal (TUI "!" mode) — no execution here, just shared context.
+  app.post("/api/shell/record", (req, res) => {
+    const command = String(req.body?.command ?? "").trim()
+    if (!command) {
+      res.status(400).json({ error: "`command` is required" })
+      return
+    }
+    const output = String(req.body?.output ?? "").slice(0, 64_000)
+    const exitCode = typeof req.body?.exitCode === "number" ? req.body.exitCode : null
+    res.json(room.postShellRecord(command, output, exitCode))
+  })
+
   // Compact a specific agent's session context.
   app.post("/api/participants/:id/compact", async (req, res) => {
     const { id } = req.params
@@ -1770,6 +1783,17 @@ async function main(): Promise<void> {
     } catch (err) {
       res.status(500).json({ error: err instanceof Error ? err.message : String(err) })
     }
+  })
+
+  roomRouter.post("/shell/record", (req, res) => {
+    const command = String(req.body?.command ?? "").trim()
+    if (!command) {
+      res.status(400).json({ error: "`command` is required" })
+      return
+    }
+    const output = String(req.body?.output ?? "").slice(0, 64_000)
+    const exitCode = typeof req.body?.exitCode === "number" ? req.body.exitCode : null
+    res.json(roomOf(req).postShellRecord(command, output, exitCode))
   })
 
   roomRouter.post("/messages/steer", async (req, res) => {

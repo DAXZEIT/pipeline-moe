@@ -825,12 +825,19 @@ export class Room {
         },
       )
     })
+    return this.postShellRecord(command, output.text, output.code)
+  }
+
+  /** Post an already-executed shell command + output to the shared transcript
+   *  (author "shell"). Used by runShell above, and directly by clients that ran
+   *  the command interactively in their own terminal (TUI `!` mode) — the
+   *  execution was local, the context is shared. */
+  postShellRecord(command: string, output: string, exitCode: number | string | null): TranscriptEntry {
     const max = 8000
-    const clipped =
-      output.text.length > max ? `${output.text.slice(0, max)}\n… (+${output.text.length - max} chars)` : output.text
+    const clipped = output.length > max ? `${output.slice(0, max)}\n… (+${output.length - max} chars)` : output
     const text =
       `$ ${command}\n${clipped.trimEnd() || "(no output)"}` +
-      (output.code !== 0 ? `\n(exit ${output.code})` : "")
+      (exitCode !== 0 && exitCode !== null ? `\n(exit ${exitCode})` : "")
     const entry = this.post("shell", "Shell", text)
     void this.saveCurrent()
     return entry

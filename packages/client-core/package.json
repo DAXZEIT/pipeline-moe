@@ -1,6 +1,6 @@
 {
   "name": "@pipeline-moe/client-core",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "license": "MIT",
   "type": "module",
   "description": "Framework-agnostic client for a pipeline-moe server: typed REST surface, pure SSE reducer, and an effectful room store. Consumed by the web and terminal clients.",

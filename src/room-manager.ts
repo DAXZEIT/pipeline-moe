@@ -25,13 +25,14 @@ export interface RoomSummary {
   participantCount: number
   goalStatus: string
   goalText: string | null
+  /** The directory this room's agents are scoped to. Lets clients on the same
+   *  host run `!` shell commands directly inside the room's workspace. */
+  workspaceDir: string
 }
 
 export interface RoomDetails extends RoomSummary {
   isBusy: boolean
   transcriptLength: number
-  /** The directory this room's agents are scoped to. */
-  workspaceDir: string
 }
 
 /** One room's durable record in the manifest. The mountpoint is deliberately
@@ -483,6 +484,7 @@ export class RoomManager {
       participantCount: room.rosterLength(),
       goalStatus: room.getGoalStatus(),
       goalText: room.getGoalText(),
+      workspaceDir: room.getWorkspaceDir(),
     }))
   }
 
