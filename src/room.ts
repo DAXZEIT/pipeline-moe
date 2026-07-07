@@ -807,6 +807,51 @@ export class Room {
     return false
   }
 
+  /** Public snapshot of the live conversation — roster, transcript, settings.
+   *  Used by room forking to copy this discussion into another room. */
+  snapshotConversation(): Conversation {
+    return this.buildConversation()
+  }
+
+  /** Adopt another room's conversation as this room's live discussion (fork).
+   *  A NEW conversation id is minted, so agent sessions start fresh — the
+   *  saved cursors are ignored (resumed=false forces 0) and every agent
+   *  catches up on the full forked transcript on its first turn. The empty
+   *  seed conversation created by init() is removed. */
+  async adoptConversation(conv: Conversation, title?: string): Promise<void> {
+    this.ensureIdle()
+    const seedConvId = this.convId
+    await this.applyConversation({
+      ...conv,
+      id: newConvId(),
+      title: title?.trim() || conv.title,
+      createdAt: Date.now(),
+      transcript: conv.transcript.map((e) => ({ ...e })),
+    })
+    await this.saveCurrent()
+    await this.store.remove(seedConvId)
+    await this.broadcastConversations()
+  }
+
+  /** Truncate the shared transcript to its first `keep` entries. Agents whose
+   *  cursor had advanced past the cut have the removed messages inside their
+   *  private pi session — those sessions are rebuilt from scratch (they replay
+   *  the kept transcript on their next turn). Agents still behind the cut are
+   *  untouched. */
+  async rollbackTo(keep: number): Promise<number> {
+    this.ensureIdle()
+    if (!Number.isInteger(keep) || keep < 0 || keep >= this.transcript.length) {
+      throw new Error(`nothing to roll back (transcript has ${this.transcript.length} entries)`)
+    }
+    const removed = this.transcript.length - keep
+    this.transcript = this.transcript.slice(0, keep)
+    await this.registry.rollbackSessions(keep)
+    this.emit("transcript", this.transcript)
+    await this.saveCurrent()
+    this.notice(`Rolled back ${removed} message${removed === 1 ? "" : "s"}.`, "info")
+    return removed
+  }
+
   /** Run a user shell command in the room's workspace and post `$ cmd` + its
    *  output to the shared transcript (author "shell") — Claude Code's `!`
    *  mode, but the result becomes context every agent sees on its next turn.

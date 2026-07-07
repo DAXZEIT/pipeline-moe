@@ -91,6 +91,16 @@ export function createApi(API_BASE: string) {
           body: JSON.stringify({ command }),
         }).then((r) => json<Message>(r)),
 
+      /** Truncate this room's transcript to its first `keep` entries. The
+       *  server rebuilds the sessions of agents that had already seen the
+       *  removed messages. */
+      rollback: (keep: number) =>
+        fetch(`${base}/transcript/rollback`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ keep }),
+        }).then((r) => json<{ ok: boolean; removed: number }>(r)),
+
       /** Post a shell command the client already ran interactively (TUI `!`
        *  mode) — no server-side execution, just the shared-context record. */
       postShellRecord: (command: string, output: string, exitCode: number | null) =>
@@ -361,6 +371,15 @@ export function createApi(API_BASE: string) {
 
     listRooms: () =>
       fetch(`${API_BASE}/api/rooms`).then((r) => json<RoomSummary[]>(r)),
+
+    /** Fork a live room's discussion into a new room (same workspace, copied
+     *  roster + transcript, fresh agent sessions). Returns the new room. */
+    forkRoom: (roomId: string, name?: string) =>
+      fetch(`${API_BASE}/api/rooms/${roomId}/fork`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(name ? { name } : {}),
+      }).then((r) => json<RoomSummary>(r)),
 
     resumableRooms: () =>
       fetch(`${API_BASE}/api/rooms/resumable`).then((r) => json<ResumableRoom[]>(r)),

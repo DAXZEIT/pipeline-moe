@@ -216,6 +216,43 @@ export class Registry {
     return replacement
   }
 
+  /** After a transcript rollback to `keep` entries: rebuild — from scratch,
+   *  on-disk session wiped — every participant whose cursor advanced past the
+   *  cut, because its private pi context literally contains the removed
+   *  messages. cursor=0 → it replays the kept transcript on its next turn.
+   *  Participants still at or behind the cut are left untouched. */
+  async rollbackSessions(keep: number): Promise<void> {
+    const order = [...this.participants.keys()]
+    let changed = false
+    for (const id of order) {
+      const p = this.participants.get(id)!
+      if (p.cursor <= keep) continue
+      changed = true
+      const { active, parallel, persona } = { active: p.active, parallel: p.parallel, persona: p.persona }
+      p.dispose()
+      if (p.sessionDir) rmSync(p.sessionDir, { recursive: true, force: true })
+      const fresh = await Participant.create(
+        persona,
+        this.resolved,
+        (event, data) => this.hub.broadcast(event, data, this.roomId),
+        this.workspaceDir,
+        this.orchestrator,
+        this.defaultThinkingLevel,
+        this.allowCloud,
+        this.compactionReserveTokens,
+        this.sessionDirFor(id),
+      )
+      fresh.cursor = 0
+      fresh.active = active
+      fresh.parallel = parallel
+      this.participants.set(id, fresh) // same key → map order preserved
+    }
+    if (changed) {
+      this.broadcastRoster()
+      this.onChange?.()
+    }
+  }
+
   /** Reorder the roster to match the given id sequence. This is the first-turn /
    *  @all execution order (and the first-active fallback default). Ids not listed
    *  keep their relative order, appended after the listed ones. No session is

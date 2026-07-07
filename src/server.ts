@@ -1273,6 +1273,15 @@ async function main(): Promise<void> {
     }
   })
 
+  // Truncate the shared transcript to its first `keep` entries (rollback).
+  app.post("/api/transcript/rollback", async (req, res) => {
+    try {
+      res.json({ ok: true, removed: await room.rollbackTo(Number(req.body?.keep)) })
+    } catch (err) {
+      res.status(400).json({ error: err instanceof Error ? err.message : String(err) })
+    }
+  })
+
   // Record a shell command a client already ran interactively in its own
   // terminal (TUI "!" mode) — no execution here, just shared context.
   app.post("/api/shell/record", (req, res) => {
@@ -1471,6 +1480,42 @@ async function main(): Promise<void> {
   // provisionRoom with the durable name/scope from meta.json; the room's init()
   // reloads its saved transcript + roster. Registered as a top-level route (not
   // via the room-scoped router, whose requireRoom guard would 404 a non-live room).
+  // Fork a live room's discussion into a NEW room: same workspace, copied
+  // roster + transcript, fresh agent sessions (they replay the forked
+  // transcript on their first turn). The source room is left untouched.
+  app.post("/api/rooms/:roomId/fork", async (req, res) => {
+    const { roomId } = req.params
+    const src = roomManager.getRoom(roomId)
+    if (!src) {
+      res.status(404).json({ error: `unknown room "${roomId}"` })
+      return
+    }
+    if (src.isBusy()) {
+      res.status(409).json({ error: "source room is busy — stop the turn before forking" })
+      return
+    }
+    const srcDetails = roomManager.getRoomDetails(roomId)!
+    const name = String(req.body?.name ?? "").trim() || `${srcDetails.name} (fork)`
+    try {
+      const details = await provisionRoom({
+        name,
+        // A fork discusses the same files: reuse the source's workspace scope.
+        // (For an sshfs room this is the live mountpoint — valid while the
+        // source room stays open.)
+        workspaceDir: srcDetails.workspaceDir === config.workspaceDir ? undefined : srcDetails.workspaceDir,
+      })
+      const target = roomManager.getRoom(details.roomId)!
+      await target.adoptConversation(src.snapshotConversation(), name)
+      res.status(201).json(roomManager.getRoomDetails(details.roomId))
+    } catch (err) {
+      if (err instanceof RoomProvisionError) {
+        res.status(err.status).json({ error: err.message })
+        return
+      }
+      res.status(500).json({ error: err instanceof Error ? err.message : String(err) })
+    }
+  })
+
   app.post("/api/rooms/:roomId/resume", async (req, res) => {
     const { roomId } = req.params
     if (roomId === "default") {
@@ -1782,6 +1827,14 @@ async function main(): Promise<void> {
       res.json(await roomOf(req).runShell(command))
     } catch (err) {
       res.status(500).json({ error: err instanceof Error ? err.message : String(err) })
+    }
+  })
+
+  roomRouter.post("/transcript/rollback", async (req, res) => {
+    try {
+      res.json({ ok: true, removed: await roomOf(req).rollbackTo(Number(req.body?.keep)) })
+    } catch (err) {
+      res.status(400).json({ error: err instanceof Error ? err.message : String(err) })
     }
   })
 

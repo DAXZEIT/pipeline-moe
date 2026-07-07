@@ -516,6 +516,49 @@ export const COMMANDS: Command[] = [
     },
   },
   {
+    name: "rollback",
+    summary: "Remove the last message(s) from the shared transcript",
+    run: (ctx) => {
+      const msgs = ctx.state.messages
+      if (msgs.length === 0) return ctx.notify("Transcript is empty — nothing to roll back.", "error")
+      // Most recent first; picking an entry removes it AND everything after.
+      const recent = [...msgs.slice(-10)].reverse()
+      ctx.openOverlay({
+        kind: "select",
+        title: "Roll back to before… (removes that message and everything after)",
+        items: recent.map((m) => {
+          const n = msgs.length - m.index
+          return {
+            id: String(m.index),
+            label: `${m.authorName}: ${m.text.replace(/\s+/g, " ").slice(0, 64)}`,
+            hint: `removes ${n} msg${n === 1 ? "" : "s"}`,
+          }
+        }),
+        onSelect: (id) => {
+          // Success feedback comes from the server's own notice + the new
+          // transcript over SSE — only failures need a local message.
+          ctx.store.actions.rollback(Number(id)).catch((err: unknown) =>
+            ctx.notify(err instanceof Error && err.message ? err.message : "Rollback failed.", "error"),
+          )
+        },
+      })
+    },
+  },
+  {
+    name: "fork",
+    summary: "Fork this discussion into a new room",
+    usage: "[name]",
+    run: async (ctx, args) => {
+      try {
+        const room = await ctx.api.forkRoom(ctx.store.roomId, args.trim() || undefined)
+        ctx.notify(`Forked into "${room.name}" — switching.`)
+        ctx.switchRoom(room.roomId)
+      } catch (err) {
+        ctx.notify(err instanceof Error && err.message ? err.message : "Fork failed.", "error")
+      }
+    },
+  },
+  {
     name: "prompt",
     summary: "View / edit an agent's system prompt ($EDITOR)",
     usage: "[@agent]",

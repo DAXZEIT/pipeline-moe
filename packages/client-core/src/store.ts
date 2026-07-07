@@ -206,6 +206,10 @@ export function createRoomStore(opts: RoomStoreOptions) {
     postShellRecord: (command: string, output: string, exitCode: number | null) =>
       rApi.postShellRecord(command, output, exitCode),
 
+    /** Roll the shared transcript back to its first `keep` entries. The new
+     *  transcript arrives over SSE; rejects with the server's reason. */
+    rollback: (keep: number) => rApi.rollback(keep),
+
     setActive: (id: string, active: boolean) => {
       rApi.setActive(id, active).catch(fail)
     },
