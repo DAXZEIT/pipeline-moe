@@ -56,12 +56,16 @@ export function Transcript({
   streaming,
   liveReasoning,
   isActive,
+  scrollRef,
 }: {
   messages: Message[]
   roster: RosterItem[]
   streaming: Record<string, string>
   liveReasoning: Record<string, string>
   isActive: boolean
+  /** Receives a line scroller (+up / −down) — driven by ↑/↓ from the command
+   *  line, which is what the mouse wheel sends in alternate-scroll mode. */
+  scrollRef?: React.MutableRefObject<(delta: number) => void>
 }) {
   const { rows, columns } = useTerminalSize()
   const [offset, setOffset] = useState(0) // display lines scrolled up from the bottom
@@ -133,6 +137,9 @@ export function Transcript({
   const effOffset = Math.min(offset, maxOffset)
   maxOffsetRef.current = maxOffset
   pageRef.current = Math.max(1, bodyHeight - 1)
+  if (scrollRef)
+    scrollRef.current = (delta) =>
+      setOffset((o) => Math.max(0, Math.min(maxOffsetRef.current, o + delta)))
 
   const end = lines.length - effOffset
   const start = Math.max(0, end - bodyHeight)

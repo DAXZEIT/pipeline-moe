@@ -17,6 +17,7 @@ export function CommandLine({
   onEmptyEnter,
   onRoutingCycle,
   onShell,
+  onScroll,
   isActive,
   connected,
 }: {
@@ -30,6 +31,9 @@ export function CommandLine({
   onRoutingCycle?: () => void
   /** "!" shell mode: run a command in the room's workspace (shared context). */
   onShell?: (command: string) => void
+  /** ↑/↓ outside the palette scrolls the transcript (+up / −down, one line per
+   *  press) — the mouse wheel sends exactly these keys in alternate-scroll mode. */
+  onScroll?: (delta: number) => void
   isActive: boolean
   connected: boolean
 }) {
@@ -93,6 +97,16 @@ export function CommandLine({
       }
       if (matches.length > 0 && key.downArrow) {
         setPIndex((p) => (p + 1) % matches.length)
+        return
+      }
+      // Outside the palette, ↑/↓ scroll the transcript — this is also what the
+      // mouse wheel emits in the alt screen (alternate-scroll mode 1007).
+      if (key.upArrow) {
+        onScroll?.(1)
+        return
+      }
+      if (key.downArrow) {
+        onScroll?.(-1)
         return
       }
       if (key.leftArrow) {

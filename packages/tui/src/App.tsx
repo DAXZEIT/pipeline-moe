@@ -3,7 +3,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { Box, useStdin } from "ink"
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import type { RoomStore, Api, RoomSummary } from "@pipeline-moe/client-core"
 import { useRoomStore } from "./useRoomStore"
 import { Roster } from "./components/Roster"
@@ -218,7 +218,10 @@ export function App({
     try {
       process.stdin.setRawMode(false)
     } catch {}
-    process.stdout.write(`\n$ ${command}\n`)
+    // Leave the alt screen for the duration of the command: the user gets
+    // their real terminal (prompt output lands in native scrollback, where it
+    // belongs) and Ink's frame is safely parked in the alt buffer.
+    process.stdout.write(`\x1b[?1049l\n$ ${command}\n`)
     // script -c runs the command through $SHELL — pin it to bash so `!` has
     // the same shell semantics as the server-side runner regardless of the
     // user's login shell (zsh's `read -p` means coprocess, fish differs more).
@@ -227,9 +230,9 @@ export function App({
       process.platform === "darwin"
         ? spawnSync("script", ["-q", capture, "bash", "-c", command], { stdio: "inherit", cwd, env })
         : spawnSync("script", ["-qefc", command, capture], { stdio: "inherit", cwd, env })
-    // Repaint on a clean screen — Ink's incremental erase counters know
+    // Back into the alt screen, wiped — Ink's incremental erase counters know
     // nothing about the foreign output the command just printed.
-    process.stdout.write("\x1b[2J\x1b[3J\x1b[H")
+    process.stdout.write("\x1b[?1049h\x1b[2J\x1b[H")
     try {
       process.stdin.setRawMode(true)
     } catch {}
@@ -331,6 +334,12 @@ export function App({
   // on every frame, which flickers on each keystroke.
   const { rows } = useTerminalSize()
 
+  // Bridge from CommandLine's ↑/↓ (which is what the mouse wheel sends in the
+  // alt screen via alternate-scroll mode) to the Transcript's scroll offset.
+  // The Transcript owns the offset — it's the only place that knows the
+  // wrapped line count — so it publishes a scroller into this ref.
+  const transcriptScrollRef = useRef<(delta: number) => void>(() => {})
+
   return (
     <Box flexDirection="column" height={Math.max(8, rows - 1)} overflow="hidden">
       <Box flexDirection="column" flexShrink={0}>
@@ -345,6 +354,7 @@ export function App({
             streaming={state.streaming}
             liveReasoning={state.liveReasoning}
             isActive={!overlay && !state.oauthProgress}
+            scrollRef={transcriptScrollRef}
           />
         </Box>
       </Box>
@@ -442,6 +452,7 @@ export function App({
         onEmptyEnter={onEmptyEnter}
         onRoutingCycle={cycleRouting}
         onShell={runShell}
+        onScroll={(delta) => transcriptScrollRef.current(delta)}
         isActive={!overlay && !state.oauthProgress}
         connected={state.connected}
       />

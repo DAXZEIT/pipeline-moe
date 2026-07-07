@@ -5,7 +5,7 @@
 //
 //   pmoe [--server http://localhost:5300] [--room default]
 
-import { appendFileSync } from "node:fs"
+import { appendFileSync, writeSync } from "node:fs"
 import { render } from "ink"
 import { createRoomStore, createApi } from "@pipeline-moe/client-core"
 import { nodeEventSourceFactory } from "./nodeEventSource"
@@ -23,6 +23,35 @@ function arg(flag: string, fallback: string): string {
 // makes the whole UI (and Ctrl+C) appear frozen. Popping an empty stack is a
 // spec-defined no-op, and terminals without the protocol ignore the sequence.
 if (process.stdout.isTTY) process.stdout.write("\x1b[<u")
+
+// Run in the alternate screen (like vim/htop). Two problems disappear at once:
+// Ink's erase-and-redraw can no longer leak stale frames into the terminal's
+// scrollback (the "ghost frames" artifact), and mouse-wheel scrolling becomes
+// meaningful — in the alt screen, terminals with alternate-scroll mode (1007,
+// enabled below; kitty/xterm/WezTerm) translate wheel events into arrow keys,
+// which the app maps to transcript scrolling. No mouse capture involved, so
+// click-drag text selection keeps working normally.
+// The `!` interactive shell temporarily leaves the alt screen (see App.tsx) so
+// command output lands in the real terminal scrollback.
+if (process.stdout.isTTY) {
+  process.stdout.write("\x1b[?1049h\x1b[2J\x1b[H\x1b[?1007h")
+  // Restore on every exit path — including crashes — or the shell comes back
+  // to a dead alt screen. writeSync bypasses the 2026 wrapper installed below
+  // and is safe inside an "exit" handler (no async flush).
+  let restored = false
+  const restoreScreen = () => {
+    if (restored) return
+    restored = true
+    try {
+      writeSync(1, "\x1b[?1007l\x1b[?1049l")
+    } catch {}
+  }
+  process.on("exit", restoreScreen)
+  process.on("SIGTERM", () => {
+    restoreScreen()
+    process.exit(143)
+  })
+}
 
 // Synchronized output (DEC private mode 2026): bracket every frame write so
 // the terminal applies Ink's erase-and-redraw atomically instead of painting
