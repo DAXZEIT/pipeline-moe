@@ -11,7 +11,7 @@ import {
   type AgentSession,
   type AgentSessionEvent,
 } from "@earendil-works/pi-coding-agent"
-import { readFileSync } from "node:fs"
+import { mkdirSync, readFileSync } from "node:fs"
 import { access, readFile } from "node:fs/promises"
 import { constants } from "node:fs"
 import { join } from "node:path"
@@ -86,6 +86,14 @@ export class Participant {
   status: ParticipantStatus = "idle"
   /** Index of the next room transcript entry this participant has NOT yet seen. */
   cursor = 0
+  /** True when the pi session was reopened from disk with prior conversation
+   *  memory — the caller may then restore a saved cursor instead of replaying
+   *  the whole room transcript on top of the restored context. */
+  resumed = false
+  /** On-disk pi session directory, when persistence is enabled. The registry
+   *  removes it when the participant is kicked so a future agent with the same
+   *  id does not inherit this one's memory. */
+  sessionDir?: string
 
   private session!: AgentSession
   private unsubscribe: (() => void) | null = null
@@ -113,6 +121,9 @@ export class Participant {
     defaultThinkingLevel: "off" | "minimal" | "low" | "medium" | "high" | "xhigh" = config.thinkingLevel,
     allowCloud: boolean = config.allowCloud,
     compactionReserveTokens: number = 38000,
+    /** Directory for the on-disk pi session (one per persona per conversation).
+     *  Undefined → in-memory session, the pre-persistence behavior (tests). */
+    sessionDir?: string,
   ): Promise<Participant> {
     const p = new Participant(persona, emit, workspaceDir)
 
@@ -153,6 +164,19 @@ export class Participant {
       compaction: { enabled: true, reserveTokens: compactionReserveTokens },
     })
 
+    // Disk-backed session when a sessionDir is given: reopen the most recent
+    // session file in it (or start one), so the agent's private context —
+    // thinking, tool results, compaction — survives restarts and room resume.
+    let sessionManager: SessionManager
+    if (sessionDir) {
+      mkdirSync(sessionDir, { recursive: true })
+      sessionManager = SessionManager.continueRecent(workspaceDir, sessionDir)
+      p.resumed = sessionManager.buildSessionContext().messages.length > 0
+      p.sessionDir = sessionDir
+    } else {
+      sessionManager = SessionManager.inMemory(workspaceDir)
+    }
+
     const { session } = await createAgentSession({
       cwd: workspaceDir,
       // Disable built-in file tools and supply workspace-confined replacements,
@@ -166,7 +190,7 @@ export class Participant {
       })(),
       thinkingLevel: persona.thinkingLevel ?? defaultThinkingLevel,
       resourceLoader: loader,
-      sessionManager: SessionManager.inMemory(workspaceDir),
+      sessionManager,
       settingsManager: settings,
       authStorage: resolved.authStorage,
       modelRegistry: resolved.modelRegistry,

@@ -2,6 +2,8 @@
 // receipts. One room per process. All model work is serialised here, which
 // also matches llama-server running with --parallel 1.
 
+import { rm } from "node:fs/promises"
+import { resolve } from "node:path"
 import { config } from "./config.js"
 import { diffSnapshots, listWorkspace, receiptFromActivity, receiptHasChanges, snapshot } from "./receipts.js"
 import type { Registry } from "./registry.js"
@@ -441,6 +443,16 @@ export class Room {
     }
   }
 
+  /** Root for a conversation's on-disk agent sessions (pi JSONL files), or
+   *  null when persistence is off. Lives next to the conversation JSON so a
+   *  room's data — transcript AND agent memories — travels as one directory. */
+  private agentSessionRoot(convId: string): string | null {
+    // Test doubles of ConversationStore may not expose baseDir — treat that
+    // as persistence off (in-memory sessions, the pre-persistence behavior).
+    const base = this.store.baseDir as string | undefined
+    return config.persistAgentSessions && base ? resolve(base, "agents", convId) : null
+  }
+
   /** Become a brand-new empty conversation with the given roster. */
   private async startFresh(title: string, personas: Conversation["personas"]): Promise<void> {
     this.convId = newConvId()
@@ -448,17 +460,23 @@ export class Room {
     this.convCreatedAt = Date.now()
     this.transcript = []
     this.defaultAgentId = null // fresh discussion → first active is the default
+    // New conversation id → empty session root → every agent starts fresh.
+    // (Optional call: test doubles of Registry don't implement it.)
+    this.registry.setSessionRoot?.(this.agentSessionRoot(this.convId))
     await this.registry.reset(personas)
     this.emit("transcript", this.transcript)
     this.broadcastSettings()
     await this.saveCurrent()
   }
 
-  /** Make a saved conversation the live one (fresh sessions, replayed transcript). */
+  /** Make a saved conversation the live one. Agents whose on-disk pi session
+   *  is restored resume with their private context and saved cursor; the rest
+   *  get fresh sessions that replay the transcript on their next turn. */
   private async applyConversation(conv: Conversation): Promise<void> {
     this.convId = conv.id
     this.convTitle = conv.title
     this.convCreatedAt = conv.createdAt
+    this.registry.setSessionRoot?.(this.agentSessionRoot(conv.id))
     this.routingMode = conv.routingMode ?? (conv.chaining ? "auto" : "manual")
     this.defaultAgentId = conv.defaultAgent ?? null
     this.fallbackAgentId = conv.fallbackAgent ?? "planner"
@@ -487,8 +505,9 @@ export class Room {
       healed = true
     }
     await this.registry.reset(personas)
-    // cursor=0 (set by reset→create) means each agent catches up on the whole
-    // transcript on its next turn — its fresh session has no prior memory.
+    // Agents with a restored on-disk session keep their saved cursor (their
+    // context already covers the transcript up to it); fresh sessions start at
+    // cursor=0 and catch up on the whole transcript on their next turn.
     this.transcript = conv.transcript.map((e) => ({ ...e }))
     this.broadcastSettings()
     this.emit("transcript", this.transcript)
@@ -523,6 +542,10 @@ export class Room {
    *  the roster survives reboot. */
   async applyPreset(personas: Conversation["personas"]): Promise<ConversationMeta> {
     this.ensureIdle()
+    // A preset replaces the roster wholesale — wipe this conversation's agent
+    // sessions so a same-id persona doesn't wake up with the old one's memory.
+    const root = this.agentSessionRoot(this.convId)
+    if (root) await rm(root, { recursive: true, force: true })
     await this.registry.reset(personas)
     this.broadcastSettings()
     await this.saveCurrent()
@@ -559,6 +582,9 @@ export class Room {
   async deleteConversation(id: string): Promise<void> {
     this.ensureIdle()
     await this.store.remove(id)
+    // The conversation's agent sessions go with it.
+    const root = this.agentSessionRoot(id)
+    if (root) await rm(root, { recursive: true, force: true })
     if (id === this.convId) {
       // Deleted the live one: fall back to the most recent remaining, else seed.
       const metas = await this.store.list()

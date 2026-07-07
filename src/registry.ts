@@ -1,6 +1,8 @@
 // The participant registry: the live roster of agents. Create / activate /
 // deactivate / kick all happen here. Emits a "roster" SSE event on any change.
 
+import { rmSync } from "node:fs"
+import { resolve } from "node:path"
 import { config } from "./config.js"
 import { isAllowedModel as isAllowedModel_ } from "./model.js"
 import { Participant } from "./participant.js"
@@ -29,6 +31,20 @@ export class Registry {
   private participants = new Map<string, Participant>()
   /** Fired after any roster mutation (create/activate/kick). Used for autosave. */
   onChange: (() => void) | null = null
+
+  /** Root directory for on-disk pi sessions, scoped to the current conversation
+   *  (…/agents/<convId>). Each participant gets <root>/<personaId>. null →
+   *  in-memory sessions (persistence off, or a Room that never set a scope —
+   *  which is how existing tests keep the old behavior). */
+  private sessionRoot: string | null = null
+
+  setSessionRoot(root: string | null): void {
+    this.sessionRoot = root
+  }
+
+  private sessionDirFor(personaId: string): string | undefined {
+    return this.sessionRoot ? resolve(this.sessionRoot, personaId) : undefined
+  }
 
   constructor(
     private readonly resolved: ResolvedModel,
@@ -95,6 +111,7 @@ export class Registry {
       ...p.persona,
       active: p.active,
       parallel: p.parallel,
+      cursor: p.cursor,
     }))
   }
 
@@ -125,7 +142,7 @@ export class Registry {
     this.hub.broadcast("roster", this.roster(), this.roomId)
   }
 
-  async create(persona: Persona, active = true, parallel = false): Promise<Participant> {
+  async create(persona: Persona, active = true, parallel = false, savedCursor?: number): Promise<Participant> {
     if (this.participants.has(persona.id)) {
       throw new Error(`participant "${persona.id}" already exists`)
     }
@@ -139,9 +156,13 @@ export class Registry {
       this.defaultThinkingLevel,
       this.allowCloud,
       this.compactionReserveTokens,
+      this.sessionDirFor(persona.id),
     )
-    // Catch a new participant up on everything said so far before its first turn.
-    participant.cursor = 0
+    // A resumed on-disk session already holds everything up to the saved
+    // cursor — restoring it avoids replaying that context a second time. A
+    // fresh session ignores the saved value and catches up on the whole
+    // transcript before its first turn.
+    participant.cursor = participant.resumed ? (savedCursor ?? 0) : 0
     participant.active = active
     participant.parallel = parallel
     this.participants.set(persona.id, participant)
@@ -161,9 +182,12 @@ export class Registry {
     const wasActive = existing.active
     const persona: Persona = { ...existing.persona, ...patch, id }
 
-    // A new system prompt = a new identity, so we rebuild the pi session now
-    // rather than mutating the running one. cursor=0 → it replays the room
-    // transcript on its next turn with the new persona.
+    // The pi session is rebuilt rather than mutated in place: pi reconstructs
+    // the system prompt from the resource loader on every open, so a persisted
+    // session reopens with the edited persona AND its conversation memory
+    // intact. Only when persistence is off does the old fresh-session path
+    // (cursor=0, replay the transcript) apply.
+    const cursorBefore = existing.cursor
     existing.dispose()
     const replacement = await Participant.create(
       persona,
@@ -174,8 +198,9 @@ export class Registry {
       this.defaultThinkingLevel,
       this.allowCloud,
       this.compactionReserveTokens,
+      this.sessionDirFor(id),
     )
-    replacement.cursor = 0
+    replacement.cursor = replacement.resumed ? cursorBefore : 0
     replacement.active = wasActive
 
     // Rebuild the Map in the original order (a plain set() would move it last,
@@ -252,13 +277,18 @@ export class Registry {
     const p = this.participants.get(id)
     if (!p) throw new Error(`unknown participant "${id}"`)
     p.dispose()
+    // Drop the on-disk session too — a future agent created with the same id
+    // must not wake up with this one's memory.
+    if (p.sessionDir) rmSync(p.sessionDir, { recursive: true, force: true })
     this.participants.delete(id)
     this.broadcastRoster()
     this.onChange?.()
   }
 
-  /** Replace the whole roster with a saved persona set (fresh pi sessions).
-   *  Used when loading/switching conversations. Does not fire onChange. */
+  /** Replace the whole roster with a saved persona set. Sessions are reopened
+   *  from disk when a session root is set (restoring each agent's private
+   *  context), fresh otherwise. Used when loading/switching conversations.
+   *  Does not fire onChange. */
   async reset(states: PersonaState[]): Promise<void> {
     const cb = this.onChange
     this.onChange = null // suppress per-participant autosave during a bulk swap
@@ -266,8 +296,8 @@ export class Registry {
       for (const p of this.participants.values()) p.dispose()
       this.participants.clear()
       for (const s of states) {
-        const { active, parallel, ...persona } = s
-        await this.create(persona, active, parallel ?? false)
+        const { active, parallel, cursor, ...persona } = s
+        await this.create(persona, active, parallel ?? false, cursor)
       }
     } finally {
       this.onChange = cb

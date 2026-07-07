@@ -21,6 +21,12 @@ export function conversationMeta(conv: Conversation): ConversationMeta {
 export class ConversationStore {
   constructor(private readonly dir: string = config.sessionsDir) {}
 
+  /** The directory this store persists into — the Room anchors per-agent pi
+   *  session directories next to the conversation files it writes here. */
+  get baseDir(): string {
+    return this.dir
+  }
+
   async init(): Promise<void> {
     await mkdir(this.dir, { recursive: true })
   }

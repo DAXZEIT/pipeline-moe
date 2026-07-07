@@ -74,6 +74,11 @@ export interface PersonaState extends Persona {
    *  local agents still serialize on the single llama slot). Optional for
    *  back-compat with conversations saved before this existed. */
   parallel?: boolean
+  /** Index of the next transcript entry the agent had NOT yet seen when this
+   *  conversation was saved. Only honored when the agent's on-disk pi session
+   *  is restored alongside it — a fresh session always starts at 0 so it
+   *  catches up on the whole transcript. */
+  cursor?: number
 }
 
 /** A saved group conversation: its roster, transcript, and settings. */

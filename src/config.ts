@@ -18,6 +18,10 @@ export const config = {
   workspaceDir: process.env.WORKSPACE_DIR ?? process.cwd(),
   /** Where group conversations are persisted as JSON (one file per discussion). */
   sessionsDir: resolve(process.env.SESSIONS_DIR ?? resolve(process.cwd(), "sessions")),
+  /** Persist each agent's pi session to disk (context survives restarts and
+   *  room resume). Set PIPELINE_EPHEMERAL_AGENTS=1 for the old in-memory
+   *  behavior where agents catch up by replaying the room transcript. */
+  persistAgentSessions: !/^(1|true|yes)$/i.test(process.env.PIPELINE_EPHEMERAL_AGENTS ?? ""),
   /** "provider/id" override; empty means use pi's default model resolution. */
   modelOverride: process.env.PIPELINE_MODEL ?? "",
   /** This stack is local-only by policy. Cloud models are hidden from the model
