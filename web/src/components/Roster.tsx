@@ -123,7 +123,7 @@ export function Roster({
   return (
     <aside className="roster">
       <div className="roster-head">
-        <div className="roster-title">AGENT CHAT ROOM</div>
+        <div className="roster-title">Pipeline-MoE</div>
         <div className="roster-sub">
           <span className={`dot ${connected ? "dot-on" : "dot-off"}`} />
           roster {activeCount}/{roster.length}

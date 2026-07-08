@@ -403,9 +403,6 @@ body {
   padding: 0 16px;
   border-bottom: 1px solid var(--border);
 }
-.brand {
-  font-weight: 700;
-}
 .topbar-sub {
   color: var(--muted);
   font-size: 11px;

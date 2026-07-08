@@ -87,7 +87,6 @@ export function RoomView({
         />
 
         <header className="topbar">
-          <span className="brand">Pipeline-MoE</span>
           <ConversationBar
             conversations={room.conversations}
             currentId={room.currentConversationId}
