@@ -4,6 +4,12 @@
 
 ### Added
 
+- **Planner behavioral amplification** (PLAN-d5661224) — `PLANNER_OVERLAY` gains two blocks,
+  text validated by dax: *before* any plan, gate the goal ("is this worth solving, or a symptom?"
+  — "delete it" is a valid plan) and present 2-3 candidate paths with tradeoffs and confidence
+  for non-trivial work; *at* closure, append a `# Retro` section to the plan body (predictions
+  vs reality) and pour follow-ups into `ROADMAP.md`, which the planner explicitly owns.
+
 - **Plan-aware step routing** — when an agent finishes without @-mentioning anyone, the room
   now consults the active plan before falling back to the generic fallback agent: if the next
   incomplete step is prefixed `[agent-id]`, routing goes to that owner instead. Unprefixed steps
