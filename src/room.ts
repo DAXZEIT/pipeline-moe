@@ -83,6 +83,24 @@ export class Room {
    *  executeAgent so the client's status bar follows chained drains instead
    *  of showing the turn's first agent forever. Used for UI targeting (steer). */
   private runningAgentId: string | null = null
+
+  /** Fired once when a running goal reaches a terminal status. Set by the
+   *  orchestrator on spawned sub-rooms to report back into the parent room —
+   *  this is what closes the spawn_room loop without the spawner polling. */
+  onGoalResolved: ((status: "completed" | "failed" | "cancelled") => void) | null = null
+
+  /** Resolve the running goal: set status, broadcast, fire the parent callback.
+   *  Single funnel for every terminal transition so onGoalResolved can't be
+   *  missed by a new resolution site. */
+  private resolveGoal(status: "completed" | "failed" | "cancelled", reason?: string): void {
+    this.goalStatus = status
+    this.emit("room", {
+      type: `goal-${status}`,
+      goalText: this.goalText,
+      ...(reason ? { reason } : {}),
+    })
+    this.onGoalResolved?.(status)
+  }
   /** Pending agents to run in the current routing pass. Mutated as agents chain. */
   private queue: Participant[] = []
   private aborted = false
@@ -136,6 +154,10 @@ export class Room {
    *  reason as goalEvalSavedFallback: the evaluator is invoked deliberately by
    *  the eval loop, so any other automatic no-mention routing would double up. */
   private goalEvalSavedPlanAwareRouting: boolean | null = null
+  /** True when the eval loop returned because a drain paused on a question —
+   *  tells runGoalEval's finally NOT to restore the fallback agent, since the
+   *  loop resumes (via endTurn) once the answer arrives. */
+  private goalEvalPausedOnQuestion = false
 
   // ── Current conversation identity ──────────────────────────────────────────
   private convId = newConvId()
@@ -680,8 +702,7 @@ export class Room {
         // and drive the dispatch loop. runGoalEval sets the terminal status.
         await this.runGoalEval()
       } else {
-        this.goalStatus = "completed"
-        this.emit("room", { type: "goal-completed", goalText: this.goalText })
+        this.resolveGoal("completed")
       }
     }
     this.emit("turn", { phase: "end" })
@@ -706,8 +727,7 @@ export class Room {
       // No evaluator available — fall back to auto-completion rather than hang
       // the goal in "running" forever.
       this.notice(`Goal eval: evaluator @${this.goalEvaluator} not available — completing goal without verification.`, "info")
-      this.goalStatus = "completed"
-      this.emit("room", { type: "goal-completed", goalText: this.goalText })
+      this.resolveGoal("completed")
       this.fallbackAgentId = this.goalEvalSavedFallback
       this.planAwareRoutingEnabled = this.goalEvalSavedPlanAwareRouting ?? true
       this.runningAgentId = null
@@ -723,8 +743,7 @@ export class Room {
         // everything: end the goal as "cancelled" without another pass. Checked
         // here (between iterations) and again after the drain below.
         if (this.goalCancelled) {
-          this.goalStatus = "cancelled"
-          this.emit("room", { type: "goal-cancelled", goalText: this.goalText })
+          this.resolveGoal("cancelled")
           this.notice(`Goal cancelled on iteration ${this.goalIteration}.`, "info")
           return
         }
@@ -752,41 +771,53 @@ export class Room {
         this.chainBudget = 0
         this.runningAgentId = evaluator.persona.id
         this.emit("turn", { phase: "chain", from: null, targets: [evaluator.persona.id] })
-        await this.drainQueue()
+        const paused = await this.drainQueue()
+
+        // ask_user/ask_orchestrator pause inside an eval pass: the goal stays
+        // "running" and we return with fallback suppression INTACT — the answer
+        // resumes through process() → endTurn() → runGoalEval(), which picks
+        // the loop back up. (Before this guard the loop clobbered the pause
+        // and orphaned the held queue.)
+        if (paused) {
+          this.goalEvalPausedOnQuestion = true
+          return
+        }
 
         // Cancelled mid-drain — stop now, before reinterpreting the drain as a
         // completion or abort failure.
         if (this.goalCancelled) {
-          this.goalStatus = "cancelled"
-          this.emit("room", { type: "goal-cancelled", goalText: this.goalText })
+          this.resolveGoal("cancelled")
           this.notice(`Goal cancelled on iteration ${this.goalIteration}.`, "info")
           return
         }
 
         // Did the evaluator declare the goal met in its most recent message?
         if (this.evaluatorDeclaredGoalMet(evaluator.persona.id)) {
-          this.goalStatus = "completed"
-          this.emit("room", { type: "goal-completed", goalText: this.goalText })
+          this.resolveGoal("completed")
           return
         }
 
         // Turn aborted during this eval pass — give up.
         if (this.aborted) {
-          this.goalStatus = "failed"
-          this.emit("room", { type: "goal-failed", goalText: this.goalText, reason: "aborted" })
+          this.resolveGoal("failed", "aborted")
           this.notice(`Goal eval aborted on iteration ${this.goalIteration}.`, "error")
           return
         }
       }
 
       // Iteration budget exhausted without GOAL_MET.
-      this.goalStatus = "failed"
-      this.emit("room", { type: "goal-failed", goalText: this.goalText, reason: "max-iterations" })
+      this.resolveGoal("failed", "max-iterations")
       this.notice(`Goal eval exhausted after ${this.maxGoalIterations} iterations without GOAL_MET.`, "error")
     } finally {
-      this.fallbackAgentId = this.goalEvalSavedFallback
-      this.planAwareRoutingEnabled = this.goalEvalSavedPlanAwareRouting ?? true
-      this.runningAgentId = null
+      if (this.goalEvalPausedOnQuestion) {
+        // Paused mid-eval: keep the fallback suppressed — the resumed loop
+        // (re-entered via endTurn) still needs it off.
+        this.goalEvalPausedOnQuestion = false
+      } else {
+        this.fallbackAgentId = this.goalEvalSavedFallback
+        this.planAwareRoutingEnabled = this.goalEvalSavedPlanAwareRouting ?? true
+        this.runningAgentId = null
+      }
     }
   }
 
@@ -1006,6 +1037,47 @@ export class Room {
     this.notice(`Resuming: ${order}`)
   }
 
+  /** Deliver an orchestrator-level message (sub-room goal report or
+   *  ask_orchestrator question) into this room, routed to `targetAgentId`.
+   *  Serialized on the turn chain, so a busy room finishes its current turn
+   *  first. If the room is paused (ask_user) or awaiting a routing approval,
+   *  the message is posted passively — hijacking a frozen queue would corrupt
+   *  the pause — and the target reads it on its next turn. */
+  injectOrchestratorReport(text: string, targetAgentId: string): void {
+    this.chain = this.chain.then(() => this.processOrchestratorReport(text, targetAgentId)).catch((err) => {
+      this.notice(`Room error: ${err instanceof Error ? err.message : String(err)}`, "error")
+    })
+  }
+
+  private async processOrchestratorReport(text: string, targetAgentId: string): Promise<void> {
+    this.post("orchestrator", "Orchestrator", text)
+    if (this.pendingQuestion || this.pendingRoute) {
+      this.notice(`Sub-room report delivered — @${targetAgentId} will see it after the current pause.`, "info")
+      await this.saveCurrent()
+      return
+    }
+    const target = this.registry.get(targetAgentId)
+    if (!target || !target.active) {
+      this.notice(`Sub-room report posted, but @${targetAgentId} is not available to act on it.`, "info")
+      await this.saveCurrent()
+      return
+    }
+    this.queue = [target]
+    this.aborted = false
+    this.chainBudget = 0
+    this.runningAgentId = target.persona.id
+    this.emit("turn", { phase: "start", targets: [targetAgentId], agentId: targetAgentId })
+    const paused = await this.drainQueue()
+    if (paused) {
+      await this.emitWorkspace()
+      await this.saveCurrent()
+      return
+    }
+    this.queue = []
+    await this.endTurn()
+    await this.saveCurrent()
+  }
+
   /** Public entry point. Enqueues the message; processing streams over SSE. */
   submit(text: string, images?: string[]): void {
     this.chain = this.chain.then(() => this.process(text, images)).catch((err) => {
@@ -1153,11 +1225,9 @@ export class Room {
     // resolves to "cancelled"; any other abort to "failed".
     if (this.aborted && this.goalText !== null && this.goalStatus === "running") {
       if (this.goalCancelled) {
-        this.goalStatus = "cancelled"
-        this.emit("room", { type: "goal-cancelled", goalText: this.goalText })
+        this.resolveGoal("cancelled")
       } else {
-        this.goalStatus = "failed"
-        this.emit("room", { type: "goal-failed", goalText: this.goalText })
+        this.resolveGoal("failed")
       }
       // Aborting during the INITIAL drain of an eval-mode goal means runGoalEval
       // never ran, so its finally never restored the fallback agent (and

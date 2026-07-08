@@ -7,7 +7,7 @@ import { config } from "./config.js"
 import { isAllowedModel as isAllowedModel_ } from "./model.js"
 import { Participant } from "./participant.js"
 import type { ResolvedModel } from "./model.js"
-import type { RoomOrchestrator } from "./orchestrator.js"
+import type { ParentLink, RoomOrchestrator } from "./orchestrator.js"
 import type { TaskBoard } from "./task-board.js"
 import type { SseHub } from "./sse.js"
 import type { Persona, PersonaState } from "./types.js"
@@ -78,6 +78,9 @@ export class Registry {
     /** The room's shared task board — the SAME instance the Room persists and
      *  broadcasts. When present, every participant gets the task_* tools. */
     private readonly taskBoard?: TaskBoard,
+    /** Link to the parent room, present only in spawned sub-rooms — grants
+     *  every participant the ask_orchestrator escalation tool. */
+    private readonly parentLink?: ParentLink,
   ) {}
 
   /** Default thinking level for new participants without a per-agent override.
@@ -183,6 +186,8 @@ export class Registry {
       this.compactionReserveTokens,
       this.sessionDirFor(persona.id),
       this.taskBoard,
+      this.roomId,
+      this.parentLink,
     )
     // A resumed on-disk session already holds everything up to the saved
     // cursor — restoring it avoids replaying that context a second time. A
@@ -226,6 +231,8 @@ export class Registry {
       this.compactionReserveTokens,
       this.sessionDirFor(id),
       this.taskBoard,
+      this.roomId,
+      this.parentLink,
     )
     replacement.cursor = replacement.resumed ? cursorBefore : 0
     replacement.active = wasActive
@@ -269,6 +276,8 @@ export class Registry {
         this.compactionReserveTokens,
         this.sessionDirFor(id),
         this.taskBoard,
+        this.roomId,
+        this.parentLink,
       )
       fresh.cursor = 0
       fresh.active = active

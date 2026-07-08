@@ -9,6 +9,10 @@ import {
 } from "../custom-tools/task-tools.js"
 import type { Conversation, ConversationMeta, Persona, PersonaState, RoomTask } from "../types.js"
 
+function textOf(result: { content: Array<{ type: string; text?: string }> }): string {
+  return (result.content[0] as { text: string }).text
+}
+
 // The shared task board: agents mutate it through the task_* tools, the Room
 // broadcasts it over SSE and persists it in the conversation JSON. The board
 // instance is SHARED between Registry (tools) and Room (persistence) — these
@@ -66,25 +70,25 @@ describe("task_* tools", () => {
     const update = createTaskUpdateToolDefinition(board)
     const list = createTaskListToolDefinition(board)
 
-    const created = await create.execute("t1", { subject: "Ship the feature", owner: "builder" } as never, undefined as never, undefined as never)
-    expect(created.content[0].text).toContain("Created task #1")
+    const created = await create.execute("t1", { subject: "Ship the feature", owner: "builder" } as never, undefined as never, undefined as never, {} as never)
+    expect(textOf(created)).toContain("Created task #1")
 
-    const progressed = await update.execute("t2", { id: 1, status: "in_progress" } as never, undefined as never, undefined as never)
-    expect(progressed.content[0].text).toContain("in_progress")
+    const progressed = await update.execute("t2", { id: 1, status: "in_progress" } as never, undefined as never, undefined as never, {} as never)
+    expect(textOf(progressed)).toContain("in_progress")
 
-    const listed = await list.execute("t3", {} as never, undefined as never, undefined as never)
-    expect(listed.content[0].text).toContain("[▶] Ship the feature — @builder")
+    const listed = await list.execute("t3", {} as never, undefined as never, undefined as never, {} as never)
+    expect(textOf(listed)).toContain("[▶] Ship the feature — @builder")
 
-    const removed = await update.execute("t4", { id: 1, delete: true } as never, undefined as never, undefined as never)
-    expect(removed.content[0].text).toContain("Deleted task #1")
+    const removed = await update.execute("t4", { id: 1, delete: true } as never, undefined as never, undefined as never, {} as never)
+    expect(textOf(removed)).toContain("Deleted task #1")
     expect(board.list()).toHaveLength(0)
   })
 
   test("errors come back as tool text, never as throws", async () => {
     const board = new TaskBoard()
     const update = createTaskUpdateToolDefinition(board)
-    const res = await update.execute("t1", { id: 42, status: "completed" } as never, undefined as never, undefined as never)
-    expect(res.content[0].text).toContain("task_update error: no task with id 42")
+    const res = await update.execute("t1", { id: 42, status: "completed" } as never, undefined as never, undefined as never, {} as never)
+    expect(textOf(res)).toContain("task_update error: no task with id 42")
   })
 })
 

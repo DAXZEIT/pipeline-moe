@@ -74,7 +74,7 @@ import { listWorkspace } from "./receipts.js"
 import { BASE_PROMPT, BUILDER_OVERLAY, PLANNER_OVERLAY, SEED_PERSONAS } from "./personas.js"
 import { Room } from "./room.js"
 import { RoomManager, type RoomDetails } from "./room-manager.js"
-import type { RoomOrchestrator } from "./orchestrator.js"
+import type { ParentLink, RoomOrchestrator } from "./orchestrator.js"
 import { SseHub } from "./sse.js"
 import { cleanupStaleMounts, isSshTarget, mountSshfs, unmountSshfs, type RoomMount } from "./sshfs.js"
 import type { Persona, PersonaState, RouteDecision } from "./types.js"
@@ -344,6 +344,9 @@ async function main(): Promise<void> {
     goalMode?: "auto" | "eval"
     goalEvaluator?: string
     maxGoalIterations?: number
+    /** Agent that spawned this room (spawn_room). Wires the return path:
+     *  goal-resolution report + ask_orchestrator into the parent room. */
+    spawnedBy?: { roomId: string; agentId: string }
   }): Promise<RoomDetails> {
     const name = opts.name.trim()
     if (!name) throw new RoomProvisionError(400, "`name` is required")
@@ -415,8 +418,43 @@ async function main(): Promise<void> {
         overridePersonas = personas
       }
 
-      const newRoom = roomManager.createRoom(roomId, name, overridePersonas, effectiveWorkspaceDir, mount)
+      // Parent link for spawned rooms: report() delivers into the parent room,
+      // routed to the spawning agent. Resolved lazily so it stays valid even
+      // if the parent is briefly busy; a destroyed parent degrades to a no-op.
+      const spawnedBy = opts.spawnedBy
+      const parentLink: ParentLink | undefined = spawnedBy
+        ? {
+            parentRoomId: spawnedBy.roomId,
+            parentAgentId: spawnedBy.agentId,
+            childRoomId: roomId,
+            childName: name,
+            report: (text: string) => {
+              roomManager.getRoom(spawnedBy.roomId)?.injectOrchestratorReport(text, spawnedBy.agentId)
+            },
+          }
+        : undefined
+
+      const newRoom = roomManager.createRoom(roomId, name, overridePersonas, effectiveWorkspaceDir, mount, undefined, parentLink)
       await newRoom.init()
+
+      // Close the spawn loop: when the sub-room's goal resolves, wake the
+      // spawner with a report (status + transcript tail) instead of making it
+      // poll check_room from a turn it will never get.
+      if (parentLink) {
+        newRoom.onGoalResolved = (status) => {
+          const tail = newRoom
+            .getTranscript()
+            .slice(-4)
+            .map((e) => `  ${e.authorName}: ${e.text.length > 300 ? e.text.slice(0, 300) + "…" : e.text}`)
+            .join("\n")
+          parentLink.report(
+            `📬 Sub-room "${name}" (roomId: ${roomId}) — goal ${status}.\n\n` +
+              `Last messages:\n${tail || "  (empty transcript)"}\n\n` +
+              `Next: integrate the result, re-dispatch with answer_room({ roomId: "${roomId}", text: "..." }), ` +
+              `inspect with check_room, or destroy_room({ roomId: "${roomId}" }) to clean up.`,
+          )
+        }
+      }
 
       // Fire the goal BEFORE broadcasting "created": submitGoal sets the status to
       // "running" synchronously, so the broadcast below carries an accurate
@@ -492,6 +530,7 @@ async function main(): Promise<void> {
         goalMode: o.goalMode,
         goalEvaluator: o.goalEvaluator,
         maxGoalIterations: o.maxGoalIterations,
+        spawnedBy: o.spawnedBy,
       })
       return { roomId: d.roomId, name: d.name, goalStatus: d.goalStatus }
     },
@@ -524,6 +563,15 @@ async function main(): Promise<void> {
       const removed = await roomManager.destroyRoom(roomId)
       if (removed) hub.broadcast("room", { type: "destroyed", roomId })
       return removed
+    },
+    answerRoom(roomId, text) {
+      const r = roomManager.getRoom(roomId)
+      if (!r) return false
+      // submit() is serialized on the room's turn chain: if the room is paused
+      // on an ask_orchestrator/ask_user question this IS the answer (resumes
+      // the asker); otherwise it lands as a normal routed message.
+      r.submit(text)
+      return true
     },
   }
   roomManager.setOrchestrator(orchestrator)

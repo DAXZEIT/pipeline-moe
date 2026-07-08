@@ -25,6 +25,10 @@ export interface SpawnRoomOptions {
   goalEvaluator?: string
   /** Max eval iterations before the goal auto-fails (eval mode only). Default 10. */
   maxGoalIterations?: number
+  /** Who spawned this room. When set, the loop closes automatically: the
+   *  sub-room reports back into this room (routed to this agent) when its
+   *  goal resolves, and its agents get the ask_orchestrator escalation tool. */
+  spawnedBy?: { roomId: string; agentId: string }
 }
 
 export interface SpawnRoomResult {
@@ -56,4 +60,21 @@ export interface RoomOrchestrator {
   stopRoom(roomId: string): Promise<boolean>
   /** Destroy a sub-room (aborts it, then unmounts any sshfs target). Returns false if absent. */
   destroyRoom(roomId: string): Promise<boolean>
+  /** Send a message into a sub-room. If the sub-room is paused on an
+   *  ask_orchestrator/ask_user question, this is the answer and resumes it.
+   *  Returns false when the room is absent. */
+  answerRoom(roomId: string, text: string): boolean
+}
+
+/** The link a spawned sub-room holds back to its parent. Built by the server
+ *  at provision time; consumed by the sub-room's ask_orchestrator tool and by
+ *  the goal-resolution callback. `childRoomId` is filled in as soon as the id
+ *  is minted (before the room object exists), so tools can reference it. */
+export interface ParentLink {
+  parentRoomId: string
+  parentAgentId: string
+  childRoomId: string
+  childName: string
+  /** Deliver a message into the parent room, routed to `parentAgentId`. */
+  report(text: string): void
 }

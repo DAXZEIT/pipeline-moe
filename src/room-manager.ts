@@ -17,6 +17,7 @@ import { LocalModelLock } from "./local-model-lock.js"
 import { mountSshfs, unmountSshfs } from "./sshfs.js"
 import type { RoomMount } from "./sshfs.js"
 import type { ResolvedModel } from "./model.js"
+import type { ParentLink } from "./orchestrator.js"
 import type { RoomOrchestrator } from "./orchestrator.js"
 import type { Persona } from "./types.js"
 
@@ -140,6 +141,9 @@ export class RoomManager {
      *  restore). When `mount` is present its sshTarget takes precedence — they
      *  are the same value in the happy path. */
     sshTarget?: string,
+    /** Link to the parent room when this room was spawned by an agent
+     *  (spawn_room). Grants its participants the ask_orchestrator tool. */
+    parentLink?: ParentLink,
   ): Room {
     if (this.rooms.has(roomId)) {
       throw new Error(`Room "${roomId}" already exists`)
@@ -156,7 +160,7 @@ export class RoomManager {
     // task_* tools, the Room persists and broadcasts it. Same-instance is the
     // whole contract.
     const taskBoard = new TaskBoard()
-    const registry = new Registry(this.resolved, this.hub, this.explicitlyEnabledProviders, scope, roomId, this.orchestrator, taskBoard)
+    const registry = new Registry(this.resolved, this.hub, this.explicitlyEnabledProviders, scope, roomId, this.orchestrator, taskBoard, parentLink)
     const store = new ConversationStore(resolve(config.sessionsDir, roomId))
     const personas = overridePersonas ?? this.seedPersonas
     const room = new Room(

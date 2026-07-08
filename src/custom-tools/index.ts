@@ -18,22 +18,29 @@ import {
   createTaskListToolDefinition,
   createTaskUpdateToolDefinition,
 } from "./task-tools.js"
-import type { RoomOrchestrator } from "../orchestrator.js"
+import { createAskOrchestratorToolDefinition } from "./ask-orchestrator.js"
+import { createAnswerRoomToolDefinition } from "./answer-room.js"
+import type { ParentLink, RoomOrchestrator } from "../orchestrator.js"
 import type { TaskBoard } from "../task-board.js"
 
 /** Runtime context the tool registry needs to build context-dependent tools.
  *  Orchestration tools (spawn/check/destroy room) require a live orchestrator;
- *  task tools require the room's TaskBoard; each is only built when supplied. */
+ *  task tools require the room's TaskBoard; ask_orchestrator requires a
+ *  ParentLink (only spawned sub-rooms have one). Each is built when supplied. */
 export interface ToolContext {
   orchestrator?: RoomOrchestrator
   taskBoard?: TaskBoard
   /** Id of the persona these tools are being built for (task attribution). */
   personaId?: string
+  /** Id of the room these tools run in — spawn_room records it as the parent. */
+  roomId?: string
+  /** Link back to the parent room, present only in spawned sub-rooms. */
+  parentLink?: ParentLink
 }
 
 /** Orchestration tool names — gated on a RoomOrchestrator being present, not on
  *  the static TOOLS registry. Only orchestrator personas (the planner) get them. */
-export const ORCHESTRATION_TOOLS = ["spawn_room", "check_room", "stop_room", "destroy_room"] as const
+export const ORCHESTRATION_TOOLS = ["spawn_room", "check_room", "stop_room", "destroy_room", "answer_room"] as const
 
 // Registry of tool name → factory function.
 // Add new tools here — each tool is a self-contained module.
@@ -69,10 +76,20 @@ export function buildCustomTools(toolNames: string[], ctx?: ToolContext): ToolDe
   }
   if (ctx?.orchestrator) {
     const orch = ctx.orchestrator
-    if (wanted.has("spawn_room")) tools.push(createSpawnRoomToolDefinition(orch) as ToolDefinition)
+    // Spawner identity: recorded on spawned rooms so they report back (goal
+    // resolution + ask_orchestrator) instead of being fire-and-forget.
+    const spawnedBy = ctx.roomId && ctx.personaId ? { roomId: ctx.roomId, agentId: ctx.personaId } : undefined
+    if (wanted.has("spawn_room")) tools.push(createSpawnRoomToolDefinition(orch, spawnedBy) as ToolDefinition)
     if (wanted.has("check_room")) tools.push(createCheckRoomToolDefinition(orch) as ToolDefinition)
     if (wanted.has("stop_room")) tools.push(createStopRoomToolDefinition(orch) as ToolDefinition)
     if (wanted.has("destroy_room")) tools.push(createDestroyRoomToolDefinition(orch) as ToolDefinition)
+    if (wanted.has("answer_room")) tools.push(createAnswerRoomToolDefinition(orch) as ToolDefinition)
+  }
+
+  // ask_orchestrator — context-gated on the parent link, NOT on the persona
+  // allowlist: every agent of a spawned sub-room can escalate to its spawner.
+  if (ctx?.parentLink) {
+    tools.push(createAskOrchestratorToolDefinition(ctx.parentLink, ctx.personaId ?? "unknown") as ToolDefinition)
   }
 
   // Task-board tools — context-gated like orchestration tools, but NOT gated

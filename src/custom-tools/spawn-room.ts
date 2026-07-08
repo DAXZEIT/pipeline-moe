@@ -56,6 +56,9 @@ const spawnRoomSchema = Type.Object({
 
 export function createSpawnRoomToolDefinition(
   orchestrator: RoomOrchestrator,
+  /** The spawning room + agent. When present, the sub-room reports back here
+   *  when its goal resolves, and its agents can ask_orchestrator mid-goal. */
+  spawnedBy?: { roomId: string; agentId: string },
 ): ToolDefinition<typeof spawnRoomSchema, undefined> {
   return {
     name: "spawn_room",
@@ -63,8 +66,12 @@ export function createSpawnRoomToolDefinition(
     description:
       "Create a new parallel room with its own agents and give it a goal. The room runs " +
       "independently in the background — use this to delegate a bounded, self-contained workstream. " +
-      "Returns the roomId; poll progress with check_room and clean up with destroy_room. " +
-      "The sub-room does NOT share your conversation, so the goal must be fully self-contained.",
+      "When its goal resolves (completed/failed/cancelled) you are automatically woken with a report " +
+      "in this room — no polling needed; check_room remains available to inspect progress mid-run, " +
+      "and its agents can escalate questions to you via ask_orchestrator (answer with answer_room). " +
+      "For an autonomous build/verify loop, use goalMode 'eval' with an evaluator like 'auditor'. " +
+      "The sub-room does NOT share your conversation, so the goal must be fully self-contained. " +
+      "Clean up with destroy_room once you've integrated the result.",
     parameters: spawnRoomSchema,
     execute: async (_toolCallId, params) => {
       try {
@@ -76,14 +83,19 @@ export function createSpawnRoomToolDefinition(
           goalMode: params.goalMode,
           goalEvaluator: params.goalEvaluator,
           maxGoalIterations: params.maxGoalIterations,
+          spawnedBy,
         })
         return {
           content: [{
             type: "text",
             text:
               `Spawned room "${r.name}" — roomId: ${r.roomId}, status: ${r.goalStatus}.\n` +
-              `Poll with check_room({ roomId: "${r.roomId}" }) until status is "completed" or "failed", ` +
-              `then destroy_room({ roomId: "${r.roomId}" }) to clean up.`,
+              (spawnedBy
+                ? `You will be woken with a report in this room when its goal resolves. ` +
+                  `Inspect anytime with check_room({ roomId: "${r.roomId}" }); ` +
+                  `destroy_room({ roomId: "${r.roomId}" }) once done.`
+                : `Poll with check_room({ roomId: "${r.roomId}" }) until status is "completed" or "failed", ` +
+                  `then destroy_room({ roomId: "${r.roomId}" }) to clean up.`),
           }],
           details: undefined,
         }

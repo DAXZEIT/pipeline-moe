@@ -4,6 +4,21 @@
 
 ### Added
 
+- **Closed orchestration loop — sub-rooms report back** (dax's request, 2026-07-09). spawn_room
+  is no longer fire-and-forget: the spawner (room + agent) is recorded, and when the sub-room's
+  goal resolves (completed / failed / cancelled) an "Orchestrator" report is injected into the
+  parent room — transcript tail included — and triggers the spawner's turn there (passively
+  posted if the parent is paused). New `ask_orchestrator` tool in every spawned sub-room:
+  escalate a blocking question to the spawner and PAUSE the sub-room exactly like ask_user
+  (works inside goal-eval loops — `runGoalEval` now honors a paused drain instead of clobbering
+  it, keeping fallback suppression across the pause; this also fixes plain ask_user in eval
+  goals). New `answer_room` orchestration tool for the spawner: the answer resumes the paused
+  asker directly. The build/verify loop dax described is now: `spawn_room({goal, goalMode:
+  "eval", goalEvaluator: "auditor"})` → builder↔auditor iterate → GOAL_MET → the planner wakes
+  up with the report. All goal resolutions funnel through a single `resolveGoal()` so the
+  callback can't be missed. Note: parent links live in memory — after a server restart a
+  restored sub-room no longer reports back (check_room still works).
+
 - **Shared task board — the planner becomes an orchestrator** (dax's request, 2026-07-09).
   Every agent gets three new tools whenever the room has a board (not gated on the persona
   allowlist, so personas saved before this feature receive them too): `task_create` (subject +

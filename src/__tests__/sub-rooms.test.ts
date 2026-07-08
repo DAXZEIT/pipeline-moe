@@ -23,6 +23,7 @@ function mockOrchestrator(overrides: Partial<RoomOrchestrator> = {}): RoomOrches
     })),
     stopRoom: vi.fn(async () => true),
     destroyRoom: vi.fn(async () => true),
+    answerRoom: vi.fn(() => true),
     ...overrides,
   }
 }

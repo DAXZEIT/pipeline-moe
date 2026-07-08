@@ -19,7 +19,7 @@ import { config } from "./config.js"
 import { buildConfinedTools } from "./sandbox-tools.js"
 import { buildCustomTools } from "./custom-tools/index.js"
 import { resolveModelRef, type ResolvedModel } from "./model.js"
-import type { RoomOrchestrator } from "./orchestrator.js"
+import type { ParentLink, RoomOrchestrator } from "./orchestrator.js"
 import type { TaskBoard } from "./task-board.js"
 import type { Persona, ParticipantStatus, ToolActivity } from "./types.js"
 
@@ -128,6 +128,12 @@ export class Participant {
     /** The room's shared task board. When present, every agent gets the
      *  task_create/task_update/task_list tools. */
     taskBoard?: TaskBoard,
+    /** Id of the room this participant lives in — recorded by spawn_room as
+     *  the parent of any sub-room it creates. */
+    roomId?: string,
+    /** Link to the parent room, present only in spawned sub-rooms — grants
+     *  the ask_orchestrator escalation tool. */
+    parentLink?: ParentLink,
   ): Promise<Participant> {
     const p = new Participant(persona, emit, workspaceDir)
 
@@ -188,7 +194,7 @@ export class Participant {
       noTools: "builtin",
       customTools: (() => {
         const confined = buildConfinedTools(workspaceDir, persona.tools)
-        const custom = buildCustomTools(persona.tools, { orchestrator, taskBoard, personaId: persona.id })
+        const custom = buildCustomTools(persona.tools, { orchestrator, taskBoard, personaId: persona.id, roomId, parentLink })
         console.log(`[Participant.create] persona=${persona.id} orchestrator=${!!orchestrator} confined=${confined.length} custom=${custom.length} customNames=${custom.map(t => t.name).join(",")}`)
         return [...confined, ...custom]
       })(),
@@ -293,9 +299,11 @@ export class Participant {
       if (this.reasoningBuffer.trim()) {
         result.reasoning = this.reasoningBuffer.trim()
       }
-      // Check if the agent called ask_user — extract the question from the tool args.
+      // Check if the agent asked a pausing question — ask_user (answered by the
+      // human) or ask_orchestrator (answered by the parent room's spawner via
+      // answer_room). Both freeze the pipeline identically.
       for (const act of result.activity) {
-        if (act.toolName === "ask_user" && act.status === "ok") {
+        if ((act.toolName === "ask_user" || act.toolName === "ask_orchestrator") && act.status === "ok") {
           const args = act.args as Record<string, unknown> | undefined
           const q = typeof args?.question === "string" ? args.question : undefined
           if (q) {
@@ -421,9 +429,9 @@ export class Participant {
       if (this.reasoningBuffer.trim()) {
         result.reasoning = this.reasoningBuffer.trim()
       }
-      // Check for ask_user in the follow-up result too.
+      // Check for ask_user / ask_orchestrator in the follow-up result too.
       for (const act of result.activity) {
-        if (act.toolName === "ask_user" && act.status === "ok") {
+        if ((act.toolName === "ask_user" || act.toolName === "ask_orchestrator") && act.status === "ok") {
           const args = act.args as Record<string, unknown> | undefined
           const q = typeof args?.question === "string" ? args.question : undefined
           if (q) {
