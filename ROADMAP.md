@@ -2,7 +2,7 @@
 
 > Maintenu par le planner. Backlog priorisé + registre de dette technique.
 > Chaque clôture de plan verse ses follow-ups ici au lieu de les perdre dans le chat.
-> Dernière mise à jour : 2026-07-08 (soir)
+> Dernière mise à jour : 2026-07-09
 
 ---
 
@@ -10,7 +10,7 @@
 
 | Item | Plan | Statut |
 |------|------|--------|
-| Amplification comportementale du planner (alternatives, gate "faut-il", rétro de plan) | PLAN-d5661224 | en cours — overlay en validation dax |
+| _(rien en cours)_ | | |
 
 ## Backlog priorisé
 
@@ -26,6 +26,10 @@
 - **`web/dist` et `packages/*/dist`** — artefacts rebuildés localement, gitignorés. RAS, noté pour mémoire.
 
 ## Décisions actées (ne pas rouvrir sans nouveau contexte)
+
+- **Turn-state tracking corrigé** (PLAN-ea321024, commit `50f9131`, release 0.1.20, 2026-07-09, 954/954). Les 3 bugs du test pipeline du 2026-07-08 : barre de statut suit l'agent réel (`turn {phase:"agent"}`), compact autorisé pendant une pause ask_user (`isGenerating()` — les 2 endpoints ET le slash `/compact`), label "paused" honnête TUI+web. **Fix 3b validé par dax** : une mention fraîche post-resume passe DEVANT la heldQueue (intention récente > continuation gelée) + notice d'ordre au resume. Rétro dans le plan.
+
+- **Amplification comportementale du planner livrée** (PLAN-d5661224, commit `ab80c7f`, 2026-07-09). Texte overlay validé par dax tel quel : gate "faut-il le faire", 2-3 alternatives avant engagement, rétro de plan à la clôture, ownership du ROADMAP.
 
 - **Plan-aware step routing livré** (PLAN-c1874a35, commits locaux `9de48c6` + `b3b0997`, 2026-07-08, 949/949, audit sans défaut). Convention `[owner]` en tête de step, sélection par mtime + filtre completed/archived (le status "active" est du bruit historique — grounding empirique). **Oscillation bornée connue** : si un owner ne complète jamais son step et ne mentionne personne, ping-pong owner↔fallback jusqu'à épuisement de maxChainHops. Accepté v1 — cohérent avec la philosophie post-circuit-breaker (bornage par hops, pas détection de motif). Mitigation si besoin : plan-lint (backlog n°4).
 
