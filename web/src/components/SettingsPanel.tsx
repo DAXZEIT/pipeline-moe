@@ -10,7 +10,6 @@ interface Props {
   roster: RosterItem[]
   defaultAgent: string | null
   fallbackAgent: string | null
-  circuitBreaker: boolean
   defaultThinkingLevel: string
   allowCloud: boolean
   compactionReserveTokens: number
@@ -19,7 +18,6 @@ interface Props {
   turnActive: boolean
   onSetDefaultAgent: (id: string | null) => void
   onSetFallbackAgent: (id: string | null) => void
-  onSetCircuitBreaker: (enabled: boolean) => void
   onSetDefaultThinkingLevel: (level: "off" | "minimal" | "low" | "medium" | "high" | "xhigh") => void
   onSetAllowCloud: (enabled: boolean) => void
   onSetCompactionReserveTokens: (n: number) => void
@@ -95,7 +93,6 @@ export function SettingsPanel({
   roster,
   defaultAgent,
   fallbackAgent,
-  circuitBreaker,
   defaultThinkingLevel,
   allowCloud,
   compactionReserveTokens,
@@ -104,7 +101,6 @@ export function SettingsPanel({
   turnActive,
   onSetDefaultAgent,
   onSetFallbackAgent,
-  onSetCircuitBreaker,
   onSetDefaultThinkingLevel,
   onSetAllowCloud,
   onSetCompactionReserveTokens,
@@ -173,27 +169,6 @@ export function SettingsPanel({
           />
           <span className="settings-hint">
             Anti-loop: max hops per turn (1–100)
-          </span>
-        </div>
-      </div>
-
-      <div className="settings-section">
-        <h3 className="settings-section-title">Safety</h3>
-
-        <div className="settings-field">
-          <span className="settings-label">Circuit breaker</span>
-          <label className="toggle">
-            <input
-              type="checkbox"
-              checked={circuitBreaker}
-              disabled={turnActive}
-              onChange={(e) => onSetCircuitBreaker(e.target.checked)}
-            />
-            <span className="toggle-track" />
-            <span className="toggle-knob" />
-          </label>
-          <span className="settings-hint">
-            Detects repetition loops and tool-call loops — aborts the turn
           </span>
         </div>
       </div>

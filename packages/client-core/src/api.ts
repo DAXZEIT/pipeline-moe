@@ -245,13 +245,6 @@ export function createApi(API_BASE: string) {
           body: JSON.stringify({ routingMode }),
         }).then((r) => json<RoomSettings>(r)),
 
-      setCircuitBreaker: (circuitBreaker: boolean) =>
-        fetch(`${base}/settings`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ circuitBreaker }),
-        }).then((r) => json<RoomSettings>(r)),
-
       setDefaultThinkingLevel: (defaultThinkingLevel: "off" | "minimal" | "low" | "medium" | "high" | "xhigh") =>
         fetch(`${base}/settings`, {
           method: "PATCH",

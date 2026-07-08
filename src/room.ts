@@ -13,7 +13,6 @@ import type { ConversationStore } from "./store.js"
 import { conversationMeta } from "./store.js"
 import type { SseHub, SseEventName } from "./sse.js"
 import type { LocalModelLock } from "./local-model-lock.js"
-import { REPEAT_THRESHOLD, SIMILARITY_FLOOR, textSimilarity, LOOKBACK_WINDOW, checkToolLoop, TOOL_REPEAT_THRESHOLD } from "./circuit-breaker.js"
 import { goalEvalPrompt } from "./personas.js"
 import type {
   Conversation,
@@ -101,8 +100,6 @@ export class Room {
   private defaultAgentId: string | null = null
   /** Agent that receives routing fallback when no agent is @-mentioned in a reply. null = disabled. */
   private fallbackAgentId: string | null = "planner"
-  /** Agent whose circuit breaker tripped — used for fallback recovery routing. null = no breaker event. */
-  private circuitBreakerAgentId: string | null = null
   /** Goal prompt if this room was started with a goal; null for interactive rooms. */
   private goalText: string | null = null
   /** Lifecycle status for goal-driven rooms. */
@@ -141,10 +138,6 @@ export class Room {
     readonly roomId: string = "default",
     /** Optional process-global lock for serializing local-model inference across rooms. */
     private readonly localLock?: LocalModelLock,
-    /** Whether the repetition/tool-loop circuit breaker is active. Defaults to
-     *  config.circuitBreaker (ON). Disabled for cloud models that legitimately repeat.
-     *  Mutable — can be toggled per-room via the Settings panel. */
-    private circuitBreakerEnabled: boolean = config.circuitBreaker,
     /** Directory this room is scoped to: where file tools are confined, bash runs,
      *  work receipts snapshot, and the workspace listing looks. Defaults to the
      *  pipeline workspace. */
@@ -296,18 +289,6 @@ export class Room {
     void this.saveCurrent()
   }
 
-  // ── Circuit breaker toggle ──────────────────────────────────────────────────
-
-  getCircuitBreaker(): boolean {
-    return this.circuitBreakerEnabled
-  }
-
-  setCircuitBreaker(enabled: boolean): void {
-    this.circuitBreakerEnabled = enabled
-    this.broadcastSettings()
-    void this.saveCurrent()
-  }
-
   // ── Default thinking level ──────────────────────────────────────────────────
 
   getDefaultThinkingLevel(): "off" | "minimal" | "low" | "medium" | "high" | "xhigh" {
@@ -357,7 +338,6 @@ export class Room {
       defaultAgent: this.defaultAgentId,
       fallbackAgent: this.fallbackAgentId,
       maxChainHops: this.maxChainHops,
-      circuitBreaker: this.circuitBreakerEnabled,
       defaultThinkingLevel: this.defaultThinkingLevel,
       allowCloud: this.allowCloud,
       compactionReserveTokens: this.compactionReserveTokens,
@@ -393,7 +373,6 @@ export class Room {
       routingMode: this.routingMode,
       defaultAgent: this.defaultAgentId,
       fallbackAgent: this.fallbackAgentId,
-      circuitBreaker: this.circuitBreakerEnabled,
       defaultThinkingLevel: this.defaultThinkingLevel,
       allowCloud: this.allowCloud,
       compactionReserveTokens: this.compactionReserveTokens,
@@ -482,7 +461,6 @@ export class Room {
     this.defaultAgentId = conv.defaultAgent ?? null
     this.fallbackAgentId = conv.fallbackAgent ?? "planner"
     // Back-compat: older saves don't have these fields — fall back to config defaults.
-    this.circuitBreakerEnabled = conv.circuitBreaker ?? config.circuitBreaker
     if (conv.defaultThinkingLevel) {
       const level = conv.defaultThinkingLevel as "off" | "minimal" | "low" | "medium" | "high" | "xhigh"
       this.defaultThinkingLevel = level
@@ -623,56 +601,8 @@ export class Room {
     }
     this.transcript.push(entry)
 
-    // Circuit breaker — only for agents, not user
-    if (this.circuitBreakerEnabled && author !== "user" && author !== "shell" && this.checkRepetition(author, text)) {
-      this.aborted = true
-      this.circuitBreakerAgentId = author
-      const msg = `Circuit breaker: @${authorName} repeated similar output ${REPEAT_THRESHOLD} times — stopping.`
-      this.notice(msg, "error")
-      this.emit("circuit_breaker", { agentId: author, agentName: authorName, count: REPEAT_THRESHOLD })
-    }
-
-    // Tool-call loop breaker — detect repeated identical tool calls
-    if (this.circuitBreakerEnabled && author !== "user" && author !== "shell" && activity && activity.length > 0 && !this.aborted) {
-      const result = checkToolLoop(this.transcript, author, activity)
-      if (result.tripped) {
-        this.aborted = true
-        this.circuitBreakerAgentId = author
-        const sig = result.signature ?? "unknown"
-        const msg = `Circuit breaker: @${authorName} repeated tool call "${sig}" ${result.count} times — stopping.`
-        this.notice(msg, "error")
-        this.emit("circuit_breaker", { agentId: author, agentName: authorName, count: result.count, type: "tool_loop", signature: sig })
-      }
-    }
-
     this.emit("message", entry)
     return entry
-  }
-
-  /**
-   * Check if the current text is a repetition of recent messages from the same author.
-   * Scans the last LOOKBACK_WINDOW messages from that author; if ≥ REPEAT_THRESHOLD
-   * have similarity ≥ SIMILARITY_FLOOR, returns true.
-   */
-  private checkRepetition(author: string, text: string): boolean {
-    const recent: string[] = []
-    for (let i = this.transcript.length - 1; i >= 0; i--) {
-      const entry = this.transcript[i]
-      if (entry.author !== author) continue
-      recent.push(entry.text)
-      if (recent.length >= LOOKBACK_WINDOW) break
-    }
-
-    let similarCount = 0
-    for (const prev of recent) {
-      if (textSimilarity(text, prev) >= SIMILARITY_FLOOR) {
-        similarCount++
-      }
-    }
-
-    // similarCount includes the current message's match against itself,
-    // so we need ≥ REPEAT_THRESHOLD total (the current message + REPEAT_THRESHOLD-1 prior)
-    return similarCount >= REPEAT_THRESHOLD
   }
 
   private notice(msg: string, level: "info" | "error" = "info"): void {
@@ -757,14 +687,13 @@ export class Room {
         // Run the evaluator and any agents it dispatches via @mention chaining.
         this.queue = [evaluator]
         this.aborted = false
-        this.circuitBreakerAgentId = null
         this.chainBudget = 0
         this.runningAgentId = evaluator.persona.id
         this.emit("turn", { phase: "chain", from: null, targets: [evaluator.persona.id] })
         await this.drainQueue()
 
         // Cancelled mid-drain — stop now, before reinterpreting the drain as a
-        // completion or circuit-breaker failure.
+        // completion or abort failure.
         if (this.goalCancelled) {
           this.goalStatus = "cancelled"
           this.emit("room", { type: "goal-cancelled", goalText: this.goalText })
@@ -779,11 +708,11 @@ export class Room {
           return
         }
 
-        // Circuit breaker tripped during this eval pass — give up.
+        // Turn aborted during this eval pass — give up.
         if (this.aborted) {
           this.goalStatus = "failed"
           this.emit("room", { type: "goal-failed", goalText: this.goalText, reason: "aborted" })
-          this.notice(`Goal eval aborted on iteration ${this.goalIteration} (circuit breaker).`, "error")
+          this.notice(`Goal eval aborted on iteration ${this.goalIteration}.`, "error")
           return
         }
       }
@@ -855,7 +784,7 @@ export class Room {
   /** Run a user shell command in the room's workspace and post `$ cmd` + its
    *  output to the shared transcript (author "shell") — Claude Code's `!`
    *  mode, but the result becomes context every agent sees on its next turn.
-   *  No routing, no agent turn, no circuit breaker. Output is clipped so one
+   *  No routing, no agent turn. Output is clipped so one
    *  `cat` of a huge file can't blow up the transcript. */
   async runShell(command: string): Promise<TranscriptEntry> {
     const output = await new Promise<{ text: string; code: number | string | null }>((done) => {
@@ -1126,7 +1055,6 @@ export class Room {
 
     this.queue = [...initial]
     this.aborted = false
-    this.circuitBreakerAgentId = null
     this.runningAgentId = initial[0]?.persona.id ?? null
     this.emit("turn", { phase: "start", targets: initial.map((t) => t.persona.id), agentId: this.runningAgentId })
 
@@ -1138,52 +1066,9 @@ export class Room {
       return
     }
 
-    // Circuit breaker recovery: if the breaker tripped and a fallback agent
-    // is configured (and is not the looping agent), route to it instead of
-    // silently dying. Loop up to MAX_RECOVERY_DEPTH times to handle cases where
-    // the looping agent re-enters after the fallback hands back to it.
-    const MAX_RECOVERY_DEPTH = 2
-    let recoveryDepth = 0
-    while (
-      this.aborted &&
-      this.circuitBreakerAgentId &&
-      this.fallbackAgentId &&
-      this.circuitBreakerAgentId !== this.fallbackAgentId &&
-      recoveryDepth < MAX_RECOVERY_DEPTH
-    ) {
-      recoveryDepth++
-      const fb = this.registry.get(this.fallbackAgentId)
-      if (!fb || !fb.active) break
-      const depthNote = MAX_RECOVERY_DEPTH > 1 ? ` (recovery ${recoveryDepth}/${MAX_RECOVERY_DEPTH})` : ""
-      this.notice(`Circuit breaker tripped on @${this.circuitBreakerAgentId} — routing to @${this.fallbackAgentId} for recovery${depthNote}.`, "info")
-      this.emit("turn", { phase: "chain", from: this.circuitBreakerAgentId, targets: [this.fallbackAgentId] })
-      // Inject recovery context so the fallback agent knows why it's being called.
-      await fb.sendCustomMessage(
-        {
-          customType: "circuit_breaker_recovery",
-          content: `(Circuit breaker tripped on @${this.circuitBreakerAgentId} — it looped. Take over: assess the situation, assign work to another agent by @-mentioning them, or declare the work done if appropriate. Do not attempt the same action that caused the loop.)`,
-          display: false,
-        },
-        { deliverAs: "nextTurn" },
-      )
-      // Reset abort state and resume draining with the fallback agent.
-      this.aborted = false
-      this.circuitBreakerAgentId = null
-      this.queue = [fb]
-      this.runningAgentId = fb.persona.id
-      const recovered = await this.drainQueue()
-      if (recovered) {
-        await this.emitWorkspace()
-        await this.saveCurrent()
-        return
-      }
-      // If drainQueue exited without pause, loop to check if another circuit breaker fired.
-    }
-
-    // Goal terminated by abort without recovery. Set before endTurn so its
-    // completion guard doesn't overwrite the status. A user/planner cancel
-    // (goalCancelled) resolves to "cancelled"; a circuit-breaker abort to
-    // "failed".
+    // Goal terminated by abort. Set before endTurn so its completion guard
+    // doesn't overwrite the status. A user/planner cancel (goalCancelled)
+    // resolves to "cancelled"; any other abort to "failed".
     if (this.aborted && this.goalText !== null && this.goalStatus === "running") {
       if (this.goalCancelled) {
         this.goalStatus = "cancelled"

@@ -114,9 +114,6 @@ export interface Conversation {
   defaultAgent: string | null
   /** Agent that receives routing fallback when no @mention is found in an agent's reply. null = disabled. */
   fallbackAgent?: string | null
-  /** Whether the circuit breaker was enabled for this discussion. Defaults to
-   *  config.circuitBreaker when absent (back-compat). */
-  circuitBreaker?: boolean
   /** Default thinking level for agents without a per-agent override.
    *  Defaults to config.thinkingLevel when absent. */
   defaultThinkingLevel?: "off" | "minimal" | "low" | "medium" | "high" | "xhigh"

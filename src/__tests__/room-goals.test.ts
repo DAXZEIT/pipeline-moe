@@ -6,7 +6,6 @@ import { Room } from "../room.js"
 import { RoomManager } from "../room-manager.js"
 import { SseHub } from "../sse.js"
 import { config } from "../config.js"
-import { REPEAT_THRESHOLD } from "../circuit-breaker.js"
 import type { Persona, PersonaState } from "../types.js"
 
 // ── Mocks ────────────────────────────────────────────────────────────────────
@@ -35,11 +34,41 @@ class MockParticipant {
   getAvailableThinkingLevels() { return [] }
 }
 
+/** A participant whose run() blocks until openGate() is called — lets a test
+ *  observe the room mid-turn and cancel it deterministically. */
+class GateParticipant {
+  persona: Persona
+  active = true
+  parallel = false
+  status: "idle" | "active" | "thinking" | "working" = "idle"
+  cursor = 0
+  private release!: () => void
+  private gate: Promise<void>
+
+  constructor(persona: Persona) {
+    this.persona = persona
+    this.gate = new Promise<void>((r) => { this.release = r })
+  }
+
+  async run(_text: string) {
+    await this.gate
+    return { text: "(unblocked)", activity: [], reasoning: undefined, question: undefined }
+  }
+
+  async followUp(_text: string) { return this.run(_text) }
+  async abort() { this.release() }
+  openGate() { this.release() }
+
+  getContextUsage() { return undefined }
+  getSessionStats() { return undefined }
+  getAvailableThinkingLevels() { return [] }
+}
+
 class MockRegistry {
-  private parts = new Map<string, MockParticipant>()
+  private parts = new Map<string, MockParticipant | GateParticipant>()
   onChange: (() => void) | null = null
 
-  add(p: MockParticipant) { this.parts.set(p.persona.id, p) }
+  add(p: MockParticipant | GateParticipant) { this.parts.set(p.persona.id, p) }
   get(id: string) { return this.parts.get(id) }
   has(id: string) { return this.parts.has(id) }
   roster() {
@@ -73,12 +102,6 @@ class MockStore {
 
 function makePersona(id: string): Persona {
   return { id, name: id, color: "#000", icon: "🤖", tools: [], systemPrompt: "" }
-}
-
-/** Access private Room fields/methods via reflection (test-only). */
-const priv = (r: Room) => r as any
-const post = (r: Room, author: string, name: string, text: string) => {
-  (Room.prototype as any).post.call(r, author, name, text)
 }
 
 // ── Goal state machine tests ──────────────────────────────────────────────────
@@ -126,26 +149,20 @@ describe("Room goal state machine", () => {
     expect(room.getGoalText()).toBe("@builder do something")
   })
 
-  test("goal reaches failed when circuit breaker trips without recovery", async () => {
-    const LOOPING_REPLY = "I am stuck looping and cannot stop this repetitive action"
-    const agent = new MockParticipant(makePersona("builder"), LOOPING_REPLY)
+  test("goal reaches cancelled when abortCurrent() is called mid-run", async () => {
+    const agent = new GateParticipant(makePersona("builder"))
     registry.add(agent)
-    // Disable fallback so recovery doesn't fire.
-    priv(room).fallbackAgentId = null
     await room.init()
 
-    // Pre-populate transcript with (REPEAT_THRESHOLD - 1) identical messages
-    // so the mock agent's first reply is the one that trips the breaker.
-    for (let i = 0; i < REPEAT_THRESHOLD - 1; i++) {
-      post(room, "builder", "Builder", LOOPING_REPLY)
-    }
-
     room.submitGoal("@builder do something")
+    await new Promise<void>(resolve => setTimeout(resolve, 50)) // let the turn start and block on the gate
+    expect(room.getGoalStatus()).toBe("running")
 
-    // Wait for async turn — circuit breaker fires, turn ends, status should be failed.
-    await new Promise<void>(resolve => setTimeout(resolve, 400))
+    await room.abortCurrent()
+    agent.openGate() // release the blocked run() so drainQueue can settle
+    await new Promise<void>(resolve => setTimeout(resolve, 50))
 
-    expect(room.getGoalStatus()).toBe("failed")
+    expect(room.getGoalStatus()).toBe("cancelled")
   })
 
   test("non-goal room: endTurn does not change goalStatus", async () => {
@@ -181,8 +198,7 @@ describe("Room goal state machine", () => {
     expect(completedEvent!.goalText).toBe("@builder finish the task")
   })
 
-  test("goal-failed event is emitted when circuit breaker trips", async () => {
-    const LOOPING_REPLY = "Same response over and over causing a loop in the system"
+  test("goal-cancelled event is emitted when abortCurrent() is called mid-run", async () => {
     const events: Array<{ type: string; goalText?: string }> = []
     const origBroadcast = hub.broadcast.bind(hub)
     hub.broadcast = (event, data) => {
@@ -190,21 +206,20 @@ describe("Room goal state machine", () => {
       origBroadcast(event, data)
     }
 
-    const agent = new MockParticipant(makePersona("builder"), LOOPING_REPLY)
+    const agent = new GateParticipant(makePersona("builder"))
     registry.add(agent)
-    priv(room).fallbackAgentId = null
     await room.init()
 
-    for (let i = 0; i < REPEAT_THRESHOLD - 1; i++) {
-      post(room, "builder", "Builder", LOOPING_REPLY)
-    }
+    room.submitGoal("@builder do something")
+    await new Promise<void>(resolve => setTimeout(resolve, 50))
 
-    room.submitGoal("@builder do something that loops")
-    await new Promise<void>(resolve => setTimeout(resolve, 400))
+    await room.abortCurrent()
+    agent.openGate()
+    await new Promise<void>(resolve => setTimeout(resolve, 50))
 
-    const failedEvent = events.find(e => e.type === "goal-failed")
-    expect(failedEvent).toBeDefined()
-    expect(failedEvent!.goalText).toBe("@builder do something that loops")
+    const cancelledEvent = events.find(e => e.type === "goal-cancelled")
+    expect(cancelledEvent).toBeDefined()
+    expect(cancelledEvent!.goalText).toBe("@builder do something")
   })
 })
 

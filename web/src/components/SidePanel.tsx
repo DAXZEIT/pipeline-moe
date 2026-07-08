@@ -22,7 +22,6 @@ export function SidePanel({
   roster,
   defaultAgent,
   fallbackAgent,
-  circuitBreaker,
   defaultThinkingLevel,
   allowCloud,
   compactionReserveTokens,
@@ -30,7 +29,6 @@ export function SidePanel({
   maxRooms,
   onSetDefaultAgent,
   onSetFallbackAgent,
-  onSetCircuitBreaker,
   onSetDefaultThinkingLevel,
   onSetAllowCloud,
   onSetCompactionReserveTokens,
@@ -44,7 +42,6 @@ export function SidePanel({
   roster: RosterItem[]
   defaultAgent: string | null
   fallbackAgent: string | null
-  circuitBreaker: boolean
   defaultThinkingLevel: string
   allowCloud: boolean
   compactionReserveTokens: number
@@ -52,7 +49,6 @@ export function SidePanel({
   maxRooms: number
   onSetDefaultAgent: (id: string | null) => void
   onSetFallbackAgent: (id: string | null) => void
-  onSetCircuitBreaker: (enabled: boolean) => void
   onSetDefaultThinkingLevel: (level: "off" | "minimal" | "low" | "medium" | "high" | "xhigh") => void
   onSetAllowCloud: (enabled: boolean) => void
   onSetCompactionReserveTokens: (n: number) => void
@@ -113,7 +109,6 @@ export function SidePanel({
           roster={roster}
           defaultAgent={defaultAgent}
           fallbackAgent={fallbackAgent}
-          circuitBreaker={circuitBreaker}
           defaultThinkingLevel={defaultThinkingLevel}
           allowCloud={allowCloud}
           compactionReserveTokens={compactionReserveTokens}
@@ -122,7 +117,6 @@ export function SidePanel({
           turnActive={turnActive}
           onSetDefaultAgent={onSetDefaultAgent}
           onSetFallbackAgent={onSetFallbackAgent}
-          onSetCircuitBreaker={onSetCircuitBreaker}
           onSetDefaultThinkingLevel={onSetDefaultThinkingLevel}
           onSetAllowCloud={onSetAllowCloud}
           onSetCompactionReserveTokens={onSetCompactionReserveTokens}

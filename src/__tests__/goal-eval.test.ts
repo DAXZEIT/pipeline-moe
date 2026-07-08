@@ -280,8 +280,8 @@ describe("Room goal-eval loop", () => {
     expect(planner.callCount).toBe(2)
     // The eval loop restored the fallback agent on exit.
     expect(priv(room).fallbackAgentId).toBe("planner")
-    // Only goal_eval injections reached the planner — no routing_fallback /
-    // circuit_breaker_recovery messages with their misleading "it looped" framing.
+    // Only goal_eval injections reached the planner — no routing_fallback
+    // messages from a spurious extra invocation.
     expect(planner.customMessages.every(m => m.customType === "goal_eval")).toBe(true)
   })
 

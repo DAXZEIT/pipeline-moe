@@ -57,7 +57,6 @@ export interface RoomState {
   defaultAgent: string | null
   fallbackAgent: string | null
   maxChainHops: number
-  circuitBreaker: boolean
   defaultThinkingLevel: ThinkingLevel
   allowCloud: boolean
   compactionReserveTokens: number
@@ -92,7 +91,6 @@ export const initialRoomState: RoomState = {
   defaultAgent: null,
   fallbackAgent: null,
   maxChainHops: 30,
-  circuitBreaker: true,
   defaultThinkingLevel: "medium",
   allowCloud: false,
   compactionReserveTokens: 38000,
@@ -318,7 +316,6 @@ export function reduce(state: RoomState, event: SseEvent): ReduceResult {
         defaultAgent?: string | null
         fallbackAgent?: string | null
         maxChainHops?: number
-        circuitBreaker?: boolean
         defaultThinkingLevel?: ThinkingLevel
         allowCloud?: boolean
         compactionReserveTokens?: number
@@ -328,7 +325,6 @@ export function reduce(state: RoomState, event: SseEvent): ReduceResult {
       if (d.defaultAgent !== undefined) next.defaultAgent = d.defaultAgent
       if (d.fallbackAgent !== undefined) next.fallbackAgent = d.fallbackAgent
       if (d.maxChainHops !== undefined) next.maxChainHops = d.maxChainHops
-      if (d.circuitBreaker !== undefined) next.circuitBreaker = d.circuitBreaker
       if (d.defaultThinkingLevel !== undefined) next.defaultThinkingLevel = d.defaultThinkingLevel
       if (d.allowCloud !== undefined) next.allowCloud = d.allowCloud
       if (d.compactionReserveTokens !== undefined) next.compactionReserveTokens = d.compactionReserveTokens

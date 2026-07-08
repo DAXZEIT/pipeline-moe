@@ -1,5 +1,18 @@
 # Changelog
 
+## [Unreleased] — 2026-07-08
+
+### Removed
+
+- **Circuit breaker (repetition + tool-loop detection)** — removed entirely, including the
+  per-room toggle, `PIPELINE_CIRCUIT_BREAKER` env var, the `circuit_breaker` SSE event, and the
+  fallback recovery routing that ran when it tripped (`circuit_breaker_recovery`). In practice it
+  missed real loops from local models (the failure mode it was built for) while doing nothing
+  useful against frontier models, which don't loop the same way. The other anti-loop mechanisms
+  — configurable max chain hops and planner-as-fallback-router — are unaffected and remain the
+  active safety nets. `git revert` is the way back if this needs to return for a specific
+  deployment.
+
 ## [Unreleased] — 2026-06-22
 
 ### Added

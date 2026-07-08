@@ -148,7 +148,6 @@ export function createRoomStore(opts: RoomStoreOptions) {
       }
       if (s.fallbackAgent !== undefined) next.fallbackAgent = s.fallbackAgent
       if (s.maxChainHops !== undefined) next.maxChainHops = s.maxChainHops
-      if (s.circuitBreaker !== undefined) next.circuitBreaker = s.circuitBreaker
       if (s.defaultThinkingLevel !== undefined) next.defaultThinkingLevel = s.defaultThinkingLevel
       if (s.allowCloud !== undefined) next.allowCloud = s.allowCloud
       if (s.compactionReserveTokens !== undefined) next.compactionReserveTokens = s.compactionReserveTokens
@@ -311,10 +310,6 @@ export function createRoomStore(opts: RoomStoreOptions) {
 
     setRoutingMode: (mode: RoutingMode) => {
       rApi.setRoutingMode(mode).then((s) => patch({ routingMode: s.routingMode })).catch(fail)
-    },
-
-    setCircuitBreaker: (value: boolean) => {
-      rApi.setCircuitBreaker(value).then((s) => patch({ circuitBreaker: s.circuitBreaker })).catch(fail)
     },
 
     setDefaultThinkingLevel: (level: ThinkingLevel) => {

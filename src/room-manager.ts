@@ -161,7 +161,6 @@ export class RoomManager {
       personas,
       roomId,
       this.localLock,
-      config.circuitBreaker,
       scope,
       !!(mount || sshTarget), // remote (sshfs) → skip per-turn full-tree snapshots
     )

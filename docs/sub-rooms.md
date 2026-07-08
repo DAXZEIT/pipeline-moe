@@ -122,7 +122,6 @@ Then choose exactly one:
 
 **Key behaviors:**
 - Fallback routing is suppressed during eval mode (prevents double-invocation)
-- Circuit breaker trips abort the goal as `"failed"`
 - The evaluator must write `GOAL_MET` (case-insensitive, with optional
   separator: `GOAL_MET`, `GOAL MET`, `goal-met` all work)
 - `GOAL_MET` is only detected in the evaluator's most recent message
@@ -281,7 +280,6 @@ spawn_room(goal, mode="eval")
 | Failure | Cause | Result |
 |---------|-------|--------|
 | Max iterations exhausted | Evaluator keeps dispatching without convergence | `goalStatus: "failed"`, reason: `"max-iterations"` |
-| Circuit breaker trips | Agent loops on repeated tool calls or text | `goalStatus: "failed"`, reason: `"aborted"` |
 | Evaluator not found | `goalEvaluator` doesn't match a persona id | Falls back to auto-completion (no verification) |
 | No GOAL_MET token | Evaluator says "done" without the magic word | Loop continues, eventually exhausts budget |
 | Stopped by operator/planner | `stop_room` or `POST .../abort` called | `goalStatus: "cancelled"`, room + transcript preserved |

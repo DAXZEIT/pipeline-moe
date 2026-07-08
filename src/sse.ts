@@ -14,7 +14,6 @@ export type SseEventName =
   | "notice" // an informational/error notice
   | "turn" // a routing turn lifecycle marker (phases: start, end, chain, parallel, pause, resume)
   | "workspace" // live workspace file listing
-  | "circuit_breaker" // agent repeated similar output N times — pipeline aborted
   | "settings" // room settings change (e.g. chaining toggle)
   | "routing" // semi/manual routing: a handoff proposal awaiting approval, or its resolution
   | "transcript" // full transcript replacement (on conversation switch)

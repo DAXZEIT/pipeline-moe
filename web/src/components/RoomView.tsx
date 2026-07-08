@@ -166,7 +166,6 @@ export function RoomView({
         roster={room.roster}
         defaultAgent={room.defaultAgent}
         fallbackAgent={room.fallbackAgent}
-        circuitBreaker={room.circuitBreaker}
         defaultThinkingLevel={room.defaultThinkingLevel}
         allowCloud={room.allowCloud}
         compactionReserveTokens={room.compactionReserveTokens}
@@ -174,7 +173,6 @@ export function RoomView({
         maxRooms={room.maxRooms}
         onSetDefaultAgent={room.setDefaultAgent}
         onSetFallbackAgent={room.setFallbackAgent}
-        onSetCircuitBreaker={room.setCircuitBreaker}
         onSetDefaultThinkingLevel={room.setDefaultThinkingLevel}
         onSetAllowCloud={room.setAllowCloud}
         onSetCompactionReserveTokens={room.setCompactionReserveTokens}

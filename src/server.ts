@@ -1164,7 +1164,6 @@ async function main(): Promise<void> {
     defaultAgent: r.getDefaultAgent(),
     fallbackAgent: r.getFallbackAgent(),
     maxChainHops: r.getMaxChainHops(),
-    circuitBreaker: r.getCircuitBreaker(),
     defaultThinkingLevel: r.getDefaultThinkingLevel(),
     allowCloud: r.getAllowCloud(),
     compactionReserveTokens: r.getCompactionReserveTokens(),
@@ -1233,13 +1232,6 @@ async function main(): Promise<void> {
         return
       }
       room.setRoutingMode(m)
-    }
-    if ("circuitBreaker" in body) {
-      if (typeof body.circuitBreaker !== "boolean") {
-        res.status(400).json({ error: "`circuitBreaker` must be a boolean" })
-        return
-      }
-      room.setCircuitBreaker(body.circuitBreaker)
     }
     if ("defaultThinkingLevel" in body) {
       const validLevels = ["off", "minimal", "low", "medium", "high", "xhigh"]
@@ -1831,13 +1823,6 @@ async function main(): Promise<void> {
         return
       }
       r.setRoutingMode(m)
-    }
-    if ("circuitBreaker" in body) {
-      if (typeof body.circuitBreaker !== "boolean") {
-        res.status(400).json({ error: "`circuitBreaker` must be a boolean" })
-        return
-      }
-      r.setCircuitBreaker(body.circuitBreaker)
     }
     if ("defaultThinkingLevel" in body) {
       const validLevels = ["off", "minimal", "low", "medium", "high", "xhigh"]
