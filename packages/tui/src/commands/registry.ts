@@ -229,28 +229,7 @@ function openAgentPromptPicker(ctx: CommandContext): void {
 async function openPresetPicker(ctx: CommandContext): Promise<void> {
   try {
     const presets = await ctx.api.presets()
-    ctx.openOverlay({
-      kind: "select",
-      title: "Presets",
-      items: presets.map((p) => ({
-        id: p.name,
-        label: p.name,
-        hint: p.personas
-          .map((a) => a.icon)
-          .join("")
-          .concat(`  ${p.personas.length} agents`),
-      })),
-      emptyText: "No saved presets — /preset save <name> stores the current line-up.",
-      onSelect: (name) => {
-        const preset = presets.find((p) => p.name === name)
-        if (!preset) return
-        ctx.openOverlay({
-          kind: "presetDetail",
-          preset,
-          onBack: () => void openPresetPicker(ctx),
-        })
-      },
-    })
+    ctx.openOverlay({ kind: "presetPicker", presets })
   } catch {
     ctx.notify("Failed to load presets.", "error")
   }

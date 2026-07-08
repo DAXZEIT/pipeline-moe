@@ -37,10 +37,8 @@ export type Overlay =
   | { kind: "prompt"; agentId: string }
   | { kind: "editAgent"; agentId: string }
   | {
-      kind: "presetDetail"
-      preset: PresetFile
-      /** Reopen the preset list when Esc backs out of the detail view. */
-      onBack?: () => void
+      kind: "presetPicker"
+      presets: PresetFile[]
     }
 
 /** Everything a command needs to act, injected by the App at dispatch time. */
