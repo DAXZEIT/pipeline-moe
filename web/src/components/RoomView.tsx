@@ -5,6 +5,7 @@ import { RoutingApproval } from "./RoutingApproval"
 import type { RoutingMode } from "../types"
 import { PresetMenu } from "./PresetMenu"
 import { ProvidersPanel } from "./ProvidersPanel"
+import { TasksPanel } from "./TasksPanel"
 import { Roster } from "./Roster"
 import { RoomTabs } from "./RoomTabs"
 import { Transcript } from "./Transcript"
@@ -66,6 +67,8 @@ export function RoomView({
           onFetchParticipant={room.getParticipant}
           onUpdate={room.updateParticipant}
         />
+
+        <TasksPanel tasks={room.tasks} roster={room.roster} />
 
         <ProvidersPanel
           providers={room.providers}

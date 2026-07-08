@@ -19,6 +19,7 @@ export function CommandLine({
   onShell,
   onScroll,
   onPaste,
+  onToggleTasks,
   pasteInsertRef,
   pendingImageCount,
   onClearPending,
@@ -41,6 +42,8 @@ export function CommandLine({
   /** Ctrl+V — triggers an async clipboard read in the parent (image → sent
    *  straight to the room; text → comes back through pasteInsertRef). */
   onPaste?: () => void
+  /** Ctrl+P — opens the shared task board overlay. */
+  onToggleTasks?: () => void
   /** Published by this component so the parent can insert clipboard text at
    *  the current cursor position after an async read — same pattern as
    *  Transcript's scrollRef. */
@@ -163,6 +166,10 @@ export function CommandLine({
       }
       if (key.ctrl && input === "v") {
         onPaste?.()
+        return
+      }
+      if (key.ctrl && input === "p") {
+        onToggleTasks?.()
         return
       }
       if (key.backspace) {

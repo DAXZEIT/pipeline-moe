@@ -140,6 +140,7 @@ export function createRoomStore(opts: RoomStoreOptions) {
     rApi.transcript().then((m) => patch({ messages: m })).catch(() => {})
     rApi.workspace().then((w) => patch({ workspace: w })).catch(() => {})
     rApi.roster().then((r) => patch({ roster: r })).catch(() => {})
+    rApi.tasks().then((t) => patch({ tasks: t })).catch(() => {})
     rApi.settings().then((s) => {
       const next: Partial<RoomState> = {
         chaining: s.chaining,

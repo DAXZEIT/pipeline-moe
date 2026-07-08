@@ -485,6 +485,11 @@ export const COMMANDS: Command[] = [
     run: (ctx) => ctx.openOverlay({ kind: "lineup" }),
   },
   {
+    name: "tasks",
+    summary: "Show the shared task board (also Ctrl+P)",
+    run: (ctx) => ctx.openOverlay({ kind: "tasks" }),
+  },
+  {
     name: "agent",
     summary: "Create a new agent",
     run: (ctx) => ctx.openOverlay({ kind: "agentForm" }),

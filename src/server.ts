@@ -1107,6 +1107,10 @@ async function main(): Promise<void> {
     res.json(room.getTranscript())
   })
 
+  app.get("/api/tasks", (_req, res) => {
+    res.json(room.getTasks())
+  })
+
   app.get("/api/workspace", async (_req, res) => {
     res.json(await listWorkspace(config.workspaceDir))
   })
@@ -1773,6 +1777,10 @@ async function main(): Promise<void> {
 
   roomRouter.get("/transcript", (req, res) => {
     res.json(roomOf(req).getTranscript())
+  })
+
+  roomRouter.get("/tasks", (req, res) => {
+    res.json(roomOf(req).getTasks())
   })
 
   // Room-scoped workspace listing: initial snapshot for the WorkspacePanel.

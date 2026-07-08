@@ -29,6 +29,19 @@ export interface RosterItem {
   }
 }
 
+/** One entry on the room's shared task board — created/updated by the agents
+ *  via their task_* tools, displayed live in the TUI/web clients. */
+export interface RoomTask {
+  id: number
+  subject: string
+  status: "pending" | "in_progress" | "completed"
+  /** Agent id responsible for the task, if assigned. */
+  owner?: string
+  /** Agent id (or "user") that created it. */
+  createdBy: string
+  ts: number
+}
+
 /** A model offered for per-agent selection (GET /api/models). */
 export interface ModelInfo {
   provider: string

@@ -16,6 +16,8 @@ import { OAuthPanel } from "./components/OAuthPanel"
 import { SelectOverlay } from "./components/overlays/SelectOverlay"
 import { TextInputOverlay } from "./components/overlays/TextInputOverlay"
 import { LineupOverlay } from "./components/overlays/LineupOverlay"
+import { TasksOverlay } from "./components/overlays/TasksOverlay"
+import { TaskSummary } from "./components/TaskSummary"
 import { AgentForm } from "./components/overlays/AgentForm"
 import { RoomForm } from "./components/overlays/RoomForm"
 import { PromptOverlay } from "./components/overlays/PromptOverlay"
@@ -375,7 +377,10 @@ export function App({
         <RoomTabs rooms={rooms} current={roomId} plusSelected={plusSelected} />
       </Box>
       <Box flexGrow={1} flexShrink={1} overflow="hidden">
-        <Roster roster={state.roster} width={26} />
+        <Box flexDirection="column" width={26} flexShrink={0}>
+          <Roster roster={state.roster} width={26} />
+          <TaskSummary tasks={state.tasks} width={26} />
+        </Box>
         <Box flexDirection="column" flexGrow={1} paddingX={1}>
           <Transcript
             messages={state.messages}
@@ -420,6 +425,9 @@ export function App({
           }}
           onCancel={closeOverlay}
         />
+      ) : null}
+      {overlay?.kind === "tasks" ? (
+        <TasksOverlay tasks={state.tasks} roster={state.roster} isActive onClose={closeOverlay} />
       ) : null}
       {overlay?.kind === "lineup" ? (
         <LineupOverlay
@@ -483,6 +491,7 @@ export function App({
         onShell={runShell}
         onScroll={(delta) => transcriptScrollRef.current(delta)}
         onPaste={pasteClipboard}
+        onToggleTasks={() => setOverlay((o) => (o?.kind === "tasks" ? null : { kind: "tasks" }))}
         pasteInsertRef={pasteInsertRef}
         pendingImageCount={pendingImages.length}
         onClearPending={() => setPendingImages([])}

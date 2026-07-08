@@ -15,10 +15,12 @@ import type { SseHub, SseEventName } from "./sse.js"
 import type { LocalModelLock } from "./local-model-lock.js"
 import { goalEvalPrompt } from "./personas.js"
 import { findActivePlan, nextStepOwner } from "./plan-routing.js"
+import { TaskBoard } from "./task-board.js"
 import type {
   Conversation,
   ConversationMeta,
   Persona,
+  RoomTask,
   RouteDecision,
   RoutingMode,
   ToolActivity,
@@ -159,7 +161,16 @@ export class Room {
      *  network, so work receipts and the live workspace listing are skipped
      *  for remote rooms. */
     private readonly remote: boolean = false,
-  ) {}
+    /** Shared task board. RoomManager passes the SAME instance to the Registry
+     *  so the task_* tools mutate the board this room persists/broadcasts.
+     *  Defaults to a private board (tests, direct construction). */
+    private readonly taskBoard: TaskBoard = new TaskBoard(),
+  ) {
+    this.taskBoard.onChange = () => {
+      this.broadcastTasks()
+      this.scheduleSave()
+    }
+  }
 
   /** Default thinking level for agents without a per-agent override.
    *  Mutable — can be changed per-room via the Settings panel.
@@ -404,6 +415,7 @@ export class Room {
       compactionReserveTokens: this.compactionReserveTokens,
       personas: this.registry.personaStates(),
       transcript: this.transcript,
+      tasks: this.taskBoard.serialize(),
     }
   }
 
@@ -435,6 +447,14 @@ export class Room {
       currentId: this.convId,
       list: await this.store.list(),
     })
+  }
+
+  getTasks(): RoomTask[] {
+    return this.taskBoard.list()
+  }
+
+  private broadcastTasks(): void {
+    this.emit("tasks", { tasks: this.taskBoard.list() })
   }
 
   /** True while an agent is running or queued — editing a roster member's
@@ -475,6 +495,8 @@ export class Room {
     this.convTitle = title
     this.convCreatedAt = Date.now()
     this.transcript = []
+    this.taskBoard.load([]) // fresh discussion → empty board
+    this.broadcastTasks()
     this.defaultAgentId = null // fresh discussion → first active is the default
     // New conversation id → empty session root → every agent starts fresh.
     // (Optional call: test doubles of Registry don't implement it.)
@@ -525,8 +547,10 @@ export class Room {
     // context already covers the transcript up to it); fresh sessions start at
     // cursor=0 and catch up on the whole transcript on their next turn.
     this.transcript = conv.transcript.map((e) => ({ ...e }))
+    this.taskBoard.load(conv.tasks ?? []) // back-compat: older saves have no board
     this.broadcastSettings()
     this.emit("transcript", this.transcript)
+    this.broadcastTasks()
     if (healed) {
       this.notice(`"${conv.title}" had an empty roster — restored the seed agents.`, "info")
       await this.saveCurrent() // make the repair stick on disk

@@ -99,6 +99,26 @@ export interface RouteDecision {
   targetIds?: string[]
 }
 
+// ── Task board ──────────────────────────────────────────────────────────────
+
+export type TaskStatus = "pending" | "in_progress" | "completed"
+
+/** One entry on the room's shared task board — the live decomposition of the
+ *  current work, maintained by the agents themselves via the task_* tools
+ *  (typically the planner creates, owners update). Room-scoped and persisted
+ *  with the conversation, unlike plans (.pi/plans) which are global and act
+ *  as the engineering contract. */
+export interface RoomTask {
+  id: number
+  subject: string
+  status: TaskStatus
+  /** Agent id responsible for the task. Optional — unowned tasks are fine. */
+  owner?: string
+  /** Agent id (or "user") that created the task. */
+  createdBy: string
+  ts: number
+}
+
 export interface Conversation {
   id: string
   title: string
@@ -128,6 +148,8 @@ export interface Conversation {
   /** The roster (personas + active flags) this discussion ran with. */
   personas: PersonaState[]
   transcript: TranscriptEntry[]
+  /** Shared task board. Absent in older saved conversations — treated as empty. */
+  tasks?: RoomTask[]
 }
 
 /** Lightweight conversation descriptor for the UI picker. */

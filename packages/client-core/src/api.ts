@@ -9,6 +9,7 @@ import type {
   ResumableRoom,
   RoomSettings,
   RoomSummary,
+  RoomTask,
   RouteDecision,
   RoutingMode,
   RosterItem,
@@ -74,6 +75,7 @@ export function createApi(API_BASE: string) {
         ),
       transcript: () => fetch(`${base}/transcript`).then((r) => json<Message[]>(r)),
       workspace: () => fetch(`${base}/workspace`).then((r) => json<WorkspaceFile[]>(r)),
+      tasks: () => fetch(`${base}/tasks`).then((r) => json<RoomTask[]>(r)),
 
       sendMessage: (text: string, images?: string[]) =>
         fetch(`${base}/messages`, {

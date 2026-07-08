@@ -2,6 +2,23 @@
 
 ## [Unreleased] — 2026-07-09
 
+### Added
+
+- **Shared task board — the planner becomes an orchestrator** (dax's request, 2026-07-09).
+  Every agent gets three new tools whenever the room has a board (not gated on the persona
+  allowlist, so personas saved before this feature receive them too): `task_create` (subject +
+  optional owner), `task_update` (in_progress / completed / reword / reassign / delete) and
+  `task_list`. The board is room-scoped, persisted in the conversation JSON (`tasks` field,
+  absent = empty for older saves), broadcast over a new `tasks` SSE event and served by
+  `GET /api/tasks` (+ room-scoped variant). The PLANNER_OVERLAY makes the planner the board's
+  owner (decompose on dispatch, keep it truthful); BASE_PROMPT tells every agent to mark its
+  own tasks in_progress when starting and completed only when verified. UI: TUI shows a
+  compact "TASKS n/m" summary under the roster (current in-flight tasks) plus a full board
+  overlay on **Ctrl+P** / `/tasks` (in-progress ▶ first, pending ☐, completed ✔ struck
+  through, owners in agent colors); the web sidebar gets the same board as a panel. Plans
+  (.pi/plans) are untouched and remain the engineering contract + routing source — the board
+  is the live, user-visible orchestration layer on top.
+
 ### Fixed
 
 - **Status bar now follows the agent actually generating** (PLAN-ea321024, bug 1) — `turn start`

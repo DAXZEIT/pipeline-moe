@@ -13,13 +13,22 @@ import { createSpawnRoomToolDefinition } from "./spawn-room.js"
 import { createCheckRoomToolDefinition } from "./check-room.js"
 import { createStopRoomToolDefinition } from "./stop-room.js"
 import { createDestroyRoomToolDefinition } from "./destroy-room.js"
+import {
+  createTaskCreateToolDefinition,
+  createTaskListToolDefinition,
+  createTaskUpdateToolDefinition,
+} from "./task-tools.js"
 import type { RoomOrchestrator } from "../orchestrator.js"
+import type { TaskBoard } from "../task-board.js"
 
 /** Runtime context the tool registry needs to build context-dependent tools.
  *  Orchestration tools (spawn/check/destroy room) require a live orchestrator;
- *  they are only built when one is supplied. */
+ *  task tools require the room's TaskBoard; each is only built when supplied. */
 export interface ToolContext {
   orchestrator?: RoomOrchestrator
+  taskBoard?: TaskBoard
+  /** Id of the persona these tools are being built for (task attribution). */
+  personaId?: string
 }
 
 /** Orchestration tool names — gated on a RoomOrchestrator being present, not on
@@ -64,6 +73,16 @@ export function buildCustomTools(toolNames: string[], ctx?: ToolContext): ToolDe
     if (wanted.has("check_room")) tools.push(createCheckRoomToolDefinition(orch) as ToolDefinition)
     if (wanted.has("stop_room")) tools.push(createStopRoomToolDefinition(orch) as ToolDefinition)
     if (wanted.has("destroy_room")) tools.push(createDestroyRoomToolDefinition(orch) as ToolDefinition)
+  }
+
+  // Task-board tools — context-gated like orchestration tools, but NOT gated
+  // on the persona allowlist: every agent in a room with a board gets them
+  // (coordination primitive, not a privilege — and personas persisted before
+  // this feature would otherwise never receive them).
+  if (ctx?.taskBoard) {
+    tools.push(createTaskCreateToolDefinition(ctx.taskBoard, ctx.personaId ?? "unknown") as ToolDefinition)
+    tools.push(createTaskUpdateToolDefinition(ctx.taskBoard) as ToolDefinition)
+    tools.push(createTaskListToolDefinition(ctx.taskBoard) as ToolDefinition)
   }
 
   return tools

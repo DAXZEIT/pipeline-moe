@@ -9,6 +9,7 @@ import { readFile, writeFile, rename, mkdir, readdir } from "node:fs/promises"
 import type { Dirent } from "node:fs"
 import { Registry } from "./registry.js"
 import { Room } from "./room.js"
+import { TaskBoard } from "./task-board.js"
 import { SseHub } from "./sse.js"
 import { ConversationStore } from "./store.js"
 import { config } from "./config.js"
@@ -151,7 +152,11 @@ export class RoomManager {
       ? resolve(workspaceDir.trim())
       : config.workspaceDir
 
-    const registry = new Registry(this.resolved, this.hub, this.explicitlyEnabledProviders, scope, roomId, this.orchestrator)
+    // One shared board per room: the Registry hands it to every participant's
+    // task_* tools, the Room persists and broadcasts it. Same-instance is the
+    // whole contract.
+    const taskBoard = new TaskBoard()
+    const registry = new Registry(this.resolved, this.hub, this.explicitlyEnabledProviders, scope, roomId, this.orchestrator, taskBoard)
     const store = new ConversationStore(resolve(config.sessionsDir, roomId))
     const personas = overridePersonas ?? this.seedPersonas
     const room = new Room(
@@ -163,6 +168,7 @@ export class RoomManager {
       this.localLock,
       scope,
       !!(mount || sshTarget), // remote (sshfs) → skip per-turn full-tree snapshots
+      taskBoard,
     )
 
     this.rooms.set(roomId, {

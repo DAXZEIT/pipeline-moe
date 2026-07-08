@@ -32,6 +32,7 @@ export type Overlay =
       onSubmit: (value: string) => void
     }
   | { kind: "lineup" }
+  | { kind: "tasks" }
   | { kind: "agentForm" }
   | { kind: "roomForm" }
   | { kind: "prompt"; agentId: string }

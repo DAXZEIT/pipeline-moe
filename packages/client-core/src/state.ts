@@ -16,6 +16,7 @@ import type {
   OAuthProgress,
   ProviderInfo,
   Receipt,
+  RoomTask,
   RosterItem,
   RouteProposal,
   RoutingMode,
@@ -68,6 +69,8 @@ export interface RoomState {
   explicitlyEnabled: string[]
   /** In-flight OAuth login flow, or null. Persists until success/error/dismiss. */
   oauthProgress: OAuthProgress | null
+  /** Shared task board — the agents' live decomposition of the current work. */
+  tasks: RoomTask[]
 }
 
 /** The initial state of a freshly-opened room, before any snapshot or SSE. */
@@ -101,6 +104,7 @@ export const initialRoomState: RoomState = {
   providers: [],
   explicitlyEnabled: [],
   oauthProgress: null,
+  tasks: [],
 }
 
 /**
@@ -143,6 +147,7 @@ export const SSE_EVENT_NAMES = [
   "conversations",
   "providers",
   "oauth_progress",
+  "tasks",
 ] as const
 
 export type SseEventName = (typeof SSE_EVENT_NAMES)[number]
@@ -366,6 +371,11 @@ export function reduce(state: RoomState, event: SseEvent): ReduceResult {
     case "conversations": {
       const { currentId, list } = event.data as { currentId: string; list: ConversationMeta[] }
       return noEffects({ ...state, conversations: list, currentConversationId: currentId })
+    }
+
+    case "tasks": {
+      const data = event.data as { tasks?: RoomTask[] }
+      return noEffects({ ...state, tasks: data.tasks ?? [] })
     }
 
     case "providers": {

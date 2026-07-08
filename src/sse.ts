@@ -21,6 +21,7 @@ export type SseEventName =
   | "providers" // provider auth status changed (after add/remove)
   | "oauth_progress" // OAuth login progress (device code, success, error)
   | "room" // room lifecycle event (created, destroyed)
+  | "tasks" // shared task board snapshot (after any task_* tool mutation)
 
 export const DEFAULT_SSE_MAX_CLIENTS = 10
 

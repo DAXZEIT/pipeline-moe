@@ -20,6 +20,7 @@ import { buildConfinedTools } from "./sandbox-tools.js"
 import { buildCustomTools } from "./custom-tools/index.js"
 import { resolveModelRef, type ResolvedModel } from "./model.js"
 import type { RoomOrchestrator } from "./orchestrator.js"
+import type { TaskBoard } from "./task-board.js"
 import type { Persona, ParticipantStatus, ToolActivity } from "./types.js"
 
 /** Cap a tool result/arg to keep SSE frames and persisted transcripts small. */
@@ -124,6 +125,9 @@ export class Participant {
     /** Directory for the on-disk pi session (one per persona per conversation).
      *  Undefined → in-memory session, the pre-persistence behavior (tests). */
     sessionDir?: string,
+    /** The room's shared task board. When present, every agent gets the
+     *  task_create/task_update/task_list tools. */
+    taskBoard?: TaskBoard,
   ): Promise<Participant> {
     const p = new Participant(persona, emit, workspaceDir)
 
@@ -184,7 +188,7 @@ export class Participant {
       noTools: "builtin",
       customTools: (() => {
         const confined = buildConfinedTools(workspaceDir, persona.tools)
-        const custom = buildCustomTools(persona.tools, { orchestrator })
+        const custom = buildCustomTools(persona.tools, { orchestrator, taskBoard, personaId: persona.id })
         console.log(`[Participant.create] persona=${persona.id} orchestrator=${!!orchestrator} confined=${confined.length} custom=${custom.length} customNames=${custom.map(t => t.name).join(",")}`)
         return [...confined, ...custom]
       })(),
