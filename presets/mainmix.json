@@ -67,7 +67,7 @@
       "id": "auditor",
       "name": "Auditor",
       "color": "#AFA9EC",
-      "icon": "🛡️",
+      "icon": "🔎",
       "tools": [
         "read",
         "grep",
@@ -84,7 +84,7 @@
       "id": "scribe",
       "name": "Scribe",
       "color": "#F09975",
-      "icon": "✏️",
+      "icon": "📝",
       "tools": [
         "read",
         "write",

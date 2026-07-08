@@ -232,7 +232,7 @@ async function seedDefaultPresets(): Promise<void> {
         id: "auditor",
         name: "Auditor",
         color: "#AFA9EC",
-        icon: "🛡️",
+        icon: "🔎",
         tools: ["read", "grep", "find", "ls"],
         model: "anthropic/claude-sonnet-4-20250514",
         active: true,
