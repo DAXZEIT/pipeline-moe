@@ -1,6 +1,6 @@
 {
   "name": "@pipeline-moe/tui",
-  "version": "0.1.37",
+  "version": "0.1.38",
   "license": "MIT",
   "type": "module",
   "description": "Terminal client for pipeline-moe — a multi-room, multi-agent orchestration TUI built on @pipeline-moe/client-core and Ink.",
@@ -36,7 +36,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@pipeline-moe/client-core": "^0.1.11",
+    "@pipeline-moe/client-core": "^0.1.12",
     "eventsource": "^3.0.2",
     "ink": "^5.1.0",
     "marked": "^15.0.12",
