@@ -27,6 +27,8 @@
 
 ## Décisions actées (ne pas rouvrir sans nouveau contexte)
 
+- **Task board partagé livré** (commit `970841e`, release 0.1.21, 2026-07-09). Choix de dax : tasks room-scoped avec tools dédiés (`task_create/task_update/task_list`), PAS une simple projection du plan actif. Deux systèmes assumés : plans = contrat d'ingénierie global + routing ; board = couche d'orchestration vivante par room, visible en continu (TUI Ctrl+P + résumé sous roster, panneau sidebar web). Tools gated sur la présence du board, pas sur l'allowlist persona — les personas persistées d'avant la feature les reçoivent sans migration.
+
 - **Turn-state tracking corrigé** (PLAN-ea321024, commit `50f9131`, release 0.1.20, 2026-07-09, 954/954). Les 3 bugs du test pipeline du 2026-07-08 : barre de statut suit l'agent réel (`turn {phase:"agent"}`), compact autorisé pendant une pause ask_user (`isGenerating()` — les 2 endpoints ET le slash `/compact`), label "paused" honnête TUI+web. **Fix 3b validé par dax** : une mention fraîche post-resume passe DEVANT la heldQueue (intention récente > continuation gelée) + notice d'ordre au resume. Rétro dans le plan.
 
 - **Amplification comportementale du planner livrée** (PLAN-d5661224, commit `ab80c7f`, 2026-07-09). Texte overlay validé par dax tel quel : gate "faut-il le faire", 2-3 alternatives avant engagement, rétro de plan à la clôture, ownership du ROADMAP.
