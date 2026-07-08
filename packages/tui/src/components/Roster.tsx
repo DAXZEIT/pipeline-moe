@@ -39,7 +39,8 @@ export function Roster({ roster, width }: { roster: RosterItem[]; width: number 
         return (
           <Box key={p.id} flexDirection="column">
             <Text color={p.active ? p.color : "gray"} dimColor={!p.active} wrap="truncate-end">
-              {STATUS_GLYPH[p.status]} {p.icon} {p.name}
+              {STATUS_GLYPH[p.status]} {p.icon}
+              {p.vision === false ? "🚫" : ""} {p.name}
             </Text>
             {showModels ? (
               <Text dimColor wrap="truncate-end">

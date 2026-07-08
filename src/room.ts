@@ -985,11 +985,20 @@ export class Room {
 
     // Collect images from the last user message in the unseen range.
     // These are the images the user attached to their most recent message.
+    // A local model with no mmproj loaded refuses the request outright if an
+    // image reaches it, so an agent without vision never gets one attached —
+    // regardless of whether it was the mentioned target or reached the image
+    // later via chaining.
     const userEntry = [...unseen].reverse().find((e) => e.author === "user")
-    const images = userEntry?.images
+    const canSeeImages = p.persona.vision !== false
+    const images = canSeeImages ? userEntry?.images : undefined
+    const omittedNote =
+      !canSeeImages && userEntry?.images?.length
+        ? `\n\n(${userEntry.images.length} image${userEntry.images.length === 1 ? "" : "s"} attached to that message — you don't have vision enabled and can't see them.)`
+        : ""
 
     return {
-      text: `${lines}\n\n---\nYou are ${p.persona.name}. Respond to the conversation above from your perspective now.`,
+      text: `${lines}\n\n---\nYou are ${p.persona.name}. Respond to the conversation above from your perspective now.${omittedNote}`,
       images,
     }
   }

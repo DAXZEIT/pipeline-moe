@@ -353,6 +353,11 @@ export class Participant {
     this.persona.thinkingLevel = level
   }
 
+  /** Set vision capability in-place — pure metadata, no session recreation. */
+  setVision(vision: boolean): void {
+    this.persona.vision = vision
+  }
+
   /** Get the thinking levels supported by the current model. */
   getAvailableThinkingLevels(): string[] {
     return this.session.getAvailableThinkingLevels() ?? []

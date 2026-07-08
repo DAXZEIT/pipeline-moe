@@ -23,6 +23,7 @@ interface Props {
   turnActive: boolean
   onSetActive: (id: string, active: boolean) => void
   onSetParallel: (id: string, parallel: boolean) => void
+  onSetVision: (id: string, vision: boolean) => void
   onSetDefault: (id: string | null) => void
   onKick: (id: string) => void
   onCompact: (id: string) => void
@@ -91,6 +92,7 @@ export function Roster({
   turnActive,
   onSetActive,
   onSetParallel,
+  onSetVision,
   onSetDefault,
   onKick,
   onCompact,
@@ -136,6 +138,7 @@ export function Roster({
             { icon: "✏", label: editingId === r.id ? "Close editor" : "Edit persona", disabled: turnActive, onClick: () => setEditingId((cur) => (cur === r.id ? null : r.id)) },
             { icon: "★", label: r.id === explicit ? "Clear default" : "Set as default", checked: r.id === effective, disabled: !r.active, onClick: () => onSetDefault(r.id === explicit ? null : r.id) },
             { icon: "∥", label: "Run in parallel", checked: r.parallel, onClick: () => onSetParallel(r.id, !r.parallel) },
+            { icon: "👁", label: "Vision (image input)", checked: r.vision !== false, onClick: () => onSetVision(r.id, r.vision === false) },
             { icon: r.active ? "◐" : "○", label: r.active ? "Deactivate" : "Activate", onClick: () => onSetActive(r.id, !r.active) },
             { icon: "⟳", label: "Compact context", disabled: turnActive || r.status === "compacting", onClick: () => onCompact(r.id) },
             { icon: "⬇", label: "Export HTML", onClick: () => void downloadAgent(r.id, "html") },
@@ -189,6 +192,9 @@ export function Roster({
                     )}
                     {r.parallel && (
                       <span className="badge-parallel" title="Runs in parallel">∥</span>
+                    )}
+                    {r.vision === false && (
+                      <span className="badge-no-vision" title="No vision — images are not sent to this agent">🚫👁</span>
                     )}
                   </button>
                   <AgentMenu items={menuItems} />

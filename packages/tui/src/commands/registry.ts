@@ -405,6 +405,20 @@ export const COMMANDS: Command[] = [
     },
   },
   {
+    name: "vision",
+    summary: "Toggle whether an agent receives image attachments",
+    usage: "@agent <on|off>",
+    run: (ctx, args) => {
+      const { target, rest } = splitTarget(args)
+      const v = parseBool(rest)
+      if (v === null) return ctx.notify("Usage: /vision @agent <on|off>", "error")
+      withAgent(ctx, target, (id) => {
+        ctx.store.actions.setVision(id, v)
+        ctx.notify(`@${id} vision ${v ? "on" : "off — images will be omitted for this agent"}.`)
+      })
+    },
+  },
+  {
     name: "rooms",
     summary: "Switch to another room (open or closed)",
     run: async (ctx) => {

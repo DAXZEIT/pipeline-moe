@@ -56,6 +56,7 @@ export function RoomView({
           turnActive={room.turnActive}
           onSetActive={room.setActive}
           onSetParallel={room.setParallel}
+          onSetVision={room.setVision}
           onSetDefault={room.setDefaultAgent}
           onKick={room.kick}
           onCompact={room.compactAgent}

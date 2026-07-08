@@ -1071,6 +1071,7 @@ async function main(): Promise<void> {
 
     try {
       if (typeof body.active === "boolean") registry.setActive(id, body.active)
+      if (typeof body.vision === "boolean") registry.setVision(id, body.vision)
       if (typeof body.parallel === "boolean") registry.setParallel(id, body.parallel)
       if (Object.keys(patch).length > 0) {
         // Fast path: thinkingLevel-only change → in-place, no session recreation.
@@ -1738,6 +1739,7 @@ async function main(): Promise<void> {
     }
     try {
       if (typeof body.active === "boolean") reg.setActive(id, body.active)
+      if (typeof body.vision === "boolean") reg.setVision(id, body.vision)
       if (typeof body.parallel === "boolean") reg.setParallel(id, body.parallel)
       if (Object.keys(patch).length > 0) {
         if (Object.keys(patch).length === 1 && "thinkingLevel" in patch && patch.thinkingLevel !== undefined) {

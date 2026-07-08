@@ -218,6 +218,10 @@ export function createRoomStore(opts: RoomStoreOptions) {
       rApi.setParallel(id, parallel).catch(fail)
     },
 
+    setVision: (id: string, vision: boolean) => {
+      rApi.setVision(id, vision).catch(fail)
+    },
+
     kick: (id: string) => {
       rApi.kick(id).catch(fail)
     },

@@ -23,6 +23,8 @@ export interface RosterItem {
   model?: string
   /** Per-agent thinking level, or undefined when inheriting from global config. */
   thinkingLevel?: "off" | "minimal" | "low" | "medium" | "high" | "xhigh"
+  /** Whether this agent receives image attachments. Undefined → true (assumed capable). */
+  vision?: boolean
   /** May run concurrently with adjacent parallel-flagged agents. */
   parallel: boolean
   /** Context token usage — populated after each turn. */
@@ -146,6 +148,7 @@ export class Registry {
         status: p.status,
         model: p.persona.model,
         thinkingLevel: p.persona.thinkingLevel,
+        vision: p.persona.vision,
         parallel: p.parallel,
       }
       const usage = p.getContextUsage?.()
@@ -323,6 +326,17 @@ export class Registry {
     const p = this.participants.get(id)
     if (!p) throw new Error(`unknown participant "${id}"`)
     await p.setThinkingLevel(level)
+    this.broadcastRoster()
+    this.onChange?.()
+    return p
+  }
+
+  /** Toggle whether an agent receives image attachments. Pure runtime flag — no
+   *  session recreation, so it is safe to flip anytime (takes effect next turn). */
+  setVision(id: string, vision: boolean): Participant {
+    const p = this.participants.get(id)
+    if (!p) throw new Error(`unknown participant "${id}"`)
+    p.setVision(vision)
     this.broadcastRoster()
     this.onChange?.()
     return p

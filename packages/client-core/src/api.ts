@@ -124,6 +124,13 @@ export function createApi(API_BASE: string) {
           body: JSON.stringify({ parallel }),
         }).then((r) => json<RosterItem>(r)),
 
+      setVision: (id: string, vision: boolean) =>
+        fetch(`${base}/participants/${id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ vision }),
+        }).then((r) => json<RosterItem>(r)),
+
       kick: (id: string) =>
         fetch(`${base}/participants/${id}`, { method: "DELETE" }).then((r) => {
           if (!r.ok && r.status !== 204) throw new Error(`${r.status}`)
@@ -143,6 +150,7 @@ export function createApi(API_BASE: string) {
           model?: string | null
           thinkingLevel?: string | null
           compactionInstructions?: string | null
+          vision?: boolean
         },
       ) =>
         fetch(`${base}/participants/${id}`, {

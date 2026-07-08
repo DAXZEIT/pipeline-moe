@@ -12,6 +12,8 @@ export interface RosterItem {
   model?: string
   /** Per-agent thinking level, or undefined when inheriting from global config. */
   thinkingLevel?: "off" | "minimal" | "low" | "medium" | "high" | "xhigh"
+  /** Whether this agent receives image attachments. Undefined → true (assumed capable). */
+  vision?: boolean
   /** May run concurrently with adjacent parallel-flagged agents. */
   parallel: boolean
   /** Context token usage — populated after each turn via SSE status event. */
@@ -75,6 +77,8 @@ export interface PersonaDetail {
   availableThinkingLevels?: string[]
   /** Custom instructions for context compaction. */
   compactionInstructions?: string
+  /** Whether this agent receives image attachments. Undefined → true (assumed capable). */
+  vision?: boolean
 }
 
 export interface Receipt {

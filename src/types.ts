@@ -21,6 +21,10 @@ export interface Persona {
   thinkingLevel?: "off" | "minimal" | "low" | "medium" | "high" | "xhigh"
   /** Custom instructions for context compaction — tells the summarizer what to preserve vs discard for this role. */
   compactionInstructions?: string
+  /** Whether this agent receives image attachments. Undefined → true (assumed
+   *  capable). Set false for a local model with no mmproj loaded — llama.cpp
+   *  refuses the request outright if an image reaches a vision-less model. */
+  vision?: boolean
 }
 
 export type ParticipantStatus = "idle" | "active" | "thinking" | "working" | "compacting" | "retrying"
