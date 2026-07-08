@@ -138,6 +138,7 @@ export function Transcript({
     lines.push({ text: nameOf(m.author, m.authorName), bold: true, color: colorOf(m.author) })
     if (m.reasoning) pushThought(m.reasoning, false)
     if (m.activity?.length) pushActivity(m.activity, false)
+    if (m.images?.length) lines.push({ text: `📎 ${m.images.length} image${m.images.length === 1 ? "" : "s"}`, dim: true })
     if (m.text) {
       // Shell output is raw text — markdown rendering would mangle it
       // (# comments become headers, indentation collapses).

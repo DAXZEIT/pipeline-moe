@@ -1,5 +1,6 @@
 import type { RoomState, RoutingMode } from "@pipeline-moe/client-core"
 import type { Command, CommandContext } from "./types"
+import { loadImageAttachment } from "../image-attach"
 
 /** Resolve a "@name" / "name" / id token to a roster participant id, or null. */
 export function resolveAgent(state: RoomState, token: string): string | null {
@@ -690,6 +691,18 @@ export const COMMANDS: Command[] = [
       } catch {
         ctx.notify("Failed to load templates.", "error")
       }
+    },
+  },
+  {
+    name: "image",
+    summary: "Attach an image from a local file path",
+    usage: "<path>",
+    run: async (ctx, args) => {
+      const path = args.trim()
+      if (!path) return ctx.notify("Usage: /image <path>", "error")
+      const result = await loadImageAttachment(path)
+      if (!result.ok) return ctx.notify(result.error, "error")
+      ctx.store.actions.send("(image shared)", [result.dataUri])
     },
   },
   {
