@@ -1163,6 +1163,7 @@ async function main(): Promise<void> {
     routingMode: r.getRoutingMode(),
     defaultAgent: r.getDefaultAgent(),
     fallbackAgent: r.getFallbackAgent(),
+    planAwareRouting: r.getPlanAwareRouting(),
     maxChainHops: r.getMaxChainHops(),
     defaultThinkingLevel: r.getDefaultThinkingLevel(),
     allowCloud: r.getAllowCloud(),
@@ -1216,6 +1217,13 @@ async function main(): Promise<void> {
         res.status(404).json({ error: err instanceof Error ? err.message : String(err) })
         return
       }
+    }
+    if ("planAwareRouting" in body) {
+      if (typeof body.planAwareRouting !== "boolean") {
+        res.status(400).json({ error: "`planAwareRouting` must be a boolean" })
+        return
+      }
+      room.setPlanAwareRouting(body.planAwareRouting)
     }
     if ("maxChainHops" in body) {
       const n = body.maxChainHops
@@ -1807,6 +1815,13 @@ async function main(): Promise<void> {
         res.status(404).json({ error: err instanceof Error ? err.message : String(err) })
         return
       }
+    }
+    if ("planAwareRouting" in body) {
+      if (typeof body.planAwareRouting !== "boolean") {
+        res.status(400).json({ error: "`planAwareRouting` must be a boolean" })
+        return
+      }
+      r.setPlanAwareRouting(body.planAwareRouting)
     }
     if ("maxChainHops" in body) {
       const n = body.maxChainHops

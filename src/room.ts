@@ -14,6 +14,7 @@ import { conversationMeta } from "./store.js"
 import type { SseHub, SseEventName } from "./sse.js"
 import type { LocalModelLock } from "./local-model-lock.js"
 import { goalEvalPrompt } from "./personas.js"
+import { findActivePlan, nextStepOwner } from "./plan-routing.js"
 import type {
   Conversation,
   ConversationMeta,
@@ -100,6 +101,11 @@ export class Room {
   private defaultAgentId: string | null = null
   /** Agent that receives routing fallback when no agent is @-mentioned in a reply. null = disabled. */
   private fallbackAgentId: string | null = "planner"
+  /** When true, no-mention routing consults the active plan (`.pi/plans/`) first:
+   *  if the next incomplete step has an `[agent]` owner prefix, route there
+   *  instead of the generic fallback agent. Falls through to fallbackAgentId
+   *  when there's no active plan, no owner prefix, or the owner is unavailable. */
+  private planAwareRoutingEnabled = true
   /** Goal prompt if this room was started with a goal; null for interactive rooms. */
   private goalText: string | null = null
   /** Lifecycle status for goal-driven rooms. */
@@ -122,6 +128,10 @@ export class Room {
   /** Fallback agent saved while an eval-mode goal suppresses fallback routing.
    *  Restored when the eval loop terminates. */
   private goalEvalSavedFallback: string | null = null
+  /** Plan-aware routing flag saved while an eval-mode goal suppresses it — same
+   *  reason as goalEvalSavedFallback: the evaluator is invoked deliberately by
+   *  the eval loop, so any other automatic no-mention routing would double up. */
+  private goalEvalSavedPlanAwareRouting: boolean | null = null
 
   // ── Current conversation identity ──────────────────────────────────────────
   private convId = newConvId()
@@ -224,6 +234,8 @@ export class Room {
     if (this.goalMode === "eval") {
       this.goalEvalSavedFallback = this.fallbackAgentId
       this.fallbackAgentId = null
+      this.goalEvalSavedPlanAwareRouting = this.planAwareRoutingEnabled
+      this.planAwareRoutingEnabled = false
     }
     this.submit(text)
   }
@@ -275,6 +287,16 @@ export class Room {
   setFallbackAgent(id: string | null): void {
     if (id !== null && !this.registry.has(id)) throw new Error(`unknown participant "${id}"`)
     this.fallbackAgentId = id
+    this.broadcastSettings()
+    void this.saveCurrent()
+  }
+
+  getPlanAwareRouting(): boolean {
+    return this.planAwareRoutingEnabled
+  }
+
+  setPlanAwareRouting(enabled: boolean): void {
+    this.planAwareRoutingEnabled = enabled
     this.broadcastSettings()
     void this.saveCurrent()
   }
@@ -337,6 +359,7 @@ export class Room {
       routingMode: this.routingMode,
       defaultAgent: this.defaultAgentId,
       fallbackAgent: this.fallbackAgentId,
+      planAwareRouting: this.planAwareRoutingEnabled,
       maxChainHops: this.maxChainHops,
       defaultThinkingLevel: this.defaultThinkingLevel,
       allowCloud: this.allowCloud,
@@ -373,6 +396,7 @@ export class Room {
       routingMode: this.routingMode,
       defaultAgent: this.defaultAgentId,
       fallbackAgent: this.fallbackAgentId,
+      planAwareRouting: this.planAwareRoutingEnabled,
       defaultThinkingLevel: this.defaultThinkingLevel,
       allowCloud: this.allowCloud,
       compactionReserveTokens: this.compactionReserveTokens,
@@ -460,6 +484,7 @@ export class Room {
     this.routingMode = conv.routingMode ?? (conv.chaining ? "auto" : "manual")
     this.defaultAgentId = conv.defaultAgent ?? null
     this.fallbackAgentId = conv.fallbackAgent ?? "planner"
+    this.planAwareRoutingEnabled = conv.planAwareRouting ?? true
     // Back-compat: older saves don't have these fields — fall back to config defaults.
     if (conv.defaultThinkingLevel) {
       const level = conv.defaultThinkingLevel as "off" | "minimal" | "low" | "medium" | "high" | "xhigh"
@@ -648,6 +673,7 @@ export class Room {
       this.goalStatus = "completed"
       this.emit("room", { type: "goal-completed", goalText: this.goalText })
       this.fallbackAgentId = this.goalEvalSavedFallback
+      this.planAwareRoutingEnabled = this.goalEvalSavedPlanAwareRouting ?? true
       this.runningAgentId = null
       return
     }
@@ -723,6 +749,7 @@ export class Room {
       this.notice(`Goal eval exhausted after ${this.maxGoalIterations} iterations without GOAL_MET.`, "error")
     } finally {
       this.fallbackAgentId = this.goalEvalSavedFallback
+      this.planAwareRoutingEnabled = this.goalEvalSavedPlanAwareRouting ?? true
       this.runningAgentId = null
     }
   }
@@ -1078,10 +1105,13 @@ export class Room {
         this.emit("room", { type: "goal-failed", goalText: this.goalText })
       }
       // Aborting during the INITIAL drain of an eval-mode goal means runGoalEval
-      // never ran, so its finally never restored the fallback agent that
-      // submitGoal suppressed. Restore it here so the room isn't left with
-      // fallback routing silently disabled.
-      if (this.goalMode === "eval") this.fallbackAgentId = this.goalEvalSavedFallback
+      // never ran, so its finally never restored the fallback agent (and
+      // plan-aware routing flag) that submitGoal suppressed. Restore both here
+      // so the room isn't left with automatic no-mention routing silently disabled.
+      if (this.goalMode === "eval") {
+        this.fallbackAgentId = this.goalEvalSavedFallback
+        this.planAwareRoutingEnabled = this.goalEvalSavedPlanAwareRouting ?? true
+      }
     }
     this.queue = []
     await this.endTurn()
@@ -1492,26 +1522,59 @@ export class Room {
       }
       return []
     }
-    if (
-      this.fallbackAgentId &&
-      fromId !== this.fallbackAgentId &&
-      this.chainBudget < this.maxChainHops
-    ) {
-      const fb = this.registry.get(this.fallbackAgentId)
-      if (fb && fb.active && !target.includes(fb)) {
+    if (this.chainBudget < this.maxChainHops) {
+      let routedTo: Participant | null = null
+      let viaPlan = false
+
+      // Plan-aware routing: consult the active plan before falling back to the
+      // generic fallback agent. If the next incomplete step has an [agent]
+      // owner prefix and that agent is available, route there instead.
+      if (this.planAwareRoutingEnabled) {
+        const plan = await findActivePlan()
+        const ownerId = nextStepOwner(plan)
+        if (ownerId && ownerId !== fromId) {
+          const owner = this.registry.get(ownerId)
+          if (owner && owner.active && !target.includes(owner)) {
+            routedTo = owner
+            viaPlan = true
+          }
+        }
+      }
+
+      if (!routedTo && this.fallbackAgentId && fromId !== this.fallbackAgentId) {
+        const fb = this.registry.get(this.fallbackAgentId)
+        if (fb && fb.active && !target.includes(fb)) {
+          routedTo = fb
+        }
+      }
+
+      if (routedTo) {
         this.chainBudget += 1
-        target.push(fb)
-        this.notice(`No handoff detected — routing to @${this.fallbackAgentId}`, "info")
-        this.emit("turn", { phase: "chain", from: fromId, targets: [this.fallbackAgentId] })
-        // Inject routing context so the fallback agent knows why it's being called.
-        await fb.sendCustomMessage(
-          {
-            customType: "routing_fallback",
-            content: `(Routing fallback: @${fromId} finished without handing off. Based on the conversation state, decide who should go next — @-mention them in your reply. If the work is complete, say so without mentioning anyone.)`,
-            display: false,
-          },
-          { deliverAs: "nextTurn" },
-        )
+        target.push(routedTo)
+        this.emit("turn", { phase: "chain", from: fromId, targets: [routedTo.persona.id] })
+        if (viaPlan) {
+          this.notice(`Plan step routing — no handoff detected, next step owned by @${routedTo.persona.id}`, "info")
+          // Inject routing context so the owner knows why it's being called.
+          await routedTo.sendCustomMessage(
+            {
+              customType: "plan_step_routing",
+              content: `(Plan-aware routing: @${fromId} finished without a handoff. The active plan's next incomplete step is assigned to you — check the plan and continue it.)`,
+              display: false,
+            },
+            { deliverAs: "nextTurn" },
+          )
+        } else {
+          this.notice(`No handoff detected — routing to @${routedTo.persona.id}`, "info")
+          // Inject routing context so the fallback agent knows why it's being called.
+          await routedTo.sendCustomMessage(
+            {
+              customType: "routing_fallback",
+              content: `(Routing fallback: @${fromId} finished without handing off. Based on the conversation state, decide who should go next — @-mention them in your reply. If the work is complete, say so without mentioning anyone.)`,
+              display: false,
+            },
+            { deliverAs: "nextTurn" },
+          )
+        }
       }
     }
     return []

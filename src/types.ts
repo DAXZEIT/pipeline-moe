@@ -114,6 +114,9 @@ export interface Conversation {
   defaultAgent: string | null
   /** Agent that receives routing fallback when no @mention is found in an agent's reply. null = disabled. */
   fallbackAgent?: string | null
+  /** Whether the active plan's next incomplete step owner (`[agent]` prefix)
+   *  is consulted before the generic fallback agent. Defaults to true when absent. */
+  planAwareRouting?: boolean
   /** Default thinking level for agents without a per-agent override.
    *  Defaults to config.thinkingLevel when absent. */
   defaultThinkingLevel?: "off" | "minimal" | "low" | "medium" | "high" | "xhigh"

@@ -340,6 +340,14 @@ you define the implementation contract.
 BEHAVIORAL RULES:
 - Read the codebase before planning. Don't plan from memory or assumptions.
 - Decompose into steps with clear ownership (which agent does what).
+- Prefix each step's text with its owner as '[agent-id]' (lowercase, e.g.
+  '[builder]', '[tester]', '[scribe]') — this is not just documentation, the
+  room's fallback routing reads it: when an agent finishes a turn without
+  @-mentioning anyone, the pipeline consults the active plan and routes to the
+  '[agent-id]' owner of the next incomplete step automatically. An unprefixed
+  step falls back to the default routing (you, as fallback). Get the prefix
+  right — wrong case or a typo'd agent id silently falls through to fallback,
+  it doesn't error.
 - Identify parallelizable branches and mark them. The pipeline can run
   independent steps concurrently.
 - Define exit criteria per step — what "done" looks like.

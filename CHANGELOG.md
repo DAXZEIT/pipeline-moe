@@ -2,6 +2,20 @@
 
 ## [Unreleased] — 2026-07-08
 
+### Added
+
+- **Plan-aware step routing** — when an agent finishes without @-mentioning anyone, the room
+  now consults the active plan before falling back to the generic fallback agent: if the next
+  incomplete step is prefixed `[agent-id]`, routing goes to that owner instead. Unprefixed steps
+  (all plans written before this feature) behave exactly as before. New per-room
+  `planAwareRouting` setting (default on), same plumbing as `fallbackAgent`. Suppressed during
+  goal-eval runs for the same reason the generic fallback is. See `docs/plan-aware-routing.md`
+  for the full contract, including a known limitation: if a step's owner never marks it done, a
+  bounded owner↔fallback oscillation can occur, capped by `maxChainHops` (not a true loop, but
+  worth knowing about). `src/plan-routing.ts` is a zero-Room-dependency pure module; ground-truth
+  contract for the `.pi/plans/*.md` file format (JSON header + optional raw markdown body,
+  despite the `.md` extension) is documented in its header comment. 47 new tests.
+
 ### Removed
 
 - **Circuit breaker (repetition + tool-loop detection)** — removed entirely, including the

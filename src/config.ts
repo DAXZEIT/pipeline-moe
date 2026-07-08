@@ -18,6 +18,21 @@ export const config = {
   workspaceDir: process.env.WORKSPACE_DIR ?? process.cwd(),
   /** Where group conversations are persisted as JSON (one file per discussion). */
   sessionsDir: resolve(process.env.SESSIONS_DIR ?? resolve(process.cwd(), "sessions")),
+  /** Where pi's plan tool persists plan files (`.pi/plans/*.md` — JSON header +
+   *  optional markdown body, despite the extension). Read-only from this
+   *  process's perspective: used for plan-aware fallback routing.
+   *  Under vitest, defaults to a path that doesn't exist so the existing test
+   *  suite doesn't accidentally couple to whatever real plans happen to be on
+   *  disk on the machine running the tests (plan-aware routing hits this on
+   *  every no-mention turn end, which most fallback-routing tests exercise).
+   *  Tests that specifically want plan-aware routing behavior either call
+   *  `findActivePlan()` with an explicit directory, or mutate `config.plansDir`
+   *  for the duration of one test (same idiom as `config.sessionsDir` in
+   *  room-manager.test.ts). */
+  plansDir: resolve(
+    process.env.PIPELINE_PLANS_DIR ??
+      (process.env.VITEST ? resolve(process.cwd(), ".pi/__no-plans-dir-in-tests__") : resolve(process.cwd(), ".pi/plans")),
+  ),
   /** Persist each agent's pi session to disk (context survives restarts and
    *  room resume). Set PIPELINE_EPHEMERAL_AGENTS=1 for the old in-memory
    *  behavior where agents catch up by replaying the room transcript. */
