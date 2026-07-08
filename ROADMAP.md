@@ -27,6 +27,8 @@
 
 ## Décisions actées (ne pas rouvrir sans nouveau contexte)
 
+- **Boucle d'orchestration fermée** (commit `cbffaa2`, release 0.1.22, 2026-07-09). spawn_room n'est plus fire-and-forget : rapport automatique dans la room parente à la résolution du goal (tour du spawner déclenché, passif si pause), `ask_orchestrator` dans toute sub-room spawnée (pause type ask_user, marche dans les boucles goal-eval), `answer_room` pour répondre/reprendre. Au passage, fix réel : runGoalEval écrasait une pause ask_user (queue orpheline). Limite connue : le ParentLink est en mémoire — après restart serveur, une sub-room restaurée ne rapporte plus (check_room reste).
+
 - **Task board partagé livré** (commit `970841e`, release 0.1.21, 2026-07-09). Choix de dax : tasks room-scoped avec tools dédiés (`task_create/task_update/task_list`), PAS une simple projection du plan actif. Deux systèmes assumés : plans = contrat d'ingénierie global + routing ; board = couche d'orchestration vivante par room, visible en continu (TUI Ctrl+P + résumé sous roster, panneau sidebar web). Tools gated sur la présence du board, pas sur l'allowlist persona — les personas persistées d'avant la feature les reçoivent sans migration.
 
 - **Turn-state tracking corrigé** (PLAN-ea321024, commit `50f9131`, release 0.1.20, 2026-07-09, 954/954). Les 3 bugs du test pipeline du 2026-07-08 : barre de statut suit l'agent réel (`turn {phase:"agent"}`), compact autorisé pendant une pause ask_user (`isGenerating()` — les 2 endpoints ET le slash `/compact`), label "paused" honnête TUI+web. **Fix 3b validé par dax** : une mention fraîche post-resume passe DEVANT la heldQueue (intention récente > continuation gelée) + notice d'ordre au resume. Rétro dans le plan.
