@@ -18,6 +18,8 @@ export function CommandLine({
   onRoutingCycle,
   onShell,
   onScroll,
+  onPaste,
+  pasteInsertRef,
   isActive,
   connected,
 }: {
@@ -34,12 +36,27 @@ export function CommandLine({
   /** ↑/↓ outside the palette scrolls the transcript (+up / −down, one line per
    *  press) — the mouse wheel sends exactly these keys in alternate-scroll mode. */
   onScroll?: (delta: number) => void
+  /** Ctrl+V — triggers an async clipboard read in the parent (image → sent
+   *  straight to the room; text → comes back through pasteInsertRef). */
+  onPaste?: () => void
+  /** Published by this component so the parent can insert clipboard text at
+   *  the current cursor position after an async read — same pattern as
+   *  Transcript's scrollRef. */
+  pasteInsertRef?: React.MutableRefObject<(text: string) => void>
   isActive: boolean
   connected: boolean
 }) {
   const [value, setValue] = useState("")
   const [cursor, setCursor] = useState(0)
   const [pIndex, setPIndex] = useState(0)
+
+  if (pasteInsertRef)
+    pasteInsertRef.current = (text) =>
+      setValue((v) => {
+        const next = v.slice(0, cursor) + text + v.slice(cursor)
+        setCursor(cursor + text.length)
+        return next
+      })
 
   const isSlash = value.startsWith("/")
   const isBang = value.startsWith("!")
@@ -128,6 +145,10 @@ export function CommandLine({
       }
       if (key.ctrl && input === "e") {
         setCursor(value.length)
+        return
+      }
+      if (key.ctrl && input === "v") {
+        onPaste?.()
         return
       }
       if (key.backspace) {

@@ -24,6 +24,7 @@ import { PresetDetailOverlay } from "./components/overlays/PresetDetailOverlay"
 import { lookup } from "./commands/registry"
 import type { CommandContext, Overlay } from "./commands/types"
 import { useTerminalSize } from "./useTerminalSize"
+import { readClipboardImage, readClipboardText } from "./clipboard-image"
 
 /** Strip terminal escape sequences, CR rewrites (progress bars) and `script`
  *  chatter from a PTY capture so the shared transcript gets clean plain text. */
@@ -340,6 +341,31 @@ export function App({
   // wrapped line count — so it publishes a scroller into this ref.
   const transcriptScrollRef = useRef<(delta: number) => void>(() => {})
 
+  // Ctrl+V: image on the clipboard goes straight to the room (same path as
+  // /image); anything else falls back to a plain text paste at the cursor,
+  // via a ref CommandLine publishes into (mirrors transcriptScrollRef above
+  // — CommandLine owns its cursor/value state, App owns the child_process
+  // call, this ref is the bridge).
+  const pasteInsertRef = useRef<(text: string) => void>(() => {})
+  const pasteClipboard = () => {
+    readClipboardImage()
+      .then(async (img) => {
+        if (img.ok) {
+          store.actions.send("(image shared)", [img.dataUri])
+          return
+        }
+        if (img.reason !== "no-image") {
+          store.pushNotice(img.error, "error")
+          return
+        }
+        const txt = await readClipboardText()
+        if (txt.ok && txt.text) pasteInsertRef.current(txt.text)
+      })
+      .catch((err: unknown) =>
+        store.pushNotice(err instanceof Error && err.message ? err.message : "Clipboard paste failed.", "error"),
+      )
+  }
+
   return (
     <Box flexDirection="column" height={Math.max(8, rows - 1)} overflow="hidden">
       <Box flexDirection="column" flexShrink={0}>
@@ -454,6 +480,8 @@ export function App({
         onRoutingCycle={cycleRouting}
         onShell={runShell}
         onScroll={(delta) => transcriptScrollRef.current(delta)}
+        onPaste={pasteClipboard}
+        pasteInsertRef={pasteInsertRef}
         isActive={!overlay && !state.oauthProgress}
         connected={state.connected}
       />
