@@ -103,7 +103,13 @@ export function RoomView({
             onLoad={room.loadPreset}
             onApply={room.applyPreset}
           />
-          <span className="topbar-sub">{room.turnActive ? "agents running…" : "ready"}</span>
+          <span className="topbar-sub">
+            {room.paused
+              ? `paused — waiting for your answer${room.pausedAskerId ? ` to @${room.pausedAskerId}` : ""}`
+              : room.turnActive
+                ? "agents running…"
+                : "ready"}
+          </span>
           <div className="topbar-routing">
           <div
             className="mode-select"

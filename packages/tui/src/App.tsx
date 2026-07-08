@@ -465,6 +465,8 @@ export function App({
         connection={connection}
         turnActive={state.turnActive}
         runningAgent={runningAgent}
+        paused={state.paused}
+        pausedAskerId={state.pausedAskerId}
         routingMode={state.routingMode}
         roomId={store.roomId}
         messageCount={state.messages.length}

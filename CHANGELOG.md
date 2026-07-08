@@ -1,6 +1,30 @@
 # Changelog
 
-## [Unreleased] — 2026-07-08
+## [Unreleased] — 2026-07-09
+
+### Fixed
+
+- **Status bar now follows the agent actually generating** (PLAN-ea321024, bug 1) — `turn start`
+  only carries the turn's first agent, so a chained drain (planner→builder→…) showed
+  "running Planner" the whole way through. The server now emits `turn {phase:"agent", agentId}`
+  every time an agent really starts (never per token); client-core updates `runningAgentId` on
+  it, and both TUI and web inherit the fix. `turn start/end` semantics are unchanged.
+- **Compact works during an ask_user pause** (bug 2a) — the compact guards (both HTTP endpoints
+  and the `/compact` slash command) now use the new `Room.isGenerating()` (running or queued
+  work only) instead of `isBusy()`, which also counts a pending question. A paused room is
+  quiescent — that's precisely when compacting is safe and useful. Every other guard keeps
+  strict `isBusy()`: mutating the room while it holds a frozen queue stays forbidden.
+- **Paused state is displayed honestly** (bug 2b) — during an ask_user pause the TUI status bar
+  shows "⏸ paused — waiting for your answer to @agent" instead of "idle", and the web topbar
+  says the same instead of "ready". The "idle" lie is what made bug 2a's 409 read as a
+  corrupted state.
+- **Resume ordering is visible and favors recent intent** (bug 3) — when a pause resumes with
+  held work, a notice announces the exact execution order ("Resuming: @builder, then @scribe
+  (held)"); and a fresh @mention in the asker's post-resume reply now runs BEFORE the held
+  queue (it used to be silently appended after, which read as a routing bug). Client-core also
+  stops rendering unknown turn phases through the chain-notice path (`@undefined → …` on
+  parallel waves) — unknown phases are now silently ignored, so older clients survive newer
+  servers.
 
 ### Added
 

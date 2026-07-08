@@ -193,7 +193,7 @@ describe("/compact slash command", () => {
     expect(errorNotice!.level).toBe("error")
   })
 
-  test("/compact while busy is rejected", async () => {
+  test("/compact during an ask_user pause is allowed (guard is isGenerating, not isBusy)", async () => {
     const agent = new MockParticipant(makePersona("builder"))
     agent.withResult({
       text: "Asking",
@@ -206,15 +206,18 @@ describe("/compact slash command", () => {
     room.submit("@builder hello")
     await new Promise((r) => setTimeout(r, 200))
 
-    // Room is now paused (busy)
+    // Paused: busy (frozen queue + pending question) but NOT generating —
+    // exactly the window where compacting is safe and useful (PLAN-ea321024).
     expect(room.isBusy()).toBe(true)
+    expect(room.isGenerating()).toBe(false)
 
     room.submit("/compact @builder")
     await new Promise((r) => setTimeout(r, 200))
 
-    const errorNotice = events.notices.find((n) => n.msg.includes("wait"))
-    expect(errorNotice).toBeDefined()
-    expect(errorNotice!.level).toBe("error")
+    const successNotice = events.notices.find((n) => n.msg.includes("compacted"))
+    expect(successNotice).toBeDefined()
+    // The pause survives the compact — the question is still pending.
+    expect(room.isBusy()).toBe(true)
   })
 
   test("/compact handles compaction failure gracefully", async () => {

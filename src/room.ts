@@ -77,7 +77,9 @@ export class Room {
   private chain: Promise<void> = Promise.resolve()
   /** Agents currently mid-turn. >1 when a parallel wave is running. */
   private running = new Set<Participant>()
-  /** Id of the first agent that started the current turn. Used for UI targeting (steer). */
+  /** Id of the agent currently mid-turn (last started). Kept in sync by
+   *  executeAgent so the client's status bar follows chained drains instead
+   *  of showing the turn's first agent forever. Used for UI targeting (steer). */
   private runningAgentId: string | null = null
   /** Pending agents to run in the current routing pass. Mutated as agents chain. */
   private queue: Participant[] = []
@@ -439,6 +441,16 @@ export class Room {
    *  session (which disposes+recreates it) is unsafe during this window. */
   isBusy(): boolean {
     return this.running.size > 0 || this.queue.length > 0 || this.pendingQuestion !== null || this.pendingRoute !== null
+  }
+
+  /** True only while agents are actively generating or queued to generate.
+   *  Unlike isBusy(), a pause (ask_user / routing approval) does NOT count:
+   *  the room is quiescent then, and compacting an agent session during that
+   *  window is safe — it's precisely when you'd want to free context. Guard
+   *  for the compact endpoints only; every other mutation keeps strict isBusy()
+   *  because a pause still holds a frozen queue. */
+  isGenerating(): boolean {
+    return this.running.size > 0 || this.queue.length > 0
   }
 
   private ensureIdle(): void {
@@ -959,6 +971,17 @@ export class Room {
     }
   }
 
+  /** Announce the execution order when a frozen queue resumes. The order is
+   *  otherwise invisible and reads as a routing bug (observed 2026-07-08: a
+   *  held @scribe legitimately ran before a freshly mentioned @builder). */
+  private noticeQueueOrder(heldIds: Set<string>): void {
+    if (this.queue.length === 0) return
+    const order = this.queue
+      .map((p) => `@${p.persona.id}${heldIds.has(p.persona.id) ? " (held)" : ""}`)
+      .join(", then ")
+    this.notice(`Resuming: ${order}`)
+  }
+
   /** Public entry point. Enqueues the message; processing streams over SSE. */
   submit(text: string, images?: string[]): void {
     this.chain = this.chain.then(() => this.process(text, images)).catch((err) => {
@@ -977,6 +1000,7 @@ export class Room {
       this.post("user", "You", trimmed)
       this.notice("Question cancelled. Resuming pipeline.")
       this.queue = held
+      this.noticeQueueOrder(new Set(held.map((p) => p.persona.id)))
       this.aborted = false
       const paused = await this.drainQueue()
       if (paused) {
@@ -996,6 +1020,9 @@ export class Room {
     if (this.pendingQuestion) {
       const pq = this.pendingQuestion
       this.pendingQuestion = null
+      // Snapshot before proposeChain mutates heldQueue — lets the resume
+      // notice distinguish held work from freshly mentioned agents.
+      const heldIds = new Set(pq.heldQueue.map((p) => p.persona.id))
 
       this.post("user", "You", trimmed, undefined, undefined, images)
       this.emit("turn", { phase: "resume", askerId: pq.askerId })
@@ -1006,6 +1033,7 @@ export class Room {
       if (!asker || !asker.active) {
         this.notice(`@${pq.askerId} is no longer active — resuming held queue.`, "info")
         this.queue = pq.heldQueue
+        this.noticeQueueOrder(heldIds)
         const paused = await this.drainQueue()
         if (paused) {
           await this.emitWorkspace()
@@ -1041,8 +1069,10 @@ export class Room {
         // Chain from the asker's reply onto the held queue (it resumes draining
         // below). Routes identically to the main drain loop — a handoff made right
         // after answering a question now continues instead of being dropped.
+        // prepend: a mention in the post-resume reply is recent intent and runs
+        // BEFORE work frozen at pause time (dax's call, 2026-07-08).
         if (this.chaining) {
-          const proposed = await this.proposeChain(asker.persona.id, result.reply, pq.heldQueue)
+          const proposed = await this.proposeChain(asker.persona.id, result.reply, pq.heldQueue, { prepend: true })
           if (proposed.length > 0) {
             // semi/manual: pause for approval instead of continuing the drain.
             this.pendingRoute = {
@@ -1057,8 +1087,9 @@ export class Room {
         }
       }
 
-      // Restore the held queue and continue draining.
+      // Restore the held queue (fresh mentions already prepended) and continue.
       this.queue = pq.heldQueue
+      this.noticeQueueOrder(heldIds)
       const paused = await this.drainQueue()
       if (paused) {
         await this.emitWorkspace()
@@ -1174,6 +1205,11 @@ export class Room {
     // rebuilt from the agent's write/edit tool calls below instead.
     const before = this.remote ? undefined : await snapshot(this.workspaceDir)
     this.running.add(target)
+    // Emitted on every agent start (never per token) so the client's
+    // runningAgentId follows the drain — `turn start` alone left the status
+    // bar stuck on the turn's first agent for the whole chain.
+    this.runningAgentId = target.persona.id
+    this.emit("turn", { phase: "agent", agentId: target.persona.id })
     // Acquire the local-model lock only for local agents (cloud agents bypass).
     const isLocal = this.laneOf(target) === "local"
     let lockAcquired = false
@@ -1277,8 +1313,10 @@ export class Room {
           this.notice(`/compact: unknown participant "${rawTarget ?? ""}".`, "error")
           return true
         }
-        if (this.isBusy()) {
-          this.notice(`/compact: wait until the current turn finishes.`, "error")
+        // isGenerating, not isBusy: an ask_user pause is a quiescent room —
+        // compacting there is safe and it's exactly when you want the headroom.
+        if (this.isGenerating()) {
+          this.notice(`/compact: agents are generating — wait or press Stop first.`, "error")
           return true
         }
         this.notice(`Compacting @${id}'s context…`)
@@ -1500,7 +1538,7 @@ export class Room {
    *  the main drain loop and the ask-user resume path so routing is identical in
    *  both — the resume path previously pushed @mentions onto a queue it then
    *  discarded, silently dropping a handoff made right after answering a question. */
-  private async proposeChain(fromId: string, reply: string, target: Participant[]): Promise<Participant[]> {
+  private async proposeChain(fromId: string, reply: string, target: Participant[], opts?: { prepend?: boolean }): Promise<Participant[]> {
     const mentioned = this.resolveAgentMentions(reply, fromId)
     if (mentioned.length > 0) {
       // De-dupe against the pending queue: if e.g. scout AND builder both hand
@@ -1515,7 +1553,10 @@ export class Room {
       }
       if (this.chainBudget < this.maxChainHops) {
         this.chainBudget += next.length
-        target.push(...next)
+        // prepend: a fresh mention outranks work frozen before a pause — the
+        // ask_user resume path uses this so recent intent runs first.
+        if (opts?.prepend) target.unshift(...next)
+        else target.push(...next)
         this.emit("turn", { phase: "chain", from: fromId, targets: next.map((t) => t.persona.id) })
       } else {
         this.notice(`Chain budget exhausted (${this.maxChainHops} hops) — stopping.`, "info")

@@ -8,6 +8,8 @@ export function StatusBar({
   connection,
   turnActive,
   runningAgent,
+  paused,
+  pausedAskerId,
   routingMode,
   roomId,
   messageCount,
@@ -15,6 +17,8 @@ export function StatusBar({
   connection: "connecting" | "connected" | "reconnecting"
   turnActive: boolean
   runningAgent: RosterItem | null
+  paused: boolean
+  pausedAskerId: string | null
   routingMode: RoutingMode
   roomId: string
   messageCount: number
@@ -29,7 +33,14 @@ export function StatusBar({
     <Box paddingX={1}>
       <Text color={conn.color}>{conn.label}</Text>
       <Text>{"  "}</Text>
-      {turnActive ? (
+      {paused ? (
+        // An ask_user pause is NOT idle — the room holds a frozen queue and
+        // waits on the user. Saying "idle" here made a legitimate 409 on other
+        // actions read as a corrupted state.
+        <Text color="magenta">
+          ⏸ paused — waiting for your answer{pausedAskerId ? ` to @${pausedAskerId}` : ""}
+        </Text>
+      ) : turnActive ? (
         <Text color="yellow">
           ▶ running
           {runningAgent ? (

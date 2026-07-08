@@ -252,12 +252,18 @@ export function reduce(state: RoomState, event: SseEvent): ReduceResult {
 
     case "turn": {
       const data = event.data as {
-        phase: "start" | "end" | "pause" | "resume" | "chain"
+        phase: "start" | "end" | "pause" | "resume" | "chain" | "agent" | "parallel"
         agentId?: string
         question?: string
         askerId?: string
         from?: string
         targets?: string[]
+      }
+      // Emitted whenever an agent actually starts generating — this is what
+      // keeps runningAgentId truthful across a chained drain (turn start only
+      // carries the FIRST agent of the turn).
+      if (data.phase === "agent") {
+        return noEffects({ ...state, turnActive: true, runningAgentId: data.agentId ?? null })
       }
       if (data.phase === "start") {
         return noEffects({
@@ -304,9 +310,14 @@ export function reduce(state: RoomState, event: SseEvent): ReduceResult {
           effects: [{ type: "notice", msg: `Resuming — answering ${data.askerId}`, level: "info" }],
         }
       }
-      // chain
-      const to = (data.targets ?? []).map((t) => `@${t}`).join(" ")
-      return { state, effects: [{ type: "notice", msg: `@${data.from} → ${to}`, level: "info" }] }
+      if (data.phase === "chain") {
+        const to = (data.targets ?? []).map((t) => `@${t}`).join(" ")
+        const msg = data.from ? `@${data.from} → ${to}` : `→ ${to}`
+        return { state, effects: [{ type: "notice", msg, level: "info" }] }
+      }
+      // Unknown/parallel phases: no state change, no notice. "parallel" already
+      // arrives as a server-side notice; anything newer must not break old clients.
+      return noEffects(state)
     }
 
     case "settings": {

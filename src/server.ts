@@ -1379,8 +1379,10 @@ async function main(): Promise<void> {
       res.status(404).json({ error: `unknown participant "${id}"` })
       return
     }
-    if (room.isBusy()) {
-      res.status(409).json({ error: "a turn is running — press Stop before compacting" })
+    // isGenerating, not isBusy: an ask_user pause holds pendingQuestion but the
+    // room is quiescent — that's a safe (and useful) moment to compact.
+    if (room.isGenerating()) {
+      res.status(409).json({ error: "agents are generating — press Stop or wait before compacting" })
       return
     }
     try {
@@ -1959,8 +1961,10 @@ async function main(): Promise<void> {
       res.status(404).json({ error: `unknown participant "${req.params.id}"` })
       return
     }
-    if (r.isBusy()) {
-      res.status(409).json({ error: "a turn is running — press Stop before compacting" })
+    // isGenerating, not isBusy: an ask_user pause holds pendingQuestion but the
+    // room is quiescent — that's a safe (and useful) moment to compact.
+    if (r.isGenerating()) {
+      res.status(409).json({ error: "agents are generating — press Stop or wait before compacting" })
       return
     }
     try {
