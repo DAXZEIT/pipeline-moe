@@ -341,17 +341,20 @@ export function App({
   // wrapped line count — so it publishes a scroller into this ref.
   const transcriptScrollRef = useRef<(delta: number) => void>(() => {})
 
-  // Ctrl+V: image on the clipboard goes straight to the room (same path as
-  // /image); anything else falls back to a plain text paste at the cursor,
-  // via a ref CommandLine publishes into (mirrors transcriptScrollRef above
-  // — CommandLine owns its cursor/value state, App owns the child_process
-  // call, this ref is the bridge).
+  // Ctrl+V: an image on the clipboard is *staged*, not sent — same as the
+  // web UI's Composer (pendingImages + preview, sent together with whatever
+  // text follows on Enter). Anything else falls back to a plain text paste
+  // at the cursor, via a ref CommandLine publishes into (mirrors
+  // transcriptScrollRef above — CommandLine owns its cursor/value state,
+  // App owns the child_process call, this ref is the bridge).
   const pasteInsertRef = useRef<(text: string) => void>(() => {})
+  const [pendingImages, setPendingImages] = useState<string[]>([])
   const pasteClipboard = () => {
     readClipboardImage()
       .then(async (img) => {
         if (img.ok) {
-          store.actions.send("(image shared)", [img.dataUri])
+          setPendingImages((imgs) => [...imgs, img.dataUri])
+          store.pushNotice(`📎 Image staged — write your message and press ⏎ to send.`)
           return
         }
         if (img.reason !== "no-image") {
@@ -473,7 +476,10 @@ export function App({
         messageCount={state.messages.length}
       />
       <CommandLine
-        onSend={(text) => store.actions.send(text)}
+        onSend={(text) => {
+          store.actions.send(text || "(image shared)", pendingImages.length > 0 ? pendingImages : undefined)
+          setPendingImages([])
+        }}
         onCommand={runCommand}
         onRoomNav={roomNav}
         onEmptyEnter={onEmptyEnter}
@@ -482,6 +488,8 @@ export function App({
         onScroll={(delta) => transcriptScrollRef.current(delta)}
         onPaste={pasteClipboard}
         pasteInsertRef={pasteInsertRef}
+        pendingImageCount={pendingImages.length}
+        onClearPending={() => setPendingImages([])}
         isActive={!overlay && !state.oauthProgress}
         connected={state.connected}
       />

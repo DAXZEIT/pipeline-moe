@@ -20,6 +20,8 @@ export function CommandLine({
   onScroll,
   onPaste,
   pasteInsertRef,
+  pendingImageCount,
+  onClearPending,
   isActive,
   connected,
 }: {
@@ -43,6 +45,14 @@ export function CommandLine({
    *  the current cursor position after an async read — same pattern as
    *  Transcript's scrollRef. */
   pasteInsertRef?: React.MutableRefObject<(text: string) => void>
+  /** Images staged via Ctrl+V, waiting to go out with the next ⏎ send —
+   *  owned by the parent (same store as the image bytes themselves), this
+   *  component only needs the count for the indicator and to let an
+   *  empty-text ⏎ still send (image-only message). */
+  pendingImageCount?: number
+  /** Esc clears staged images along with the text — the parent owns the
+   *  images, so this component can't clear them itself. */
+  onClearPending?: () => void
   isActive: boolean
   connected: boolean
 }) {
@@ -81,7 +91,10 @@ export function CommandLine({
       }
       if (key.return) {
         const text = value.trim()
-        if (text) {
+        // A staged image can go out with no text at all (image-only message,
+        // mirrors the web UI's Composer) — so an empty line with a pending
+        // image is a send, not the "+ room" tab's onEmptyEnter.
+        if (text || (pendingImageCount ?? 0) > 0) {
           // While the palette is open, Enter runs the highlighted command
           // (so "/r"⏎ on ▶/resume runs /resume, not the ambiguous "/r").
           if (matches.length > 0) onCommand("/" + matches[idx].name)
@@ -97,6 +110,7 @@ export function CommandLine({
         return
       }
       if (key.escape) {
+        onClearPending?.()
         reset()
         return
       }
@@ -203,6 +217,7 @@ export function CommandLine({
         </Box>
       ) : null}
       <Box borderStyle="round" borderColor={isActive && connected ? "cyan" : "gray"} paddingX={1}>
+        {pendingImageCount ? <Text color="cyan">📎 {pendingImageCount} </Text> : null}
         <Text color={isSlash ? "yellow" : isBang ? "red" : "cyan"}>
           {isSlash ? "/ " : isBang ? "! " : "› "}
         </Text>
