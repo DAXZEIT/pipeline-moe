@@ -55,6 +55,30 @@ describe("handoff tool — execute", () => {
     expect(textOf(result)).toContain("Handing off to @planner")
   })
 
+  // F6 regression: terminate must be a hard boolean the pi-agent-core loop
+  // checks (shouldTerminateToolBatch requires literal true on EVERY finalized
+  // result in the batch), not just present-but-falsy or absent. A live 27B
+  // model looped 13x on handoff before this fix because nothing told the
+  // agent loop to stop re-invoking it — the "Your turn ends now" text was
+  // advisory only. This is the contract our code must uphold; the loop's
+  // actual enforcement of it lives in the vendored pi-agent-core dependency,
+  // outside what a unit test here can exercise (see live re-validation instead).
+  test("F6: success sets terminate:true so the agent loop can't be talked into continuing", async () => {
+    const sink = fakeSink(["planner", "builder"])
+    const tool = createHandoffToolDefinition(sink, "builder")
+    const result = await tool.execute("tc1", { to: "planner" }, undefined, undefined, {} as any)
+    expect(result.terminate).toBe(true)
+  })
+
+  test("F6: a retryable error does NOT set terminate — the model must get to correct itself in the same turn", async () => {
+    const sink = fakeSink(["planner", "builder"])
+    const tool = createHandoffToolDefinition(sink, "builder")
+    const badSelf = await tool.execute("tc1", { to: "builder" }, undefined, undefined, {} as any)
+    const badUnknown = await tool.execute("tc2", { to: "nonexistent" }, undefined, undefined, {} as any)
+    expect(badSelf.terminate).not.toBe(true)
+    expect(badUnknown.terminate).not.toBe(true)
+  })
+
   test("rejects self-handoff with a correctable error, does not register", async () => {
     const sink = fakeSink(["planner", "builder"])
     const tool = createHandoffToolDefinition(sink, "builder")

@@ -284,6 +284,39 @@ describe("ask_orchestrator / answer_room tools", () => {
     expect(textOf(res)).toContain("end your turn now")
   })
 
+  // F6b: same class of bug as handoff — "end your turn now" in the text was
+  // advisory only. A chatty local model called ask_orchestrator 3x for one
+  // stuck state because nothing forced the loop to stop re-invoking it.
+  // terminate:true is what pi-agent-core's runLoop actually checks to skip
+  // that re-invocation (shouldTerminateToolBatch requires it on every
+  // finalized result in the batch, not just present text).
+  test("F6b: successful delivery sets terminate:true so the loop can't be talked into re-asking", async () => {
+    const link: ParentLink = {
+      parentRoomId: "default",
+      parentAgentId: "planner",
+      childRoomId: "room-sub1",
+      childName: "audit-x",
+      report: () => {},
+    }
+    const tool = createAskOrchestratorToolDefinition(link, "builder")
+    const res = await tool.execute("t1", { question: "anything" } as never, undefined as never, undefined as never, {} as never)
+    expect(res.terminate).toBe(true)
+  })
+
+  test("F6b: a failed delivery does NOT set terminate — the model should see the error", async () => {
+    const link: ParentLink = {
+      parentRoomId: "default",
+      parentAgentId: "planner",
+      childRoomId: "room-sub1",
+      childName: "audit-x",
+      report: () => { throw new Error("delivery failed") },
+    }
+    const tool = createAskOrchestratorToolDefinition(link, "builder")
+    const res = await tool.execute("t1", { question: "anything" } as never, undefined as never, undefined as never, {} as never)
+    expect(textOf(res)).toContain("ask_orchestrator error")
+    expect(res.terminate).not.toBe(true)
+  })
+
   test("answer_room submits into the target room via the orchestrator", async () => {
     const answered: Array<{ roomId: string; text: string }> = []
     const orchestrator = {

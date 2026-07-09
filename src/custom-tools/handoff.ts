@@ -68,9 +68,21 @@ export function createHandoffToolDefinition(sink: HandoffSink, personaId: string
         }
       }
       sink.register(personaId, params.to)
+      // terminate: true is load-bearing, not decorative (see F6). Without it,
+      // "Your turn ends now" is advisory only — the underlying agent loop
+      // (pi-agent-core's runLoop) re-invokes the model for another generation
+      // step regardless, and a chatty model just keeps calling handoff again
+      // (observed live: a 27B looped 13x, never actually dispatching). Setting
+      // terminate: true on every finalized tool result in the batch is what
+      // pi-agent-core checks to skip that re-invocation — mechanical, not
+      // behavioral. Confirmed against the vendored agent-loop.js, not just
+      // the .d.ts contract. Only the success path sets it: the error path
+      // above deliberately does NOT, so the model gets to retry with a
+      // corrected id in the same turn instead of being cut off mid-correction.
       return {
         content: [{ type: "text", text: `Handing off to @${params.to}. Your turn ends now.` }],
         details: undefined,
+        terminate: true,
       }
     },
   }

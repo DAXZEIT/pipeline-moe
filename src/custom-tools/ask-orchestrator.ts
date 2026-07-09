@@ -43,6 +43,15 @@ export function createAskOrchestratorToolDefinition(
             `answer_room({ roomId: "${link.childRoomId}", text: "..." }) — your answer resumes it. ` +
             `You can inspect it first with check_room({ roomId: "${link.childRoomId}" }).`,
         )
+        // terminate: true is load-bearing (see F6/F6b). "End your turn now" in
+        // the text was advisory-only — the agent loop doesn't stop on its own,
+        // it just keeps generating. A chatty model called this repeatedly
+        // within one turn (3 duplicate escalations for one stuck state,
+        // observed live) because nothing forced the loop to actually end.
+        // Setting terminate: true is what pi-agent-core's runLoop checks to
+        // skip re-invoking the model in this turn. Only on the success path—
+        // the catch below deliberately omits it so the model can see the
+        // delivery error and decide how to proceed.
         return {
           content: [{
             type: "text",
@@ -51,6 +60,7 @@ export function createAskOrchestratorToolDefinition(
               `This room will pause at the end of your turn until the answer arrives — end your turn now.`,
           }],
           details: undefined,
+          terminate: true,
         }
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err)
