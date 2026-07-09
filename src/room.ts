@@ -68,6 +68,13 @@ interface RunOutput {
   receipt: WorkReceipt
   /** If the agent called ask_user, the question text. */
   question?: string
+  /** Set when the turn was aborted or failed (provider error) instead of
+   *  ending normally — see TurnResult.stopReason. Callers use this to post
+   *  the (real, partial) reply with an explicit marker instead of silently
+   *  dropping it, while skipping chaining/pause behavior a normal turn would
+   *  otherwise get (see knownissues.md F7). */
+  stopReason?: "aborted" | "error"
+  errorMessage?: string
 }
 
 function newConvId(): string {
@@ -1144,14 +1151,27 @@ export class Room {
       // conversation context in its session memory; followUp() guarantees it's
       // the next thing the agent processes.
       const result = await this.followUpAgent(asker, { text: trimmed, images })
-      if (result && !this.aborted) {
+      if (result) {
+        // F7: previously gated on `!this.aborted`, discarding the asker's real
+        // reply (and its receipt) whenever the room had been stopped. Post it
+        // regardless, tagged if interrupted/failed — only the re-pause and
+        // chaining below are skipped for a non-normal ending.
+        const interrupted = !!result.stopReason
+        const marker = result.stopReason === "aborted"
+          ? " _(interrupted — partial)_"
+          : result.stopReason === "error"
+            ? ` _(failed — partial${result.errorMessage ? `: ${result.errorMessage}` : ""})_`
+            : ""
         // Post with question field if the asker asked another question.
-        this.post(asker.persona.id, asker.persona.name, result.reply || "(no response)", result.activity, result.reasoning, undefined, result.question)
+        this.post(asker.persona.id, asker.persona.name, (result.reply || "(no response)") + marker, result.activity, result.reasoning, undefined, result.question)
         if (receiptHasChanges(result.receipt)) this.emit("receipt", result.receipt)
         asker.cursor = this.transcript.length
 
-        // If the asker asked ANOTHER question, re-pause.
-        if (result.question) {
+        // If the asker asked ANOTHER question, re-pause. Not for an
+        // interrupted/failed reply — its "question" (if any) isn't a real
+        // pause request (executeAgent already nulls it, checked again here
+        // for a locally-obvious invariant rather than trusting a call away).
+        if (result.question && !interrupted) {
           this.pendingQuestion = { askerId: asker.persona.id, heldQueue: pq.heldQueue }
           this.emit("turn", { phase: "pause", askerId: asker.persona.id, question: result.question })
           await this.emitWorkspace()
@@ -1163,8 +1183,10 @@ export class Room {
         // below). Routes identically to the main drain loop — a handoff made right
         // after answering a question now continues instead of being dropped.
         // prepend: a mention in the post-resume reply is recent intent and runs
-        // BEFORE work frozen at pause time (dax's call, 2026-07-08).
-        if (this.chaining) {
+        // BEFORE work frozen at pause time (dax's call, 2026-07-08). Not for an
+        // interrupted/failed reply — a partial cut short by abort/error isn't a
+        // real handoff decision to act on.
+        if (this.chaining && !interrupted) {
           const proposed = await this.proposeChain(asker.persona.id, pq.heldQueue, { prepend: true })
           if (proposed.length > 0) {
             // semi/manual: pause for approval instead of continuing the drain.
@@ -1312,7 +1334,18 @@ export class Room {
       const result = mode === "prompt"
         ? await target.run(context.text, context.images)
         : await target.followUp(context.text, context.images)
-      if (this.aborted) return null
+      // F7 (knownissues.md): previously `if (this.aborted) return null` here
+      // discarded a real, populated TurnResult purely because the room's
+      // abort flag was set — losing the model's partial reply even though
+      // tool side-effects (files written before the stop) already happened.
+      // session.prompt()/followUp() resolve normally even on abort or a
+      // terminal provider error (tagging stopReason instead of rejecting; see
+      // Participant.run()), so `result` is real content, not a stub. Room's
+      // OWN abort flag takes priority when set (the room asked to stop, so
+      // treat it as interrupted even if this particular turn happened to
+      // finish naturally in the same instant) — otherwise fall back to what
+      // the turn itself reported (a provider error with no explicit abort).
+      const stopReason: "aborted" | "error" | undefined = this.aborted ? "aborted" : result.stopReason
       const after = this.remote ? undefined : await snapshot(this.workspaceDir)
 
       // Broadcast context usage and session stats after the turn — piggyback on status event.
@@ -1332,7 +1365,11 @@ export class Room {
         reply: result.text,
         activity: result.activity,
         reasoning: result.reasoning,
-        question: result.question,
+        // A question from an interrupted/failed turn isn't a real pause request
+        // — the turn didn't end the normal way a pause is supposed to.
+        question: stopReason ? undefined : result.question,
+        stopReason,
+        errorMessage: result.errorMessage,
         receipt: before && after
           ? diffSnapshots(before, after, target.persona.id)
           : receiptFromActivity(result.activity, target.persona.id),
@@ -1801,24 +1838,38 @@ export class Room {
       const waveProposals: RouteProposal[] = []
 
       for (const out of results) {
-        if (!out || this.aborted) continue
+        // F7: only a genuine infra-level failure (null) is skipped now — an
+        // interrupted/failed turn (out.stopReason set) still carries a real,
+        // partial reply that must be posted, not silently dropped. It's just
+        // not eligible to open a pause or chain further (checked below).
+        if (!out) continue
+        const interrupted = !!out.stopReason
 
-        if (out.question && !paused) {
+        if (out.question && !paused && !interrupted) {
           // First question in this wave — remember it, but don't return yet.
           paused = true
           pauseAskerId = out.target.persona.id
           pauseQuestion = out.question
         }
 
-        // Post the result (with question field if applicable).
-        this.post(out.target.persona.id, out.target.persona.name, out.reply || "(no response)", out.activity, out.reasoning, undefined, out.question)
+        // Post the result (with question field if applicable), tagging an
+        // interrupted/failed reply with an explicit marker so the transcript
+        // stays honest about why the turn ended the way it did.
+        const marker = out.stopReason === "aborted"
+          ? " _(interrupted — partial)_"
+          : out.stopReason === "error"
+            ? ` _(failed — partial${out.errorMessage ? `: ${out.errorMessage}` : ""})_`
+            : ""
+        this.post(out.target.persona.id, out.target.persona.name, (out.reply || "(no response)") + marker, out.activity, out.reasoning, undefined, out.question)
         if (receiptHasChanges(out.receipt)) this.emit("receipt", out.receipt)
         out.target.cursor = this.transcript.length
 
         // Chain from this reply (even if it had a question — the question is
         // posted as part of the message, and a handoff call earlier in the
-        // same turn still registers and chains).
-        if (this.chaining) {
+        // same turn still registers and chains). An interrupted/failed turn
+        // does NOT chain — a partial reply cut short by an abort or provider
+        // error isn't a real handoff decision to act on.
+        if (this.chaining && !interrupted) {
           const proposed = await this.proposeChain(out.target.persona.id, this.queue)
           for (const t of proposed) {
             if (!waveProposals.some((wp) => wp.target === t)) {

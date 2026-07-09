@@ -49,6 +49,7 @@ export function StatusBar({
               {runningAgent.icon} {runningAgent.name}
             </Text>
           ) : null}
+          <Text dimColor> — Esc to stop</Text>
         </Text>
       ) : (
         <Text color="gray">idle</Text>

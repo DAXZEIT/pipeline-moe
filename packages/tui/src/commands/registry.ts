@@ -354,7 +354,7 @@ export const COMMANDS: Command[] = [
   },
   {
     name: "abort",
-    summary: "Abort the current turn",
+    summary: "Abort the current turn (or press Esc on an empty line while a turn is running)",
     run: (ctx) => {
       ctx.store.actions.abort()
       ctx.notify("Turn aborted.")

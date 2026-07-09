@@ -492,6 +492,8 @@ export function App({
         onScroll={(delta) => transcriptScrollRef.current(delta)}
         onPaste={pasteClipboard}
         onToggleTasks={() => setOverlay((o) => (o?.kind === "tasks" ? null : { kind: "tasks" }))}
+        onAbort={() => runCommand("/abort")}
+        turnActive={state.turnActive}
         pasteInsertRef={pasteInsertRef}
         pendingImageCount={pendingImages.length}
         onClearPending={() => setPendingImages([])}

@@ -176,6 +176,31 @@ describe("Room goal state machine", () => {
     expect(room.getGoalStatus()).toBe("cancelled")
   })
 
+  // F7 (knownissues.md): cancelled-wins goal semantics must NOT move when the
+  // turn-salvage fix is present — goalStatus still resolves "cancelled" exactly
+  // as above, AND (new) the agent's real partial reply ("(unblocked)" from
+  // GateParticipant, previously discarded by `if (this.aborted) return null`)
+  // now actually lands in the transcript instead of vanishing.
+  test("goal cancellation still wins AND the salvaged partial reply reaches the transcript", async () => {
+    const agent = new GateParticipant(makePersona("builder"))
+    registry.add(agent)
+    await room.init()
+
+    room.submitGoal("@builder do something")
+    await new Promise<void>(resolve => setTimeout(resolve, 50))
+    expect(room.getGoalStatus()).toBe("running")
+
+    await room.abortCurrent()
+    agent.openGate()
+    await new Promise<void>(resolve => setTimeout(resolve, 50))
+
+    expect(room.getGoalStatus()).toBe("cancelled") // unchanged invariant
+    const posted = room.getTranscript().find((e) => e.author === "builder")
+    expect(posted).toBeDefined() // new: no longer silently discarded
+    expect(posted!.text).toContain("(unblocked)")
+    expect(posted!.text).toContain("interrupted")
+  })
+
   test("non-goal room: endTurn does not change goalStatus", async () => {
     const agent = new MockParticipant(makePersona("builder"), "(done)")
     registry.add(agent)

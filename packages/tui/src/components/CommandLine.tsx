@@ -1,14 +1,19 @@
 import { Box, Text, useInput } from "ink"
 import { useState } from "react"
 import { matchCommands } from "../commands/registry"
+import { shouldAbortOnEscape } from "../escape-behavior"
 
 /**
  * The input line. Plain text is sent as a room message; a leading "/" turns it
  * into a command, with a live fuzzy palette (Claude-Code style) while typing the
  * command name. Enter dispatches; Tab completes the highlighted command; Esc
- * clears. Editing is full-line: ←/→ move the cursor, Ctrl+A/Ctrl+E jump to
- * start/end, Backspace/Delete cut around it, and typing inserts at the cursor.
- * Gated by `isActive` so overlays can take over the keyboard.
+ * clears — or, on an EMPTY line while a turn is running, aborts it (F7:
+ * one-keystroke parity with the WebUI's Stop button, reusing an otherwise-idle
+ * Esc slot rather than overloading Ctrl+C, which terminals treat as "kill the
+ * process", not "cancel the current action"). Editing is full-line: ←/→ move
+ * the cursor, Ctrl+A/Ctrl+E jump to start/end, Backspace/Delete cut around it,
+ * and typing inserts at the cursor. Gated by `isActive` so overlays can take
+ * over the keyboard.
  */
 export function CommandLine({
   onSend,
@@ -20,6 +25,8 @@ export function CommandLine({
   onScroll,
   onPaste,
   onToggleTasks,
+  onAbort,
+  turnActive,
   pasteInsertRef,
   pendingImageCount,
   onClearPending,
@@ -44,6 +51,12 @@ export function CommandLine({
   onPaste?: () => void
   /** Ctrl+P — opens the shared task board overlay. */
   onToggleTasks?: () => void
+  /** Esc on an empty line with no pending image — only wired up when
+   *  `turnActive` is true (otherwise Esc's existing clear behavior on an
+   *  already-empty line stays a no-op, unchanged). Same effect as /abort. */
+  onAbort?: () => void
+  /** Whether a turn is currently running — gates the Esc-to-abort shortcut. */
+  turnActive?: boolean
   /** Published by this component so the parent can insert clipboard text at
    *  the current cursor position after an async read — same pattern as
    *  Transcript's scrollRef. */
@@ -113,6 +126,10 @@ export function CommandLine({
         return
       }
       if (key.escape) {
+        if (shouldAbortOnEscape({ turnActive, hasOnAbort: !!onAbort, value, pendingImageCount })) {
+          onAbort!()
+          return
+        }
         onClearPending?.()
         reset()
         return

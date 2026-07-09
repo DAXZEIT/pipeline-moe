@@ -75,6 +75,42 @@ export interface TurnResult {
   reasoning?: string
   /** If the agent called ask_user, the question text. */
   question?: string
+  /** Set when the turn did NOT end normally: "aborted" (room/user stopped it
+   *  mid-stream) or "error" (provider/model failure — e.g. retries exhausted
+   *  on a 5xx). Unset for a normal completion — pi-agent-core's stopReason
+   *  can also be "stop"/"length"/"toolUse", which all mean "the model
+   *  finished", just via different natural endings; those collapse to this
+   *  field being absent. `text`/`activity` above already hold whatever
+   *  streamed before the abnormal stop — this field is purely a marker for
+   *  callers deciding how to present a partial reply (see F7/knownissues.md). */
+  stopReason?: "aborted" | "error"
+  /** Present when stopReason is "error" — the underlying failure message. */
+  errorMessage?: string
+}
+
+/** Element type of AgentSession.messages, without importing the (unexported
+ *  from pi-coding-agent's public surface, only from its transitive
+ *  pi-agent-core dependency) AgentMessage type by name. */
+type SessionMessage = AgentSession["messages"][number]
+
+/** Walk back from the end of the session's message list to the most recent
+ *  assistant message and read its stopReason/errorMessage — the authoritative
+ *  source (set by the vendored harness itself on abort/provider-failure),
+ *  rather than trying to infer abnormal termination from our own streamed
+ *  event buffers. Returns undefined for a normal completion. */
+function extractAbnormalStop(
+  messages: SessionMessage[],
+): { stopReason: "aborted" | "error"; errorMessage?: string } | undefined {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i]
+    if (m.role === "assistant") {
+      if (m.stopReason === "aborted" || m.stopReason === "error") {
+        return { stopReason: m.stopReason, errorMessage: m.errorMessage }
+      }
+      return undefined
+    }
+  }
+  return undefined
 }
 
 export class Participant {
@@ -292,7 +328,17 @@ export class Participant {
     this.setStatus("active")
     try {
       const images = await this.resolveImages(imagePaths)
-      await this.session.prompt(promptText, images.length > 0 ? { images } : undefined)
+      let thrown: unknown
+      try {
+        await this.session.prompt(promptText, images.length > 0 ? { images } : undefined)
+      } catch (err) {
+        // session.prompt() is documented to resolve even on abort/provider-error
+        // (tagging the assistant message's stopReason instead of rejecting) —
+        // a real throw here is a library-level surprise, not the normal F7
+        // failure mode. Still salvage whatever streamed into our own buffers
+        // before treating it as an error turn, rather than losing that too.
+        thrown = err
+      }
       const result: TurnResult = {
         text: this.buffer.trim(),
         activity: [...this.activity.values()],
@@ -300,16 +346,32 @@ export class Participant {
       if (this.reasoningBuffer.trim()) {
         result.reasoning = this.reasoningBuffer.trim()
       }
+      if (thrown !== undefined) {
+        result.stopReason = "error"
+        result.errorMessage = thrown instanceof Error ? thrown.message : String(thrown)
+      } else {
+        const abnormal = extractAbnormalStop(this.session.messages)
+        if (abnormal) {
+          result.stopReason = abnormal.stopReason
+          if (abnormal.errorMessage) result.errorMessage = abnormal.errorMessage
+        }
+      }
       // Check if the agent asked a pausing question — ask_user (answered by the
       // human) or ask_orchestrator (answered by the parent room's spawner via
-      // answer_room). Both freeze the pipeline identically.
-      for (const act of result.activity) {
-        if ((act.toolName === "ask_user" || act.toolName === "ask_orchestrator") && act.status === "ok") {
-          const args = act.args as Record<string, unknown> | undefined
-          const q = typeof args?.question === "string" ? args.question : undefined
-          if (q) {
-            result.question = q
-            break
+      // answer_room). Both freeze the pipeline identically. A stopReason-tagged
+      // (aborted/error) turn's activity is real (tools DID execute) but its
+      // "question" isn't actionable — the turn didn't end the normal way a
+      // pause is supposed to, so don't let a partial/interrupted turn open a
+      // pause state.
+      if (!result.stopReason) {
+        for (const act of result.activity) {
+          if ((act.toolName === "ask_user" || act.toolName === "ask_orchestrator") && act.status === "ok") {
+            const args = act.args as Record<string, unknown> | undefined
+            const q = typeof args?.question === "string" ? args.question : undefined
+            if (q) {
+              result.question = q
+              break
+            }
           }
         }
       }
@@ -418,10 +480,17 @@ export class Participant {
       // session.followUp() only delivers when the agent is currently streaming.
       // After ask_user (terminate=true) the session is idle — the followUp message
       // would be queued but never processed. Use prompt() for idle sessions instead.
-      if (!this.session.isStreaming) {
-        await this.session.prompt(text, images.length > 0 ? { images } : undefined)
-      } else {
-        await this.session.followUp(text, images.length > 0 ? images : undefined)
+      let thrown: unknown
+      try {
+        if (!this.session.isStreaming) {
+          await this.session.prompt(text, images.length > 0 ? { images } : undefined)
+        } else {
+          await this.session.followUp(text, images.length > 0 ? images : undefined)
+        }
+      } catch (err) {
+        // See run() — same rationale: a real throw here is a library-level
+        // surprise, not the normal F7 failure mode. Salvage what streamed.
+        thrown = err
       }
       const result: TurnResult = {
         text: this.buffer.trim(),
@@ -430,14 +499,27 @@ export class Participant {
       if (this.reasoningBuffer.trim()) {
         result.reasoning = this.reasoningBuffer.trim()
       }
-      // Check for ask_user / ask_orchestrator in the follow-up result too.
-      for (const act of result.activity) {
-        if ((act.toolName === "ask_user" || act.toolName === "ask_orchestrator") && act.status === "ok") {
-          const args = act.args as Record<string, unknown> | undefined
-          const q = typeof args?.question === "string" ? args.question : undefined
-          if (q) {
-            result.question = q
-            break
+      if (thrown !== undefined) {
+        result.stopReason = "error"
+        result.errorMessage = thrown instanceof Error ? thrown.message : String(thrown)
+      } else {
+        const abnormal = extractAbnormalStop(this.session.messages)
+        if (abnormal) {
+          result.stopReason = abnormal.stopReason
+          if (abnormal.errorMessage) result.errorMessage = abnormal.errorMessage
+        }
+      }
+      // Check for ask_user / ask_orchestrator in the follow-up result too — not
+      // actionable on a stopReason-tagged (aborted/error) turn, same as run().
+      if (!result.stopReason) {
+        for (const act of result.activity) {
+          if ((act.toolName === "ask_user" || act.toolName === "ask_orchestrator") && act.status === "ok") {
+            const args = act.args as Record<string, unknown> | undefined
+            const q = typeof args?.question === "string" ? args.question : undefined
+            if (q) {
+              result.question = q
+              break
+            }
           }
         }
       }
