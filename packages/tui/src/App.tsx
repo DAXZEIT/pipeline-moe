@@ -388,6 +388,7 @@ export function App({
             streaming={state.streaming}
             liveReasoning={state.liveReasoning}
             liveActivity={state.liveActivity}
+            receipts={state.receipts}
             isActive={!overlay && !state.oauthProgress}
             scrollRef={transcriptScrollRef}
           />

@@ -1,9 +1,10 @@
 import { Box, Text, useInput } from "ink"
 import { useTerminalSize } from "../useTerminalSize"
 import { useRef, useState } from "react"
-import type { Message, RosterItem, ToolActivity } from "@pipeline-moe/client-core"
+import type { Message, Receipt, RosterItem, ToolActivity } from "@pipeline-moe/client-core"
 import { renderMarkdownLines, renderStreamingMarkdownLines } from "../markdown"
 import { summarizeArgs, TOOL_ICON, statusBadge } from "../activity"
+import { headerRule, receiptLines } from "../transcript-format"
 
 /**
  * The conversation view with line-accurate scrollback. Messages have wildly
@@ -57,6 +58,7 @@ export function Transcript({
   streaming,
   liveReasoning,
   liveActivity,
+  receipts,
   isActive,
   scrollRef,
 }: {
@@ -65,6 +67,8 @@ export function Transcript({
   streaming: Record<string, string>
   liveReasoning: Record<string, string>
   liveActivity: Record<string, ToolActivity[]>
+  /** Filesystem-verified work receipts, keyed by owning message index. */
+  receipts: Record<number, Receipt>
   isActive: boolean
   /** Receives a line scroller (+up / −down) — driven by ↑/↓ from the command
    *  line, which is what the mouse wheel sends in alternate-scroll mode. */
@@ -90,6 +94,8 @@ export function Transcript({
     author === "user" ? "white" : author === "shell" ? "yellow" : byId.get(author)?.color ?? "magenta"
   const nameOf = (author: string, fallback: string) =>
     author === "user" ? "You" : byId.get(author)?.name ?? fallback
+  const iconOf = (author: string) =>
+    author === "user" || author === "shell" ? undefined : byId.get(author)?.icon
 
   // Flatten the whole transcript into display lines.
   const lines: Line[] = []
@@ -135,7 +141,9 @@ export function Transcript({
   }
 
   for (const m of messages) {
-    lines.push({ text: nameOf(m.author, m.authorName), bold: true, color: colorOf(m.author) })
+    // Full-width rule in the author's color — the TUI counterpart of the
+    // WebUI's per-reply card border; replaces the bare name line (no extra row).
+    lines.push({ text: headerRule(nameOf(m.author, m.authorName), iconOf(m.author), width), bold: true, color: colorOf(m.author) })
     if (m.reasoning) pushThought(m.reasoning, false)
     if (m.activity?.length) pushActivity(m.activity, false)
     if (m.images?.length) lines.push({ text: `📎 ${m.images.length} image${m.images.length === 1 ? "" : "s"}`, dim: true })
@@ -148,6 +156,7 @@ export function Transcript({
           : renderMarkdownLines(m.text, width) ?? wrap(m.text, width)
       for (const l of rendered) lines.push({ text: l })
     } else lines.push({ text: "(no response)", dim: true })
+    if (receipts[m.index]) for (const l of receiptLines(receipts[m.index])) lines.push(l)
     lines.push({ text: "" })
   }
   // Live blocks: an agent can be reasoning before its first text token, so
@@ -158,7 +167,9 @@ export function Transcript({
     const reasoning = liveReasoning[id] ?? ""
     const acts = liveActivity[id] ?? []
     if (!text && !reasoning && acts.length === 0) continue
-    lines.push({ text: nameOf(id, id), bold: true, color: colorOf(id), cursor: true })
+    // width - 2 leaves room for the appended streaming cursor (" ▌") — a
+    // full-width rule would push it past the truncate-end boundary.
+    lines.push({ text: headerRule(nameOf(id, id), iconOf(id), width - 2), bold: true, color: colorOf(id), cursor: true })
     if (reasoning) pushThought(reasoning, !text)
     if (acts.length) pushActivity(acts, true)
     if (text) for (const l of renderStreamingMarkdownLines(text, width) ?? wrap(text, width)) lines.push({ text: l })
