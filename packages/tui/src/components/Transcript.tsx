@@ -59,6 +59,7 @@ export function Transcript({
   liveReasoning,
   liveActivity,
   receipts,
+  reservedRows,
   isActive,
   scrollRef,
 }: {
@@ -69,6 +70,11 @@ export function Transcript({
   liveActivity: Record<string, ToolActivity[]>
   /** Filesystem-verified work receipts, keyed by owning message index. */
   receipts: Record<number, Receipt>
+  /** Extra terminal rows currently claimed below the transcript (e.g. the QCM
+   *  answer picker) beyond the fixed chrome. Without this the total layout
+   *  exceeds the screen and Ink's row diffing corrupts — rows vanish and
+   *  leave glyph fragments behind. */
+  reservedRows?: number
   isActive: boolean
   /** Receives a line scroller (+up / −down) — driven by ↑/↓ from the command
    *  line, which is what the mouse wheel sends in alternate-scroll mode. */
@@ -84,7 +90,7 @@ export function Transcript({
   const cols = columns
   // Reserve rows for the status bar, command line, notices and borders so the
   // transcript never overflows its flex slot. One line is kept for the footer.
-  const height = Math.max(4, rows - 8)
+  const height = Math.max(4, rows - 8 - (reservedRows ?? 0))
   const bodyHeight = height - 1
   // Roster is 26 wide; leave margin so Ink doesn't re-wrap our pre-wrapped lines.
   const width = Math.max(20, cols - 30)

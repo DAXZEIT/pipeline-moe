@@ -26,6 +26,7 @@ import { PresetPickerOverlay } from "./components/overlays/PresetPickerOverlay"
 import { lookup } from "./commands/registry"
 import type { CommandContext, Overlay } from "./commands/types"
 import { useTerminalSize } from "./useTerminalSize"
+import { pickerRows } from "./answer-picker"
 import { readClipboardImage, readClipboardText } from "./clipboard-image"
 
 /** Strip terminal escape sequences, CR rewrites (progress bars) and `script`
@@ -389,6 +390,12 @@ export function App({
             liveReasoning={state.liveReasoning}
             liveActivity={state.liveActivity}
             receipts={state.receipts}
+            // While a paused question carries options, the QCM picker occupies
+            // rows below the transcript — reserved even while it's hidden by
+            // typing (stable layout beats a jumping one). Without this the
+            // layout exceeds the screen and Ink row-diffing corrupts (the
+            // vanished "── You ──" header, 2026-07-09).
+            reservedRows={state.paused && state.pausedOptions?.length ? pickerRows(state.pausedOptions.length) : 0}
             isActive={!overlay && !state.oauthProgress}
             scrollRef={transcriptScrollRef}
           />

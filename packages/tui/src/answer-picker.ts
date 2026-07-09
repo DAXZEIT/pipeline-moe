@@ -31,6 +31,16 @@ export function pickerVisible(s: PickerState): boolean {
   return !!s.options && s.options.length > 0 && s.value === "" && !s.dismissed
 }
 
+/** Terminal rows the picker box occupies when visible: 2 border rows, the
+ *  title, one row per option, and the key-hint footer. The Transcript must
+ *  reserve exactly this many rows while a paused question carries options —
+ *  its height math otherwise assumes a fixed-size command line, and the
+ *  overflow corrupts Ink's row diffing (observed live: the "── You ──" header
+ *  rule vanished and left stray dash fragments at other rows' ends). */
+export function pickerRows(optionCount: number): number {
+  return optionCount + 4
+}
+
 export type PickerAction =
   | { kind: "move"; delta: 1 | -1 }
   | { kind: "submit"; index: number }

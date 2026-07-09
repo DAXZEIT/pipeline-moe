@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest"
-import { pickerKeyAction, pickerVisible } from "../answer-picker"
+import { pickerKeyAction, pickerRows, pickerVisible } from "../answer-picker"
 
 // The QCM answer picker: pure key-decision logic for answering an ask_user
 // question that carries closed options. Mirrors the slash palette's contract —
@@ -13,6 +13,16 @@ describe("pickerVisible", () => {
     expect(pickerVisible({ options: [], value: "", dismissed: false })).toBe(false)
     expect(pickerVisible({ options: ["a"], value: "typing…", dismissed: false })).toBe(false)
     expect(pickerVisible({ options: ["a"], value: "", dismissed: true })).toBe(false)
+  })
+})
+
+describe("pickerRows", () => {
+  test("borders + title + hint + one row per option — what Transcript must reserve", () => {
+    // 2 border rows + title + hint = 4, plus the options themselves. If this
+    // drifts from the picker's actual JSX, the layout overflows the screen
+    // and Ink row-diffing corrupts (the vanished "── You ──" header).
+    expect(pickerRows(3)).toBe(7)
+    expect(pickerRows(6)).toBe(10)
   })
 })
 
