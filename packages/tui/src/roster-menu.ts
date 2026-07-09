@@ -4,6 +4,7 @@ import type { CommandContext, SelectItem } from "./commands/types"
 // both sides only call the other's hoisted functions at runtime, never at
 // module-evaluation time.
 import { lookup, shortModel } from "./commands/registry"
+import { statsLine } from "./roster-stats"
 
 /**
  * The Ctrl+R roster menu — the TUI counterpart of the WebUI's per-agent "…"
@@ -22,9 +23,10 @@ import { lookup, shortModel } from "./commands/registry"
 /** One row of the agent picker: identity + live status at a glance. */
 export function rosterPickerItems(roster: RosterItem[], defaultAgent: string | null): SelectItem[] {
   return roster.map((p) => {
-    const ctx = p.contextUsage?.tokens != null
-      ? ` · ${Math.round(p.contextUsage.tokens / 1000)}K`
-      : ""
+    // Full stats detail ("43K/1000K · cache 76%") — this picker inherited it
+    // from the old sidebar's full tier when the roster went horizontal.
+    const sl = statsLine(p)
+    const ctx = sl ? ` · ${sl}` : ""
     const star = p.id === defaultAgent ? " ⭐" : ""
     const off = p.active ? "" : " · inactive"
     return {

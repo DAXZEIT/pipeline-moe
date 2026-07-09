@@ -6,7 +6,7 @@ import { Box, useStdin } from "ink"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import type { RoomStore, Api, RoomSummary } from "@pipeline-moe/client-core"
 import { useRoomStore } from "./useRoomStore"
-import { Roster } from "./components/Roster"
+import { RosterStrip } from "./components/RosterStrip"
 import { RoomTabs } from "./components/RoomTabs"
 import { Transcript } from "./components/Transcript"
 import { StatusBar } from "./components/StatusBar"
@@ -376,12 +376,13 @@ export function App({
     <Box flexDirection="column" height={Math.max(8, rows - 1)} overflow="hidden">
       <Box flexDirection="column" flexShrink={0}>
         <RoomTabs rooms={rooms} current={roomId} plusSelected={plusSelected} />
+        {/* Horizontal roster timeline (Dofus turn-bar style) — replaces the
+            26-column sidebar, so the transcript gets the full width. Detail
+            and actions live in Ctrl+R. */}
+        <RosterStrip roster={state.roster} runningId={state.runningAgentId} />
+        <TaskSummary tasks={state.tasks} />
       </Box>
       <Box flexGrow={1} flexShrink={1} overflow="hidden">
-        <Box flexDirection="column" width={26} flexShrink={0}>
-          <Roster roster={state.roster} width={26} />
-          <TaskSummary tasks={state.tasks} width={26} />
-        </Box>
         <Box flexDirection="column" flexGrow={1} paddingX={1}>
           <Transcript
             messages={state.messages}
@@ -390,12 +391,18 @@ export function App({
             liveReasoning={state.liveReasoning}
             liveActivity={state.liveActivity}
             receipts={state.receipts}
-            // While a paused question carries options, the QCM picker occupies
-            // rows below the transcript — reserved even while it's hidden by
-            // typing (stable layout beats a jumping one). Without this the
-            // layout exceeds the screen and Ink row-diffing corrupts (the
-            // vanished "── You ──" header, 2026-07-09).
-            reservedRows={state.paused && state.pausedOptions?.length ? pickerRows(state.pausedOptions.length) : 0}
+            // Every row the fixed "rows - 8" budget doesn't know about must be
+            // declared here, or the layout exceeds the screen and Ink
+            // row-diffing corrupts (the vanished "── You ──" header,
+            // 2026-07-09): the roster strip (1), the task line (1 when the
+            // board is non-empty), and the QCM picker while a paused question
+            // carries options — reserved even while the picker is hidden by
+            // typing (stable layout beats a jumping one).
+            reservedRows={
+              (state.roster.length > 0 ? 1 : 0) +
+              (state.tasks.length > 0 ? 1 : 0) +
+              (state.paused && state.pausedOptions?.length ? pickerRows(state.pausedOptions.length) : 0)
+            }
             isActive={!overlay && !state.oauthProgress}
             scrollRef={transcriptScrollRef}
           />

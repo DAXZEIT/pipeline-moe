@@ -92,8 +92,10 @@ export function Transcript({
   // transcript never overflows its flex slot. One line is kept for the footer.
   const height = Math.max(4, rows - 8 - (reservedRows ?? 0))
   const bodyHeight = height - 1
-  // Roster is 26 wide; leave margin so Ink doesn't re-wrap our pre-wrapped lines.
-  const width = Math.max(20, cols - 30)
+  // Full terminal width minus padding margin (the roster is a horizontal
+  // strip now, not a sidebar) — kept slightly short so Ink never re-wraps
+  // our pre-wrapped lines.
+  const width = Math.max(20, cols - 4)
 
   const byId = new Map(roster.map((r) => [r.id, r]))
   const colorOf = (author: string) =>
