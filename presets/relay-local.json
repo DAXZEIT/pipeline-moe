@@ -1,0 +1,50 @@
+{
+  "name": "relay-local",
+  "personas": [
+    {
+      "id": "planner",
+      "name": "Planner",
+      "color": "#4A90D9",
+      "icon": "📋",
+      "tools": ["read", "grep", "find", "ls"],
+      "compactionInstructions": "Preserve the goal criteria and per-iteration verification verdicts. Discard file reads done only for verification.",
+      "thinkingLevel": "medium",
+      "model": "local/Qwopus3.6-27B-v2-MTP-Q4_K_M.gguf",
+      "active": true,
+      "parallel": false
+    },
+    {
+      "id": "builder",
+      "name": "Builder",
+      "color": "#EF9F27",
+      "icon": "🔨",
+      "tools": ["read", "write", "edit", "grep", "find", "ls"],
+      "compactionInstructions": "Preserve what you wrote and to whom you handed off. Discard intermediate reads.",
+      "model": "local/Qwopus3.6-27B-v2-MTP-Q4_K_M.gguf",
+      "active": true,
+      "parallel": false
+    },
+    {
+      "id": "scribe",
+      "name": "Scribe",
+      "color": "#F09975",
+      "icon": "📝",
+      "tools": ["read", "write", "edit", "grep", "find", "ls"],
+      "compactionInstructions": "Preserve what you wrote and to whom you handed off. Discard intermediate reads.",
+      "model": "local/Qwopus3.6-27B-v2-MTP-Q4_K_M.gguf",
+      "active": true,
+      "parallel": false
+    },
+    {
+      "id": "tester",
+      "name": "Tester",
+      "color": "#97C459",
+      "icon": "🧪",
+      "tools": ["read", "write", "edit", "grep", "find", "ls"],
+      "compactionInstructions": "Preserve what you wrote and to whom you handed off. Discard intermediate reads.",
+      "model": "local/Qwopus3.6-27B-v2-MTP-Q4_K_M.gguf",
+      "active": true,
+      "parallel": false
+    }
+  ]
+}
