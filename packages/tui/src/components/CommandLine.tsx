@@ -93,6 +93,12 @@ export function CommandLine({
 }) {
   const [value, setValue] = useState("")
   const [cursor, setCursor] = useState(0)
+  // The input is a single line; a raw \r or \n landing in `value` (multi-line
+  // paste via the terminal, or a fast writer whose text+Enter arrives as one
+  // stdin chunk so Ink never parses key.return) splits the rendered row and
+  // overflows the fixed-height layout — Ink's repaint then shifts rows and the
+  // input box appears mangled. Flatten to spaces at every insertion point.
+  const flatten = (s: string) => s.replace(/[\r\n]+/g, " ")
   const [pIndex, setPIndex] = useState(0)
   // QCM picker state — highlight + per-question dismissal. Both reset when a
   // new question (different options array) arrives.
@@ -106,8 +112,9 @@ export function CommandLine({
   const opts = answerOptions ?? []
 
   if (pasteInsertRef)
-    pasteInsertRef.current = (text) =>
+    pasteInsertRef.current = (raw) =>
       setValue((v) => {
+        const text = flatten(raw)
         const next = v.slice(0, cursor) + text + v.slice(cursor)
         setCursor(cursor + text.length)
         return next
@@ -262,8 +269,9 @@ export function CommandLine({
       }
       if (key.ctrl || key.meta || key.tab) return
       if (input) {
-        setValue((v) => v.slice(0, cursor) + input + v.slice(cursor))
-        setCursor((c) => c + input.length)
+        const text = flatten(input)
+        setValue((v) => v.slice(0, cursor) + text + v.slice(cursor))
+        setCursor((c) => c + text.length)
       }
     },
     { isActive },
