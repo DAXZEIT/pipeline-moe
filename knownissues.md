@@ -48,7 +48,12 @@ with a normal tool got extra generation steps — a pathological small model cou
 loop in-turn. pi-coding-agent's extension seam drops `terminate`, so the fix wraps
 `session.agent.afterToolCall` directly (src/batch-terminate-guard.ts): once any
 tool result terminates, every later result in the run is forced to terminate too.
-Worst case is now ONE extra generation step. Companion feature: one-shot
+Worst case is now ONE extra generation step. Live datum (2026-07-09): the 27B,
+explicitly instructed to batch, emitted [handoff, read] in ONE assistant message
+— builder's pi session jsonl shows both toolResults then ZERO further assistant
+messages, i.e. the guard forced terminate onto the read result exactly as
+designed (without it, the non-unanimous batch would have generated one more
+step). Companion feature: one-shot
 no-handoff menu in goal-eval rooms (room.ts proposeChain) — an agent ending its
 turn without a handoff gets a single closed-menu re-prompt (valid handoff ids /
 ask_orchestrator or ask_user / reply DONE), generated from live state.
