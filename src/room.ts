@@ -165,6 +165,12 @@ export class Room {
    *  tells runGoalEval's finally NOT to restore the fallback agent, since the
    *  loop resumes (via endTurn) once the answer arrives. */
   private goalEvalPausedOnQuestion = false
+  /** Agents that already received the one-shot no-handoff menu (see
+   *  proposeChain) in the current goal-eval iteration. Guarantees at most one
+   *  menu re-prompt per agent per iteration — cleared at each iteration start
+   *  and by submitGoal — so a model that never chooses is bounded by the goal
+   *  iteration budget, not looped forever. */
+  private noHandoffMenuUsed = new Set<string>()
 
   // ── Current conversation identity ──────────────────────────────────────────
   private convId = newConvId()
@@ -267,6 +273,7 @@ export class Room {
     this.maxGoalIterations = Math.max(1, Math.min(50, Math.round(opts?.maxIterations ?? 10)))
     this.goalIteration = 0
     this.goalCancelled = false
+    this.noHandoffMenuUsed.clear()
     // In eval mode the eval loop is the sole router: the evaluator is invoked
     // deliberately after every natural drain. Leaving generic fallback routing
     // active would re-invoke the evaluator (when it is also the fallback agent)
@@ -755,6 +762,8 @@ export class Room {
           return
         }
         this.goalIteration++
+        // Each iteration's dispatches get a fresh one-shot no-handoff menu.
+        this.noHandoffMenuUsed.clear()
 
         // Inject the structured eval context (invisible in the transcript).
         await evaluator.sendCustomMessage(
@@ -1692,6 +1701,43 @@ export class Room {
       }
       return []
     }
+    // No handoff registered. In a running goal-eval room, give the agent ONE
+    // closed-menu re-prompt before letting its turn die: small models often
+    // forget the handoff call, and a menu of the agent's real options (same
+    // pick-from-a-list principle as the handoff enum itself) is recoverable,
+    // where a silent turn end just burns a goal iteration. One-shot per agent
+    // per eval iteration (noHandoffMenuUsed); auto mode only — re-running the
+    // same agent is not a routable proposal for a human to approve. The
+    // evaluator is exempt: its goal_eval prompt already structures its ending
+    // (GOAL_MET or dispatch), and runGoalEval handles it.
+    if (
+      this.routingMode === "auto" &&
+      this.goalMode === "eval" &&
+      this.goalText !== null &&
+      this.goalStatus === "running" &&
+      fromId !== this.goalEvaluator &&
+      !this.noHandoffMenuUsed.has(fromId) &&
+      this.chainBudget < this.maxChainHops
+    ) {
+      const from = this.registry.get(fromId)
+      if (from && from.active && !target.includes(from)) {
+        this.noHandoffMenuUsed.add(fromId)
+        this.chainBudget += 1
+        this.notice(`No handoff detected — one-shot menu to @${fromId}`, "info")
+        await from.sendCustomMessage(
+          {
+            customType: "no_handoff_menu",
+            content: this.buildNoHandoffMenu(fromId),
+            display: false,
+          },
+          { deliverAs: "nextTurn" },
+        )
+        if (opts?.prepend) target.unshift(from)
+        else target.push(from)
+        this.emit("turn", { phase: "chain", from: fromId, targets: [fromId] })
+        return []
+      }
+    }
     if (this.chainBudget < this.maxChainHops) {
       let routedTo: Participant | null = null
       let viaPlan = false
@@ -1748,6 +1794,30 @@ export class Room {
       }
     }
     return []
+  }
+
+  /** The one-shot closed menu injected when a goal-eval agent ends its turn
+   *  without a handoff. Generated from live state so it never offers a dead
+   *  option: real roster ids for handoff, ask_orchestrator only in sub-rooms
+   *  (parent link present), ask_user otherwise. Closed list on purpose — a
+   *  small model picks reliably from a menu where it fails an open
+   *  instruction. */
+  private buildNoHandoffMenu(fromId: string): string {
+    const targets = this.registry.activeIds().filter((id) => id !== fromId)
+    const lines = [
+      "(No handoff detected — your turn ended without passing the work on, and the goal is still running. Pick EXACTLY ONE:",
+    ]
+    if (targets.length > 0) {
+      lines.push(` • call handoff(to: "<id>") — pass the turn. Valid ids: ${targets.join(", ")}`)
+    }
+    lines.push(
+      this.registry.hasParentLink
+        ? ` • call ask_orchestrator({ question: "..." }) — you are blocked on something outside this room`
+        : ` • call ask_user({ question: "..." }) — you are blocked on something only the user can provide`,
+    )
+    lines.push(" • reply DONE — you believe the goal is complete; the evaluator will verify")
+    lines.push("Do nothing else: no other tools, no long explanation.)")
+    return lines.join("\n")
   }
 
   /** Broadcast the current routing proposal so the UI can render the approval card. */

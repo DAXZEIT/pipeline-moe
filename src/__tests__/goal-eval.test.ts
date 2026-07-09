@@ -223,8 +223,10 @@ describe("Room goal-eval loop", () => {
 
     expect(room.getGoalStatus()).toBe("completed")
     expect(priv(room).goalIteration).toBe(2)
-    // Worker ran once in the initial drain + once when dispatched in iter1.
-    expect(worker.callCount).toBe(2)
+    // Worker ran once in the initial drain + once when dispatched in iter1 —
+    // each followed by one no-handoff-menu re-prompt (it never calls handoff).
+    expect(worker.callCount).toBe(4)
+    expect(worker.customMessages.filter(m => m.customType === "no_handoff_menu")).toHaveLength(2)
   })
 
   test("eval mode: exhausting maxIterations fails the goal", async () => {
@@ -321,6 +323,113 @@ describe("Room goal-eval loop", () => {
 
     expect(room.getGoalStatus()).toBe("completed")
     expect(auditor.customMessages.some(m => m.customType === "goal_eval")).toBe(true)
+  })
+
+  // ── One-shot no-handoff menu (small-model recovery) ───────────────────────
+
+  test("no-handoff menu: re-prompts the dispatched agent once, with live options", async () => {
+    const worker = new SeqParticipant(makePersona("worker"), ["did the work but forgot to hand off", "DONE"])
+    registry.add(worker)
+    const planner = new SeqParticipant(makePersona("planner"), ["GOAL_MET — verified"])
+    registry.add(planner)
+    priv(room).fallbackAgentId = null
+    await room.init()
+
+    room.submitGoal("@worker build it", { mode: "eval", maxIterations: 3 })
+    await settle(500)
+
+    expect(room.getGoalStatus()).toBe("completed")
+    // Initial run + exactly one menu re-prompt — not a loop.
+    expect(worker.callCount).toBe(2)
+    const menus = worker.customMessages.filter(m => m.customType === "no_handoff_menu")
+    expect(menus).toHaveLength(1)
+    // The menu is a closed list generated from live state: real roster ids,
+    // the DONE escape, and ask_user (no parent link on this mock registry).
+    expect(menus[0].content).toContain("Valid ids: planner")
+    expect(menus[0].content).toContain("reply DONE")
+    expect(menus[0].content).toContain("ask_user")
+    expect(menus[0].content).not.toContain("ask_orchestrator")
+  })
+
+  test("no-handoff menu: recovered handoff after the menu dispatches the target", async () => {
+    const worker = new SeqParticipant(
+      makePersona("worker"),
+      ["oops — ended without handing off", "passing to scribe now"],
+      [undefined, "scribe"],
+    )
+    registry.add(worker)
+    const scribe = new SeqParticipant(makePersona("scribe"), ["(scribe done) DONE"])
+    registry.add(scribe)
+    const planner = new SeqParticipant(makePersona("planner"), ["GOAL_MET"])
+    registry.add(planner)
+    priv(room).fallbackAgentId = null
+    await room.init()
+
+    room.submitGoal("@worker write then archive", { mode: "eval", maxIterations: 3 })
+    await settle(600)
+
+    expect(room.getGoalStatus()).toBe("completed")
+    // Worker forgot once, got the menu, handed off on the re-prompt.
+    expect(worker.customMessages.filter(m => m.customType === "no_handoff_menu")).toHaveLength(1)
+    // The recovered handoff really dispatched the scribe (which then got its
+    // own one-shot menu — a different agent, its own budget).
+    expect(scribe.callCount).toBeGreaterThanOrEqual(1)
+    expect(scribe.customMessages.filter(m => m.customType === "no_handoff_menu")).toHaveLength(1)
+  })
+
+  test("no-handoff menu: one-shot per agent per iteration, fresh shot next iteration", async () => {
+    // Worker NEVER complies — the menu must not loop it within an iteration,
+    // and each new eval iteration grants one fresh shot (bounded by the
+    // iteration budget, exactly like every other eval-mode recovery).
+    const worker = new SeqParticipant(makePersona("worker"), ["still going, no handoff"])
+    registry.add(worker)
+    const planner = new SeqParticipant(makePersona("planner"), [
+      "Not met — dispatching worker again.",
+      "GOAL_MET — good enough.",
+    ], ["worker"])
+    registry.add(planner)
+    priv(room).fallbackAgentId = null
+    await room.init()
+
+    room.submitGoal("@worker keep at it", { mode: "eval", maxIterations: 3 })
+    await settle(600)
+
+    expect(room.getGoalStatus()).toBe("completed")
+    // Initial drain: run + 1 menu re-run. Iter1 dispatch: run + 1 menu re-run.
+    expect(worker.callCount).toBe(4)
+    expect(worker.customMessages.filter(m => m.customType === "no_handoff_menu")).toHaveLength(2)
+  })
+
+  test("no-handoff menu: the evaluator itself is exempt", async () => {
+    // Evaluator ends its pass without GOAL_MET and without dispatching — the
+    // eval loop handles that (next iteration), the menu must not interfere.
+    const planner = new SeqParticipant(makePersona("planner"), [
+      "not met yet",
+      "still not met",
+    ])
+    registry.add(planner)
+    priv(room).fallbackAgentId = null
+    await room.init()
+
+    room.submitGoal("@planner assess the thing", { mode: "eval", maxIterations: 2 })
+    await settle(500)
+
+    expect(room.getGoalStatus()).toBe("failed")
+    expect(planner.customMessages.filter(m => m.customType === "no_handoff_menu")).toHaveLength(0)
+  })
+
+  test("no-handoff menu: absent outside eval mode", async () => {
+    const worker = new SeqParticipant(makePersona("worker"), ["(all done)"])
+    registry.add(worker)
+    priv(room).fallbackAgentId = null
+    await room.init()
+
+    room.submitGoal("@worker do it") // auto mode
+    await settle()
+
+    expect(room.getGoalStatus()).toBe("completed")
+    expect(worker.callCount).toBe(1)
+    expect(worker.customMessages.filter(m => m.customType === "no_handoff_menu")).toHaveLength(0)
   })
 
   // ── Cancellation (fix #1: goal-level abort) ──────────────────────────────

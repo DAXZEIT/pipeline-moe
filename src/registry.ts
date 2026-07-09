@@ -71,6 +71,13 @@ export class Registry implements HandoffSink {
     return [...new Set([...live, ...this.pendingRosterIds])]
   }
 
+  /** Whether this registry belongs to a spawned sub-room (its participants
+   *  carry the ask_orchestrator escalation tool). Used by Room to offer the
+   *  right "I'm blocked" option in the no-handoff menu. */
+  get hasParentLink(): boolean {
+    return this.parentLink !== undefined
+  }
+
   /** HandoffSink: record `from`'s chosen handoff target for this turn. */
   register(from: string, to: string): void {
     this.pendingHandoff.set(from, to)

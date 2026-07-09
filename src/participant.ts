@@ -16,6 +16,7 @@ import { access, readFile } from "node:fs/promises"
 import { constants } from "node:fs"
 import { join } from "node:path"
 import { config } from "./config.js"
+import { installBatchTerminateGuard, type BatchTerminateGuard } from "./batch-terminate-guard.js"
 import { buildConfinedTools } from "./sandbox-tools.js"
 import { buildCustomTools } from "./custom-tools/index.js"
 import { resolveModelRef, type ResolvedModel } from "./model.js"
@@ -131,6 +132,7 @@ export class Participant {
   sessionDir?: string
 
   private session!: AgentSession
+  private terminateGuard: BatchTerminateGuard | null = null
   private unsubscribe: (() => void) | null = null
   private buffer = ""
   /** Tool calls made during the current turn, keyed for start/end matching. */
@@ -249,6 +251,12 @@ export class Participant {
     // Name the session after the persona for debug visibility.
     session.setSessionName(persona.id)
     p.session = session
+    // Batch-terminate guard: once a turn-control tool (handoff/ask_user/
+    // ask_orchestrator) finalizes with terminate: true, force it onto every
+    // later tool result of the same run so the batch actually ends the turn
+    // (pi-agent-core requires EVERY result in a batch to set it). See
+    // batch-terminate-guard.ts for why this can't go through the extension seam.
+    p.terminateGuard = installBatchTerminateGuard(session.agent)
     p.unsubscribe = session.subscribe((ev) => p.onEvent(ev))
     return p
   }
@@ -325,6 +333,7 @@ export class Participant {
     this.buffer = ""
     this.reasoningBuffer = ""
     this.activity.clear()
+    this.terminateGuard?.reset()
     this.setStatus("active")
     try {
       const images = await this.resolveImages(imagePaths)
@@ -474,6 +483,7 @@ export class Participant {
     this.buffer = ""
     this.reasoningBuffer = ""
     this.activity.clear()
+    this.terminateGuard?.reset()
     this.setStatus("active")
     try {
       const images = await this.resolveImages(imagePaths)
