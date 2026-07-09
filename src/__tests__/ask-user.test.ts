@@ -487,6 +487,24 @@ describe("ask_user — pause/resume", () => {
     expect(agentMsg!.text).toBe("(no response)")
   })
 
+  test("a tool-only turn (activity, no text, no question) says so instead of '(no response)'", async () => {
+    // "(no response)" misled OTHER agents reading the transcript — observed
+    // live: scribe read a batched tool-only turn as "the builder didn't
+    // respond" and derailed arguing about it.
+    const agent = makeMockParticipant("builder")
+    agent.withResult({
+      text: "",
+      activity: [{ toolCallId: "t1", toolName: "read", args: { path: "x.md" }, status: "ok", ts: Date.now() }],
+    })
+    registry.addParticipant(agent)
+
+    room.submit("@builder hello")
+    await new Promise((r) => setTimeout(r, 200))
+
+    const agentMsg = events.messages.find((m) => m.author === "builder")
+    expect(agentMsg!.text).toBe("(tool calls only — no text reply)")
+  })
+
   test("ensureIdle blocks while paused", async () => {
     const agent = makeMockParticipant("builder")
     agent.withResult({

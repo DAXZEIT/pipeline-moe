@@ -23,6 +23,10 @@ body; a genuinely empty turn (incl. interrupted/failed, whose question is nulled
 keeps the placeholder and its partial marker. TUI/web skip the placeholder/bubble
 when a question follows. Old persisted entries keep their literal text (back-compat).
 Live-verified: planner QCM turn renders thought → tool call → 🤚 + options, no filler.
+Follow-up (same day): a tool-only turn (activity, no text, no question) now posts
+"(tool calls only — no text reply)" — the bare placeholder misled OTHER agents
+(scribe read a batched tool-only turn as "the builder didn't respond" and derailed
+for two turns arguing about it).
 
 ### Stale plan hijacked a conversational turn (planner→tester) — fixed (2026-07-09)
 Planner replied to a direct user mention with no handoff; the room silently
