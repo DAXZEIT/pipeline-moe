@@ -32,18 +32,22 @@
 //    one, and at least one with an assignment is an orphaned claim from
 //    long-shipped work.
 //
-// 3. Consequence: selection does NOT filter on `status === "active"`. It
-//    filters OUT `completed`/`archived` (the one reliably-maintained
-//    signal) and then picks the most-recently-modified file (mtime) among
-//    survivors. mtime is the PRIMARY signal here, not a tie-breaker.
+// 3. Consequence: plan selection cannot trust `status === "active"` — and it
+//    cannot trust mtime either. An earlier version picked "the most-recently
+//    modified non-completed .md", and a stale plan from another session
+//    hijacked a conversational turn (its owner's own task_update kept
+//    re-bumping its mtime, making the hijack self-reinforcing; 2026-07-09).
+//    Selection is now EXPLICIT ADOPTION: the Room tracks the plan its own
+//    agents actively mutated this conversation (planAdoptionId) and routing
+//    reads exactly that plan by id (findPlanById). The only status filtering
+//    left is rejecting `completed`/`archived` — the one reliable signal.
 //
 // 4. Some files under `.pi/plans/` aren't plan-tool output at all (e.g.
 //    `pi-api-audit.md` is a hand-written pure-markdown tracking doc with no
 //    JSON header). Parsing must be fully defensive: any failure on any file
 //    silently skips that file, never throws.
 
-import { readFile, readdir, stat } from "node:fs/promises"
-import { config } from "./config.js"
+import { readFile } from "node:fs/promises"
 
 export interface PlanStep {
   id: number
@@ -134,57 +138,9 @@ export function parsePlanContent(content: string): ParsedPlan | null {
   }
 }
 
-/** Find the most recently modified non-completed/archived plan in
- *  `config.plansDir`. Returns null if the directory can't be read or no
- *  eligible plan exists. Never throws.
- *
- *  Perf note: this runs on every no-mention turn end (fallback routing is a
- *  common path), so it stats all candidates first (cheap) and sorts by mtime
- *  descending, then reads+parses content in that order, returning at the
- *  FIRST eligible (non-completed/archived, successfully parsed) match. In
- *  the common case — the plan currently being worked is also the most
- *  recently touched file — this means reading one file, not scanning the
- *  whole directory. */
-export async function findActivePlan(plansDir: string = config.plansDir): Promise<ParsedPlan | null> {
-  let entries: string[]
-  try {
-    entries = (await readdir(plansDir)).filter((f) => f.endsWith(".md"))
-  } catch {
-    return null
-  }
-
-  const stats: Array<{ path: string; mtimeMs: number }> = []
-  await Promise.all(
-    entries.map(async (entry) => {
-      const path = `${plansDir}/${entry}`
-      try {
-        const s = await stat(path)
-        stats.push({ path, mtimeMs: s.mtimeMs })
-      } catch {
-        // Vanished between readdir and stat, or unreadable — skip.
-      }
-    }),
-  )
-  stats.sort((a, b) => b.mtimeMs - a.mtimeMs)
-
-  for (const { path } of stats) {
-    let content: string
-    try {
-      content = await readFile(path, "utf8")
-    } catch {
-      continue
-    }
-    const plan = parsePlanContent(content)
-    if (!plan) continue
-    if (plan.status === "completed" || plan.status === "archived") continue
-    return plan
-  }
-  return null
-}
-
-/** Read and parse a single plan by its bare id (`<id>.md` in plansDir), the
- *  adoption-scoped counterpart of findActivePlan. Returns null if the file is
- *  missing/unparseable or the plan is completed/archived. Never throws.
+/** Read and parse a single plan by its bare id (`<id>.md` in plansDir).
+ *  Returns null if the file is missing/unparseable or the plan is
+ *  completed/archived. Never throws.
  *
  *  This is what plan-aware routing consults now: a room routes ONLY by the plan
  *  it has actually adopted (see planAdoptionId), never "whatever .md was touched

@@ -23,12 +23,10 @@ export const config = {
    *  process's perspective: used for plan-aware fallback routing.
    *  Under vitest, defaults to a path that doesn't exist so the existing test
    *  suite doesn't accidentally couple to whatever real plans happen to be on
-   *  disk on the machine running the tests (plan-aware routing hits this on
-   *  every no-mention turn end, which most fallback-routing tests exercise).
-   *  Tests that specifically want plan-aware routing behavior either call
-   *  `findActivePlan()` with an explicit directory, or mutate `config.plansDir`
-   *  for the duration of one test (same idiom as `config.sessionsDir` in
-   *  room-manager.test.ts). */
+   *  disk on the machine running the tests. Routing only reads a plan the room
+   *  explicitly adopted (findPlanById via Room.plansDir()), so tests that want
+   *  plan-aware routing behavior mutate `config.plansDir` for the duration of
+   *  one test (same idiom as `config.sessionsDir` in room-manager.test.ts). */
   plansDir: resolve(
     process.env.PIPELINE_PLANS_DIR ??
       (process.env.VITEST ? resolve(process.cwd(), ".pi/__no-plans-dir-in-tests__") : resolve(process.cwd(), ".pi/plans")),

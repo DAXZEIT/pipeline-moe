@@ -34,13 +34,13 @@ class MockParticipant {
     return this
   }
 
-  async run(_promptText: string): Promise<{ text: string; activity: Array<{ toolCallId: string; toolName: string; args: Record<string, string>; status: "ok" | "error"; ts: number }>; question?: string }> {
+  async run(_promptText: string): Promise<{ text: string; activity: Array<{ toolCallId: string; toolName: string; args: Record<string, string>; status: "ok" | "error"; ts: number }>; question?: string; questionOptions?: string[] }> {
     const result = this._nextResult ?? { text: "ok", activity: [], handoffTo: undefined }
     if (result.handoffTo) this.registry?.register(this.persona.id, result.handoffTo)
     return { text: result.text, activity: result.activity, question: result.question, questionOptions: result.questionOptions }
   }
 
-  async followUp(_text: string): Promise<{ text: string; activity: Array<{ toolCallId: string; toolName: string; args: Record<string, string>; status: "ok" | "error"; ts: number }>; question?: string }> {
+  async followUp(_text: string): Promise<{ text: string; activity: Array<{ toolCallId: string; toolName: string; args: Record<string, string>; status: "ok" | "error"; ts: number }>; question?: string; questionOptions?: string[] }> {
     const result = this._nextResult ?? { text: "ok", activity: [], handoffTo: undefined }
     if (result.handoffTo) this.registry?.register(this.persona.id, result.handoffTo)
     return { text: result.text, activity: result.activity, question: result.question, questionOptions: result.questionOptions }

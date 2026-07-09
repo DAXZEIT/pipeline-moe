@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "vitest"
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync, existsSync, renameSync } from "node:fs"
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs"
 import { resolve } from "node:path"
 import { tmpdir } from "node:os"
 import {
@@ -7,7 +7,6 @@ import {
   parsePlanContent,
   parseStepOwner,
   nextStepOwner,
-  findActivePlan,
   findPlanById,
   planAdoptionId,
   type ParsedPlan,
@@ -26,21 +25,10 @@ function makePlanFile(
   status: string,
   steps: { id: number; text: string; done: boolean }[],
   body?: string,
-  mtimeOffsetMs?: number,
 ) {
   const json = JSON.stringify({ id, title, status, steps })
   const content = body ? `${json}${body}` : json
-  const path = resolve(dir, `${id}.md`)
-  writeFileSync(path, content, "utf8")
-  if (mtimeOffsetMs !== undefined) {
-    const newMtime = Date.now() + mtimeOffsetMs
-    // Use rename to set mtime reliably — writeFileSync sets atime too
-    renameSync(path, path)
-    // Actually, let's use utimes directly
-    const { utimesSync } = require("node:fs")
-    const d = new Date(newMtime)
-    utimesSync(path, d, d)
-  }
+  writeFileSync(resolve(dir, `${id}.md`), content, "utf8")
 }
 
 // ── extractJsonHeader ────────────────────────────────────────────────────────
@@ -244,114 +232,6 @@ describe("nextStepOwner", () => {
   })
 })
 
-// ── findActivePlan ───────────────────────────────────────────────────────────
-
-describe("findActivePlan", () => {
-  let tmpDir: string
-
-  beforeEach(() => {
-    tmpDir = mkdtempSync(resolve(tmpdir(), "plan-test-"))
-  })
-
-  afterEach(() => {
-    rmSync(tmpDir, { recursive: true, force: true })
-  })
-
-  test("returns null for empty directory", async () => {
-    const result = await findActivePlan(tmpDir)
-    expect(result).toBeNull()
-  })
-
-  test("returns null for non-existent directory", async () => {
-    const result = await findActivePlan(resolve(tmpDir, "no-such-dir"))
-    expect(result).toBeNull()
-  })
-
-  test("returns null when all plans are completed", async () => {
-    makePlanFile(tmpDir, "abc", "Done Plan", "completed", [])
-    const result = await findActivePlan(tmpDir)
-    expect(result).toBeNull()
-  })
-
-  test("returns null when all plans are archived", async () => {
-    makePlanFile(tmpDir, "abc", "Archived Plan", "archived", [])
-    const result = await findActivePlan(tmpDir)
-    expect(result).toBeNull()
-  })
-
-  test("returns active plan with builder step", async () => {
-    makePlanFile(tmpDir, "abc", "Active Plan", "draft", [
-      { id: 1, text: "[builder] Step 1", done: false },
-    ])
-    const result = await findActivePlan(tmpDir)
-    expect(result).not.toBeNull()
-    expect(result!.id).toBe("abc")
-  })
-
-  test("prefers most recently modified plan", async () => {
-    // Older plan (mtime -1000ms)
-    makePlanFile(tmpDir, "older", "Old Plan", "draft", [
-      { id: 1, text: "[builder] Old step", done: false },
-    ], undefined, -1000)
-    // Newer plan (mtime +1000ms)
-    makePlanFile(tmpDir, "newer", "New Plan", "draft", [
-      { id: 1, text: "[tester] New step", done: false },
-    ], undefined, 1000)
-
-    const result = await findActivePlan(tmpDir)
-    expect(result).not.toBeNull()
-    expect(result!.id).toBe("newer")
-  })
-
-  test("skips completed plans and returns active one", async () => {
-    makePlanFile(tmpDir, "done", "Completed", "completed", [], undefined, 1000)
-    makePlanFile(tmpDir, "active", "Still Going", "draft", [
-      { id: 1, text: "[planner] Continue", done: false },
-    ], undefined, -1000)
-
-    const result = await findActivePlan(tmpDir)
-    expect(result).not.toBeNull()
-    expect(result!.id).toBe("active")
-  })
-
-  test("skips non-plan markdown files", async () => {
-    writeFileSync(resolve(tmpDir, "notes.md"), "# Just notes\nNot a plan", "utf8")
-    makePlanFile(tmpDir, "real", "Real Plan", "draft", [
-      { id: 1, text: "[builder] Build", done: false },
-    ])
-
-    const result = await findActivePlan(tmpDir)
-    expect(result).not.toBeNull()
-    expect(result!.id).toBe("real")
-  })
-
-  test("handles JSON parse error in a plan file gracefully", async () => {
-    writeFileSync(resolve(tmpDir, "broken.md"), "{invalid json", "utf8")
-    makePlanFile(tmpDir, "good", "Good Plan", "draft", [
-      { id: 1, text: "[tester] Test", done: false },
-    ])
-
-    const result = await findActivePlan(tmpDir)
-    expect(result).not.toBeNull()
-    expect(result!.id).toBe("good")
-  })
-
-  test("plan with body (JSON + trailing markdown) is parsed correctly", async () => {
-    const id = "body-test"
-    const json = JSON.stringify({
-      id, title: "With Body", status: "draft",
-      steps: [{ id: 1, text: "[builder] Build it", done: false }],
-    })
-    writeFileSync(resolve(tmpDir, `${id}.md`), json + "\n\n## Goal\nSome details", "utf8")
-
-    const result = await findActivePlan(tmpDir)
-    expect(result).not.toBeNull()
-    expect(result!.id).toBe(id)
-    expect(result!.steps).toHaveLength(1)
-    expect(result!.steps[0].text).toBe("[builder] Build it")
-  })
-})
-
 // ── planAdoptionId ──────────────────────────────────────────────────────────
 
 describe("planAdoptionId", () => {
@@ -415,32 +295,9 @@ describe("findPlanById", () => {
   })
 })
 
-// ── Hermetic config.plansDir control (pure-function level) ──────────────────
-
-describe("plansDir hermetic swap (pure findActivePlan, no Room)", () => {
-  test("config.plansDir swap allows hermetic test control", async () => {
-    // Verify the same idiom as sessionsDir works for plansDir
-    const otherDir = mkdtempSync(resolve(tmpdir(), "plan-other-"))
-    const realPlansDir = config.plansDir
-
-    makePlanFile(otherDir, "other-plan", "Other Plan", "draft", [
-      { id: 1, text: "[tester] Test it", done: false },
-    ])
-
-    ;(config as { plansDir: string }).plansDir = otherDir
-    const plan = await findActivePlan()
-    expect(plan).not.toBeNull()
-    expect(plan!.id).toBe("other-plan")
-    expect(nextStepOwner(plan)).toBe("tester")
-
-    ;(config as { plansDir: string }).plansDir = realPlansDir
-    rmSync(otherDir, { recursive: true, force: true })
-  })
-})
-
 // ── Integration: Room plan-aware routing (actually drives proposeChain) ─────
 //
-// The pure-function tests above prove findActivePlan/nextStepOwner work in
+// The pure-function tests above prove findPlanById/nextStepOwner work in
 // isolation. They do NOT prove proposeChain() in room.ts actually calls them
 // and routes correctly — that's a behavioral gap the auditor has flagged
 // before on this exact shape of test (circuit-breaker-recovery, PLAN-6aa1e63a:
