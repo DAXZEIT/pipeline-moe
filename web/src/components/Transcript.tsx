@@ -135,7 +135,16 @@ export function Transcript({
             {m.question && (
               <div className="ask-callout">
                 <span className="ask-callout-icon">🤚</span>
-                <span className="ask-callout-text">{m.question}</span>
+                <div className="ask-callout-body">
+                  <span className="ask-callout-text">{m.question}</span>
+                  {m.questionOptions && m.questionOptions.length > 0 && (
+                    <ol className="ask-callout-options">
+                      {m.questionOptions.map((o, i) => (
+                        <li key={i}>{o}</li>
+                      ))}
+                    </ol>
+                  )}
+                </div>
               </div>
             )}
             {receipts[m.index] && <ReceiptView r={receipts[m.index]} />}

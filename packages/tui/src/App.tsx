@@ -495,6 +495,8 @@ export function App({
         onToggleTasks={() => setOverlay((o) => (o?.kind === "tasks" ? null : { kind: "tasks" }))}
         onAbort={() => runCommand("/abort")}
         turnActive={state.turnActive}
+        answerOptions={state.paused ? state.pausedOptions : null}
+        pausedAskerId={state.pausedAskerId}
         pasteInsertRef={pasteInsertRef}
         pendingImageCount={pendingImages.length}
         onClearPending={() => setPendingImages([])}

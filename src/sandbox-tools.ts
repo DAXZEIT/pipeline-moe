@@ -36,6 +36,15 @@ import { assertInside } from "./path-guard.js"
 
 const askUserSchema = Type.Object({
   question: Type.String({ description: "The question to ask the user" }),
+  options: Type.Optional(
+    Type.Array(Type.String(), {
+      maxItems: 6,
+      description:
+        "2-6 short answer choices, when the answer space is known (yes/no, pick a file, " +
+        "choose an approach). The user picks one or types a custom answer — offering " +
+        "options makes answering faster and the reply unambiguous.",
+    }),
+  ),
 })
 
 export function createAskUserToolDefinition(): ToolDefinition<typeof askUserSchema, undefined> {
@@ -46,6 +55,8 @@ export function createAskUserToolDefinition(): ToolDefinition<typeof askUserSche
       "Pause the pipeline and ask the user a clarifying question. " +
       "Use this when you need information only the user can provide — " +
       "preferences, credentials, or context you cannot determine yourself. " +
+      "When the possible answers are known, pass 2-6 short `options` the user can " +
+      "pick from (they can always type a custom answer instead). " +
       "The pipeline will pause and wait for the user's response. " +
       "Do not use this for rhetorical questions or self-clarification.",
     parameters: askUserSchema,

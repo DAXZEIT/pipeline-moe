@@ -76,6 +76,10 @@ export interface TurnResult {
   reasoning?: string
   /** If the agent called ask_user, the question text. */
   question?: string
+  /** Closed answer choices offered with the question (ask_user `options`) —
+   *  pure display metadata: clients render a picker, but the answer travels
+   *  back as an ordinary text message either way. */
+  questionOptions?: string[]
   /** Set when the turn did NOT end normally: "aborted" (room/user stopped it
    *  mid-stream) or "error" (provider/model failure — e.g. retries exhausted
    *  on a 5xx). Unset for a normal completion — pi-agent-core's stopReason
@@ -93,6 +97,32 @@ export interface TurnResult {
  *  from pi-coding-agent's public surface, only from its transitive
  *  pi-agent-core dependency) AgentMessage type by name. */
 type SessionMessage = AgentSession["messages"][number]
+
+/** Scan a finished turn's activity for a pausing question — ask_user (answered
+ *  by the human) or ask_orchestrator (answered by the parent room's spawner via
+ *  answer_room). Both freeze the pipeline identically. Returns the question
+ *  plus any closed answer `options` (ask_user only), sanitized: trimmed
+ *  non-empty strings, capped at 6 — a model passing garbage degrades to a
+ *  plain free-text question, never a broken picker. */
+export function extractPauseQuestion(
+  activity: ToolActivity[],
+): { question: string; options?: string[] } | null {
+  for (const act of activity) {
+    if ((act.toolName === "ask_user" || act.toolName === "ask_orchestrator") && act.status === "ok") {
+      const args = act.args as Record<string, unknown> | undefined
+      const q = typeof args?.question === "string" ? args.question : undefined
+      if (!q) continue
+      const raw = Array.isArray(args?.options) ? args.options : []
+      const options = raw
+        .filter((o): o is string => typeof o === "string")
+        .map((o) => o.trim())
+        .filter((o) => o.length > 0)
+        .slice(0, 6)
+      return options.length > 0 ? { question: q, options } : { question: q }
+    }
+  }
+  return null
+}
 
 /** Walk back from the end of the session's message list to the most recent
  *  assistant message and read its stopReason/errorMessage — the authoritative
@@ -365,23 +395,16 @@ export class Participant {
           if (abnormal.errorMessage) result.errorMessage = abnormal.errorMessage
         }
       }
-      // Check if the agent asked a pausing question — ask_user (answered by the
-      // human) or ask_orchestrator (answered by the parent room's spawner via
-      // answer_room). Both freeze the pipeline identically. A stopReason-tagged
+      // Check if the agent asked a pausing question. A stopReason-tagged
       // (aborted/error) turn's activity is real (tools DID execute) but its
       // "question" isn't actionable — the turn didn't end the normal way a
       // pause is supposed to, so don't let a partial/interrupted turn open a
       // pause state.
       if (!result.stopReason) {
-        for (const act of result.activity) {
-          if ((act.toolName === "ask_user" || act.toolName === "ask_orchestrator") && act.status === "ok") {
-            const args = act.args as Record<string, unknown> | undefined
-            const q = typeof args?.question === "string" ? args.question : undefined
-            if (q) {
-              result.question = q
-              break
-            }
-          }
+        const pause = extractPauseQuestion(result.activity)
+        if (pause) {
+          result.question = pause.question
+          if (pause.options) result.questionOptions = pause.options
         }
       }
       return result
@@ -522,15 +545,10 @@ export class Participant {
       // Check for ask_user / ask_orchestrator in the follow-up result too — not
       // actionable on a stopReason-tagged (aborted/error) turn, same as run().
       if (!result.stopReason) {
-        for (const act of result.activity) {
-          if ((act.toolName === "ask_user" || act.toolName === "ask_orchestrator") && act.status === "ok") {
-            const args = act.args as Record<string, unknown> | undefined
-            const q = typeof args?.question === "string" ? args.question : undefined
-            if (q) {
-              result.question = q
-              break
-            }
-          }
+        const pause = extractPauseQuestion(result.activity)
+        if (pause) {
+          result.question = pause.question
+          if (pause.options) result.questionOptions = pause.options
         }
       }
       return result

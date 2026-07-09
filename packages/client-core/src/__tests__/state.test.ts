@@ -196,6 +196,21 @@ describe("reduce — turn lifecycle", () => {
     expect(effects).toEqual([{ type: "notice", msg: "a is waiting for your answer.", level: "info" }])
   })
 
+  it("pause carries QCM options into pausedOptions; empty/missing become null", () => {
+    const withOpts = apply(baseState(), "turn", { phase: "pause", question: "Q", askerId: "a", options: ["x", "y"] }).state
+    expect(withOpts.pausedOptions).toEqual(["x", "y"])
+    const without = apply(baseState(), "turn", { phase: "pause", question: "Q", askerId: "a" }).state
+    expect(without.pausedOptions).toBeNull()
+    const empty = apply(baseState(), "turn", { phase: "pause", question: "Q", askerId: "a", options: [] }).state
+    expect(empty.pausedOptions).toBeNull()
+  })
+
+  it("end and resume both clear pausedOptions", () => {
+    const pausedState = baseState({ paused: true, pausedQuestion: "Q", pausedAskerId: "a", pausedOptions: ["x"] })
+    expect(apply(pausedState, "turn", { phase: "end" }).state.pausedOptions).toBeNull()
+    expect(apply(pausedState, "turn", { phase: "resume", askerId: "a" }).state.pausedOptions).toBeNull()
+  })
+
   it("resume clears the pause and re-activates with a notice", () => {
     const state = baseState({ paused: true, pausedQuestion: "?", pausedAskerId: "a" })
     const result = apply(state, "turn", { phase: "resume", askerId: "a" })

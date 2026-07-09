@@ -53,6 +53,8 @@ export interface RoomState {
   paused: boolean
   pausedQuestion: string | null
   pausedAskerId: string | null
+  /** Closed answer choices for the paused question (ask_user options), if any. */
+  pausedOptions: string[] | null
   chaining: boolean
   routingMode: RoutingMode
   defaultAgent: string | null
@@ -89,6 +91,7 @@ export const initialRoomState: RoomState = {
   paused: false,
   pausedQuestion: null,
   pausedAskerId: null,
+  pausedOptions: null,
   chaining: true,
   routingMode: "auto",
   defaultAgent: null,
@@ -121,6 +124,7 @@ export function resetTransient(state: RoomState): RoomState {
     paused: false,
     pausedQuestion: null,
     pausedAskerId: null,
+    pausedOptions: null,
     pendingRoute: null,
     streaming: {},
     liveActivity: {},
@@ -260,6 +264,8 @@ export function reduce(state: RoomState, event: SseEvent): ReduceResult {
         phase: "start" | "end" | "pause" | "resume" | "chain" | "agent" | "parallel"
         agentId?: string
         question?: string
+        /** Closed answer choices carried with a pause (ask_user options). */
+        options?: string[]
         askerId?: string
         from?: string
         targets?: string[]
@@ -288,6 +294,7 @@ export function reduce(state: RoomState, event: SseEvent): ReduceResult {
           paused: false,
           pausedQuestion: null,
           pausedAskerId: null,
+          pausedOptions: null,
           pendingRoute: null,
         })
       }
@@ -299,6 +306,7 @@ export function reduce(state: RoomState, event: SseEvent): ReduceResult {
             paused: true,
             pausedQuestion: data.question ?? null,
             pausedAskerId: data.askerId ?? null,
+            pausedOptions: data.options?.length ? data.options : null,
           },
           effects: [{ type: "notice", msg: `${data.askerId} is waiting for your answer.`, level: "info" }],
         }
@@ -310,6 +318,7 @@ export function reduce(state: RoomState, event: SseEvent): ReduceResult {
             paused: false,
             pausedQuestion: null,
             pausedAskerId: null,
+            pausedOptions: null,
             turnActive: true,
           },
           effects: [{ type: "notice", msg: `Resuming — answering ${data.askerId}`, level: "info" }],

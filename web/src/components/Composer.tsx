@@ -9,6 +9,9 @@ interface Props {
   paused: boolean
   pausedQuestion: string | null
   pausedAskerId: string | null
+  /** Closed answer choices offered with the question — rendered as one-click
+   *  answer buttons; a click sends the option text as an ordinary message. */
+  pausedOptions?: string[] | null
   onSend: (text: string, images?: string[]) => void
   onAbort: () => void
   onSteer: (text: string, target: string) => void
@@ -46,7 +49,7 @@ function fileToDataUri(file: File): Promise<string> {
   })
 }
 
-export function Composer({ roster, turnActive, runningAgentId, paused, pausedQuestion, pausedAskerId, onSend, onAbort, onSteer, onShell }: Props) {
+export function Composer({ roster, turnActive, runningAgentId, paused, pausedQuestion, pausedAskerId, pausedOptions, onSend, onAbort, onSteer, onShell }: Props) {
   const [value, setValue] = useState("")
   const [trigger, setTrigger] = useState<"@" | "/" | null>(null)
   const [partial, setPartial] = useState<string | null>(null)
@@ -254,6 +257,15 @@ export function Composer({ roster, turnActive, runningAgentId, paused, pausedQue
           <div className="ask-banner-body">
             <span className="ask-banner-who">@{pausedAskerId} is asking:</span>
             <span className="ask-banner-text">&ldquo;{pausedQuestion}&rdquo;</span>
+            {pausedOptions && pausedOptions.length > 0 && (
+              <div className="ask-banner-options">
+                {pausedOptions.map((o, i) => (
+                  <button key={i} className="btn ask-option-btn" onClick={() => onSend(o)}>
+                    {o}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       )}

@@ -68,6 +68,8 @@ interface RunOutput {
   receipt: WorkReceipt
   /** If the agent called ask_user, the question text. */
   question?: string
+  /** Closed answer choices offered with the question (display metadata). */
+  questionOptions?: string[]
   /** Set when the turn was aborted or failed (provider error) instead of
    *  ending normally — see TurnResult.stopReason. Callers use this to post
    *  the (real, partial) reply with an explicit marker instead of silently
@@ -698,6 +700,7 @@ export class Room {
     reasoning?: string,
     images?: string[],
     question?: string,
+    questionOptions?: string[],
   ): TranscriptEntry {
     const entry: TranscriptEntry = {
       index: this.transcript.length,
@@ -709,6 +712,7 @@ export class Room {
       ...(reasoning ? { reasoning } : {}),
       ...(images && images.length > 0 ? { images } : {}),
       ...(question ? { question } : {}),
+      ...(question && questionOptions && questionOptions.length > 0 ? { questionOptions } : {}),
     }
     this.transcript.push(entry)
 
@@ -1186,7 +1190,7 @@ export class Room {
             ? ` _(failed — partial${result.errorMessage ? `: ${result.errorMessage}` : ""})_`
             : ""
         // Post with question field if the asker asked another question.
-        this.post(asker.persona.id, asker.persona.name, (result.reply || "(no response)") + marker, result.activity, result.reasoning, undefined, result.question)
+        this.post(asker.persona.id, asker.persona.name, (result.reply || "(no response)") + marker, result.activity, result.reasoning, undefined, result.question, result.questionOptions)
         if (receiptHasChanges(result.receipt)) this.emit("receipt", result.receipt)
         asker.cursor = this.transcript.length
 
@@ -1196,7 +1200,7 @@ export class Room {
         // for a locally-obvious invariant rather than trusting a call away).
         if (result.question && !interrupted) {
           this.pendingQuestion = { askerId: asker.persona.id, heldQueue: pq.heldQueue }
-          this.emit("turn", { phase: "pause", askerId: asker.persona.id, question: result.question })
+          this.emit("turn", { phase: "pause", askerId: asker.persona.id, question: result.question, options: result.questionOptions })
           await this.emitWorkspace()
           await this.saveCurrent()
           return
@@ -1391,6 +1395,7 @@ export class Room {
         // A question from an interrupted/failed turn isn't a real pause request
         // — the turn didn't end the normal way a pause is supposed to.
         question: stopReason ? undefined : result.question,
+        questionOptions: stopReason ? undefined : result.questionOptions,
         stopReason,
         errorMessage: result.errorMessage,
         receipt: before && after
@@ -1935,6 +1940,7 @@ export class Room {
       let paused = false
       let pauseAskerId: string | null = null
       let pauseQuestion: string | null = null
+      let pauseOptions: string[] | undefined
       const waveProposals: RouteProposal[] = []
 
       for (const out of results) {
@@ -1950,6 +1956,7 @@ export class Room {
           paused = true
           pauseAskerId = out.target.persona.id
           pauseQuestion = out.question
+          pauseOptions = out.questionOptions
         }
 
         // Post the result (with question field if applicable), tagging an
@@ -1960,7 +1967,7 @@ export class Room {
           : out.stopReason === "error"
             ? ` _(failed — partial${out.errorMessage ? `: ${out.errorMessage}` : ""})_`
             : ""
-        this.post(out.target.persona.id, out.target.persona.name, (out.reply || "(no response)") + marker, out.activity, out.reasoning, undefined, out.question)
+        this.post(out.target.persona.id, out.target.persona.name, (out.reply || "(no response)") + marker, out.activity, out.reasoning, undefined, out.question, out.questionOptions)
         if (receiptHasChanges(out.receipt)) this.emit("receipt", out.receipt)
         out.target.cursor = this.transcript.length
 
@@ -2000,7 +2007,7 @@ export class Room {
       if (paused) {
         this.pendingQuestion = { askerId: pauseAskerId!, heldQueue: [...this.queue] }
         this.queue = []
-        this.emit("turn", { phase: "pause", askerId: pauseAskerId!, question: pauseQuestion! })
+        this.emit("turn", { phase: "pause", askerId: pauseAskerId!, question: pauseQuestion!, options: pauseOptions })
         return true
       }
 

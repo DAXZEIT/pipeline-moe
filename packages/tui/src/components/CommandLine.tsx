@@ -1,7 +1,8 @@
 import { Box, Text, useInput } from "ink"
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { matchCommands } from "../commands/registry"
 import { shouldAbortOnEscape } from "../escape-behavior"
+import { pickerKeyAction, pickerVisible } from "../answer-picker"
 
 /**
  * The input line. Plain text is sent as a room message; a leading "/" turns it
@@ -27,6 +28,8 @@ export function CommandLine({
   onToggleTasks,
   onAbort,
   turnActive,
+  answerOptions,
+  pausedAskerId,
   pasteInsertRef,
   pendingImageCount,
   onClearPending,
@@ -57,6 +60,12 @@ export function CommandLine({
   onAbort?: () => void
   /** Whether a turn is currently running — gates the Esc-to-abort shortcut. */
   turnActive?: boolean
+  /** Closed answer choices while the room is paused on an ask_user question —
+   *  renders the QCM picker above the input (↑↓⏎ or 1-N to answer; typing
+   *  stays free text). Null/empty = no picker, plain answer as before. */
+  answerOptions?: string[] | null
+  /** Who is asking — shown in the picker title. */
+  pausedAskerId?: string | null
   /** Published by this component so the parent can insert clipboard text at
    *  the current cursor position after an async read — same pattern as
    *  Transcript's scrollRef. */
@@ -75,6 +84,16 @@ export function CommandLine({
   const [value, setValue] = useState("")
   const [cursor, setCursor] = useState(0)
   const [pIndex, setPIndex] = useState(0)
+  // QCM picker state — highlight + per-question dismissal. Both reset when a
+  // new question (different options array) arrives.
+  const [aIndex, setAIndex] = useState(0)
+  const [aDismissed, setADismissed] = useState(false)
+  useEffect(() => {
+    setAIndex(0)
+    setADismissed(false)
+  }, [answerOptions])
+  const picker = pickerVisible({ options: answerOptions ?? null, value, dismissed: aDismissed })
+  const opts = answerOptions ?? []
 
   if (pasteInsertRef)
     pasteInsertRef.current = (text) =>
@@ -104,6 +123,26 @@ export function CommandLine({
       if (key.tab && key.shift) {
         onRoutingCycle?.()
         return
+      }
+      // QCM picker owns ↑/↓/⏎/digits/Esc while visible (same precedent as the
+      // slash palette). Any other key falls through — typing IS the free-text
+      // answer, no mode to leave.
+      if (picker) {
+        const action = pickerKeyAction(input, key, opts.length, aIndex)
+        if (action.kind === "move") {
+          setAIndex((i) => (i + action.delta + opts.length) % opts.length)
+          return
+        }
+        if (action.kind === "submit") {
+          onSend(opts[action.index])
+          reset()
+          return
+        }
+        if (action.kind === "dismiss") {
+          setADismissed(true)
+          return
+        }
+        // passthrough: fall into the normal handlers below
       }
       if (key.return) {
         const text = value.trim()
@@ -226,6 +265,20 @@ export function CommandLine({
 
   return (
     <Box flexDirection="column">
+      {picker ? (
+        <Box flexDirection="column" borderStyle="round" borderColor="magenta" paddingX={1}>
+          <Text color="magenta">
+            🤚 {pausedAskerId ? `@${pausedAskerId} asks — ` : ""}pick an answer or just type your own
+          </Text>
+          {opts.map((o, i) => (
+            <Text key={i} color={i === aIndex ? "magenta" : undefined} inverse={i === aIndex}>
+              {i === aIndex ? "▶ " : "  "}
+              {i + 1} {o}
+            </Text>
+          ))}
+          <Text dimColor>1-{opts.length} answer · ↑↓ ⏎ pick · type = custom · Esc hide</Text>
+        </Box>
+      ) : null}
       {matches.length > 0 ? (
         <Box flexDirection="column" borderStyle="round" borderColor="yellow" paddingX={1}>
           {matches.map((c, i) => (

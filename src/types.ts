@@ -61,6 +61,9 @@ export interface TranscriptEntry {
   images?: string[]
   /** If this message is a question posed to the user via ask_user, the question text. */
   question?: string
+  /** Closed answer choices offered with the question — display metadata only,
+   *  the answer always travels back as an ordinary text message. */
+  questionOptions?: string[]
 }
 
 /** A file-change receipt produced by diffing the workspace around an agent turn. */

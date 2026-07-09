@@ -73,6 +73,9 @@ export interface Message {
   images?: string[]
   /** If this message is a question posed to the user via ask_user. */
   question?: string
+  /** Closed answer choices offered with the question — clients render a
+   *  picker, but the answer is always sent back as ordinary message text. */
+  questionOptions?: string[]
 }
 
 /** Full persona, as returned by GET /api/participants/:id (for the edit form). */

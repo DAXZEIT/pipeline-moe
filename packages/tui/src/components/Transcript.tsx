@@ -156,6 +156,16 @@ export function Transcript({
           : renderMarkdownLines(m.text, width) ?? wrap(m.text, width)
       for (const l of rendered) lines.push({ text: l })
     } else lines.push({ text: "(no response)", dim: true })
+    // ask_user callout — the WebUI shows this as a 🤚 banner under the bubble;
+    // the TUI only surfaced the question in the status bar, so it vanished
+    // from the story once answered. Options render dim so the scrollback
+    // shows what was offered.
+    if (m.question) {
+      for (const l of wrap(`🤚 ${m.question}`, width)) lines.push({ text: l, color: "magenta" })
+      for (const [i, o] of (m.questionOptions ?? []).entries()) {
+        for (const l of wrap(`   ${i + 1} ${o}`, width)) lines.push({ text: l, dim: true })
+      }
+    }
     if (receipts[m.index]) for (const l of receiptLines(receipts[m.index])) lines.push(l)
     lines.push({ text: "" })
   }

@@ -1108,6 +1108,44 @@ body {
   line-height: 1.4;
 }
 
+.ask-callout-body {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+/* Options offered with an ask_user question (shown in scrollback). */
+.ask-callout-options {
+  margin: 2px 0 0;
+  padding-left: 20px;
+  font-style: normal;
+  color: #7f9cc4;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+/* One-click answer buttons in the paused banner. */
+.ask-banner-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.ask-option-btn {
+  font-size: 12px;
+  padding: 4px 10px;
+  background: #1e3a5f;
+  color: #bfdbfe;
+  border: 1px solid #3b82f6;
+  border-radius: 12px;
+  cursor: pointer;
+}
+
+.ask-option-btn:hover {
+  background: #2b4d7a;
+}
+
 .steer-flash {
   position: absolute;
   bottom: 100%;

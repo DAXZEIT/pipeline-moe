@@ -154,6 +154,7 @@ export function RoomView({
           paused={room.paused}
           pausedQuestion={room.pausedQuestion ?? null}
           pausedAskerId={room.pausedAskerId ?? null}
+          pausedOptions={room.pausedOptions ?? null}
           onSend={room.send}
           onAbort={room.abort}
           onSteer={room.steer}

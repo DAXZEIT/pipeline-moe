@@ -17,17 +17,18 @@ class MockParticipant {
    *  registry.register() as a side effect of the turn. */
   registry: MockRegistry | null = null
 
-  private _nextResult: { text: string; activity: Array<{ toolName: string; args: Record<string, string>; status: "ok" | "error"; toolCallId: string; ts: number }>; question?: string; handoffTo?: string } | null = null
+  private _nextResult: { text: string; activity: Array<{ toolName: string; args: Record<string, string>; status: "ok" | "error"; toolCallId: string; ts: number }>; question?: string; questionOptions?: string[]; handoffTo?: string } | null = null
 
   constructor(persona: Persona) {
     this.persona = persona
   }
 
-  withResult(result: { text: string; activity?: Array<{ toolName: string; args: Record<string, string>; status: "ok" | "error"; toolCallId: string; ts: number }>; question?: string; handoffTo?: string }) {
+  withResult(result: { text: string; activity?: Array<{ toolName: string; args: Record<string, string>; status: "ok" | "error"; toolCallId: string; ts: number }>; question?: string; questionOptions?: string[]; handoffTo?: string }) {
     this._nextResult = {
       text: result.text,
       activity: result.activity ?? [],
       question: result.question,
+      questionOptions: result.questionOptions,
       handoffTo: result.handoffTo,
     }
     return this
@@ -36,13 +37,13 @@ class MockParticipant {
   async run(_promptText: string): Promise<{ text: string; activity: Array<{ toolCallId: string; toolName: string; args: Record<string, string>; status: "ok" | "error"; ts: number }>; question?: string }> {
     const result = this._nextResult ?? { text: "ok", activity: [], handoffTo: undefined }
     if (result.handoffTo) this.registry?.register(this.persona.id, result.handoffTo)
-    return { text: result.text, activity: result.activity, question: result.question }
+    return { text: result.text, activity: result.activity, question: result.question, questionOptions: result.questionOptions }
   }
 
   async followUp(_text: string): Promise<{ text: string; activity: Array<{ toolCallId: string; toolName: string; args: Record<string, string>; status: "ok" | "error"; ts: number }>; question?: string }> {
     const result = this._nextResult ?? { text: "ok", activity: [], handoffTo: undefined }
     if (result.handoffTo) this.registry?.register(this.persona.id, result.handoffTo)
-    return { text: result.text, activity: result.activity, question: result.question }
+    return { text: result.text, activity: result.activity, question: result.question, questionOptions: result.questionOptions }
   }
 
   async abort() {}
@@ -159,7 +160,7 @@ class MockStore {
 interface TurnEvent { phase: string; [key: string]: unknown }
 
 class EventCapture {
-  messages: Array<{ author: string; text: string; question?: string }> = []
+  messages: Array<{ author: string; text: string; question?: string; questionOptions?: string[] }> = []
   turns: TurnEvent[] = []
   notices: Array<{ msg: string; level: string }> = []
   routing: Array<Record<string, unknown>> = []
@@ -169,7 +170,7 @@ class EventCapture {
     const orig = hub.broadcast.bind(hub)
     hub.broadcast = (event, data) => {
       if (event === "message") {
-        this.messages.push(data as { author: string; text: string; question?: string })
+        this.messages.push(data as { author: string; text: string; question?: string; questionOptions?: string[] })
       } else if (event === "turn") {
         this.turns.push(data as TurnEvent)
       } else if (event === "notice") {
@@ -416,6 +417,45 @@ describe("ask_user — pause/resume", () => {
 
     const agentMsg = events.messages.find((m) => m.author === "builder")
     expect(agentMsg!.question).toBe("What format?")
+  })
+
+  test("QCM: options ride the pause event AND the transcript entry", async () => {
+    const agent = makeMockParticipant("builder")
+    agent.withResult({
+      text: "Asking with choices",
+      activity: [{ toolCallId: "t1", toolName: "ask_user", args: { question: "Which format?" }, status: "ok", ts: Date.now() }],
+      question: "Which format?",
+      questionOptions: ["Markdown", "JSON", "Plain text"],
+    })
+    registry.addParticipant(agent)
+
+    room.submit("@builder hello")
+    await new Promise((r) => setTimeout(r, 200))
+
+    // Pause event carries the closed choices for the live picker…
+    const pauseEvent = events.turns.find((t) => t.phase === "pause")
+    expect(pauseEvent!.options).toEqual(["Markdown", "JSON", "Plain text"])
+    // …and the transcript entry persists them for scrollback.
+    const agentMsg = events.messages.find((m) => m.author === "builder")
+    expect(agentMsg!.questionOptions).toEqual(["Markdown", "JSON", "Plain text"])
+  })
+
+  test("QCM: a question without options behaves exactly as before (no options fields)", async () => {
+    const agent = makeMockParticipant("builder")
+    agent.withResult({
+      text: "Asking",
+      activity: [{ toolCallId: "t1", toolName: "ask_user", args: { question: "Free-form?" }, status: "ok", ts: Date.now() }],
+      question: "Free-form?",
+    })
+    registry.addParticipant(agent)
+
+    room.submit("@builder hello")
+    await new Promise((r) => setTimeout(r, 200))
+
+    const pauseEvent = events.turns.find((t) => t.phase === "pause")
+    expect(pauseEvent!.options).toBeUndefined()
+    const agentMsg = events.messages.find((m) => m.author === "builder")
+    expect(agentMsg!.questionOptions).toBeUndefined()
   })
 
   test("ensureIdle blocks while paused", async () => {
