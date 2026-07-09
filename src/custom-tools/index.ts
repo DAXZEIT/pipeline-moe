@@ -20,8 +20,10 @@ import {
 } from "./task-tools.js"
 import { createAskOrchestratorToolDefinition } from "./ask-orchestrator.js"
 import { createAnswerRoomToolDefinition } from "./answer-room.js"
+import { createHandoffToolDefinition } from "./handoff.js"
 import type { ParentLink, RoomOrchestrator } from "../orchestrator.js"
 import type { TaskBoard } from "../task-board.js"
+import type { HandoffSink } from "../types.js"
 
 /** Runtime context the tool registry needs to build context-dependent tools.
  *  Orchestration tools (spawn/check/destroy room) require a live orchestrator;
@@ -36,6 +38,10 @@ export interface ToolContext {
   roomId?: string
   /** Link back to the parent room, present only in spawned sub-rooms. */
   parentLink?: ParentLink
+  /** Capability for the handoff tool — the room's live roster (Registry
+   *  implements this). Present in every room; the tool itself is only
+   *  granted when at least one OTHER active agent exists to hand off to. */
+  handoffSink?: HandoffSink
 }
 
 /** Orchestration tool names — gated on a RoomOrchestrator being present, not on
@@ -70,10 +76,6 @@ export function buildCustomTools(toolNames: string[], ctx?: ToolContext): ToolDe
   // Orchestration tools — context-gated. Require a live orchestrator reference
   // captured at execution time. Absent orchestrator → these names are silently
   // ignored (same contract as unknown tool names).
-  const wantsOrch = [...ORCHESTRATION_TOOLS].filter(n => wanted.has(n))
-  if (wantsOrch.length > 0) {
-    console.log(`[buildCustomTools] orchestration tools requested: ${wantsOrch.join(", ")}; ctx?.orchestrator = ${!!ctx?.orchestrator}`)
-  }
   if (ctx?.orchestrator) {
     const orch = ctx.orchestrator
     // Spawner identity: recorded on spawned rooms so they report back (goal
@@ -100,6 +102,19 @@ export function buildCustomTools(toolNames: string[], ctx?: ToolContext): ToolDe
     tools.push(createTaskCreateToolDefinition(ctx.taskBoard, ctx.personaId ?? "unknown") as ToolDefinition)
     tools.push(createTaskUpdateToolDefinition(ctx.taskBoard) as ToolDefinition)
     tools.push(createTaskListToolDefinition(ctx.taskBoard) as ToolDefinition)
+  }
+
+  // handoff — context-gated like the task board (every agent gets it, no
+  // allowlist entry), but ALSO gated on there being at least one other
+  // active agent to hand off to. A single-agent room has no valid target,
+  // so the tool would offer an empty enum — omit it entirely rather than
+  // build a tool that can never succeed.
+  if (ctx?.handoffSink) {
+    const personaId = ctx.personaId ?? "unknown"
+    const others = ctx.handoffSink.activeIds().filter((id) => id !== personaId)
+    if (others.length > 0) {
+      tools.push(createHandoffToolDefinition(ctx.handoffSink, personaId) as ToolDefinition)
+    }
   }
 
   return tools

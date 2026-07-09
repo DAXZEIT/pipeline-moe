@@ -12,29 +12,36 @@ class MockParticipant {
   parallel = false
   status: "idle" | "active" | "thinking" | "working" = "idle"
   cursor = 0
+  /** Set by MockRegistry.addParticipant() so run()/followUp() can register a
+   *  handoff — mirrors the real handoff tool's execute() calling
+   *  registry.register() as a side effect of the turn. */
+  registry: MockRegistry | null = null
 
-  private _nextResult: { text: string; activity: Array<{ toolName: string; args: Record<string, string>; status: "ok" | "error"; toolCallId: string; ts: number }>; question?: string } | null = null
+  private _nextResult: { text: string; activity: Array<{ toolName: string; args: Record<string, string>; status: "ok" | "error"; toolCallId: string; ts: number }>; question?: string; handoffTo?: string } | null = null
 
   constructor(persona: Persona) {
     this.persona = persona
   }
 
-  withResult(result: { text: string; activity?: Array<{ toolName: string; args: Record<string, string>; status: "ok" | "error"; toolCallId: string; ts: number }>; question?: string }) {
+  withResult(result: { text: string; activity?: Array<{ toolName: string; args: Record<string, string>; status: "ok" | "error"; toolCallId: string; ts: number }>; question?: string; handoffTo?: string }) {
     this._nextResult = {
       text: result.text,
       activity: result.activity ?? [],
       question: result.question,
+      handoffTo: result.handoffTo,
     }
     return this
   }
 
   async run(_promptText: string): Promise<{ text: string; activity: Array<{ toolCallId: string; toolName: string; args: Record<string, string>; status: "ok" | "error"; ts: number }>; question?: string }> {
-    const result = this._nextResult ?? { text: "ok", activity: [] }
+    const result = this._nextResult ?? { text: "ok", activity: [], handoffTo: undefined }
+    if (result.handoffTo) this.registry?.register(this.persona.id, result.handoffTo)
     return { text: result.text, activity: result.activity, question: result.question }
   }
 
   async followUp(_text: string): Promise<{ text: string; activity: Array<{ toolCallId: string; toolName: string; args: Record<string, string>; status: "ok" | "error"; ts: number }>; question?: string }> {
-    const result = this._nextResult ?? { text: "ok", activity: [] }
+    const result = this._nextResult ?? { text: "ok", activity: [], handoffTo: undefined }
+    if (result.handoffTo) this.registry?.register(this.persona.id, result.handoffTo)
     return { text: result.text, activity: result.activity, question: result.question }
   }
 
@@ -46,9 +53,25 @@ class MockParticipant {
 class MockRegistry {
   private participants = new Map<string, MockParticipant>()
   onChange: (() => void) | null = null
+  /** Mirrors the real Registry's HandoffSink. */
+  private pendingHandoff = new Map<string, string>()
 
   activeParticipants(): MockParticipant[] {
     return [...this.participants.values()].filter((p) => p.active)
+  }
+
+  activeIds(): string[] {
+    return this.activeParticipants().map((p) => p.persona.id)
+  }
+
+  register(from: string, to: string): void {
+    this.pendingHandoff.set(from, to)
+  }
+
+  takeHandoff(from: string): string | undefined {
+    const to = this.pendingHandoff.get(from)
+    this.pendingHandoff.delete(from)
+    return to
   }
 
   personaStates(): PersonaState[] {
@@ -94,6 +117,7 @@ class MockRegistry {
   reset(_states: PersonaState[]) {}
 
   addParticipant(p: MockParticipant) {
+    p.registry = this
     this.participants.set(p.persona.id, p)
   }
 
@@ -247,7 +271,7 @@ describe("ask_user — pause/resume", () => {
     expect(secondMsg).toBeDefined()
   })
 
-  test("resume reply that @-mentions an agent chains to it (regression: was dropped)", async () => {
+  test("resume reply that hands off to an agent chains to it (regression: was dropped)", async () => {
     const builder = makeMockParticipant("builder")
     const auditor = makeMockParticipant("auditor")
     // First turn: builder asks the user a question → pauses.
@@ -263,8 +287,8 @@ describe("ask_user — pause/resume", () => {
     room.submit("@builder start")
     await new Promise((r) => setTimeout(r, 200))
 
-    // The user answers; builder's resume reply hands off to @auditor.
-    builder.withResult({ text: "Thanks.\n\n@auditor please review the result" })
+    // The user answers; builder's resume reply hands off to auditor.
+    builder.withResult({ text: "Thanks, reviewing now.", handoffTo: "auditor" })
     auditor.withResult({ text: "Auditor reviewing" })
 
     room.submit("use the staging target")
@@ -435,9 +459,9 @@ describe("ask_user — pause/resume", () => {
     const planner = makeMockParticipant("planner")
     scout.parallel = true
     builder.parallel = true
-    // Both finish by handing off to @planner in the same parallel wave.
-    scout.withResult({ text: "found things\n\n@planner please plan" })
-    builder.withResult({ text: "built things\n\n@planner please plan" })
+    // Both finish by handing off to planner in the same parallel wave.
+    scout.withResult({ text: "found things, planner should plan", handoffTo: "planner" })
+    builder.withResult({ text: "built things, planner should plan", handoffTo: "planner" })
     planner.withResult({ text: "Plan ready" }) // no further handoff → ends
     registry.addParticipant(scout)
     registry.addParticipant(builder)
@@ -458,7 +482,7 @@ describe("ask_user — pause/resume", () => {
     test("a proposed handoff pauses instead of running", async () => {
       const builder = makeMockParticipant("builder")
       const auditor = makeMockParticipant("auditor")
-      builder.withResult({ text: "done\n\n@auditor please review" })
+      builder.withResult({ text: "done, review please", handoffTo: "auditor" })
       auditor.withResult({ text: "Auditor reviewing" })
       registry.addParticipant(builder)
       registry.addParticipant(auditor)
@@ -478,7 +502,7 @@ describe("ask_user — pause/resume", () => {
     test("approve runs the proposed agent", async () => {
       const builder = makeMockParticipant("builder")
       const auditor = makeMockParticipant("auditor")
-      builder.withResult({ text: "done\n\n@auditor please review" })
+      builder.withResult({ text: "done, review please", handoffTo: "auditor" })
       auditor.withResult({ text: "Auditor reviewing" })
       registry.addParticipant(builder)
       registry.addParticipant(auditor)
@@ -497,7 +521,7 @@ describe("ask_user — pause/resume", () => {
       const builder = makeMockParticipant("builder")
       const auditor = makeMockParticipant("auditor")
       const planner = makeMockParticipant("planner")
-      builder.withResult({ text: "done\n\n@auditor please review" })
+      builder.withResult({ text: "done, review please", handoffTo: "auditor" })
       auditor.withResult({ text: "Auditor reviewing" })
       planner.withResult({ text: "Planner planning" })
       registry.addParticipant(builder)
@@ -517,7 +541,7 @@ describe("ask_user — pause/resume", () => {
     test("drop runs nothing and ends the turn", async () => {
       const builder = makeMockParticipant("builder")
       const auditor = makeMockParticipant("auditor")
-      builder.withResult({ text: "done\n\n@auditor please review" })
+      builder.withResult({ text: "done, review please", handoffTo: "auditor" })
       auditor.withResult({ text: "Auditor reviewing" })
       registry.addParticipant(builder)
       registry.addParticipant(auditor)
@@ -539,8 +563,8 @@ describe("ask_user — pause/resume", () => {
       const planner = makeMockParticipant("planner")
       scout.parallel = true
       builder.parallel = true
-      scout.withResult({ text: "found\n\n@planner plan" })
-      builder.withResult({ text: "built\n\n@planner plan" })
+      scout.withResult({ text: "found, planner should plan", handoffTo: "planner" })
+      builder.withResult({ text: "built, planner should plan", handoffTo: "planner" })
       registry.addParticipant(scout)
       registry.addParticipant(builder)
       registry.addParticipant(planner)
@@ -557,7 +581,7 @@ describe("ask_user — pause/resume", () => {
     test("abort clears the pending route", async () => {
       const builder = makeMockParticipant("builder")
       const auditor = makeMockParticipant("auditor")
-      builder.withResult({ text: "done\n\n@auditor please review" })
+      builder.withResult({ text: "done, review please", handoffTo: "auditor" })
       registry.addParticipant(builder)
       registry.addParticipant(auditor)
       room.setRoutingMode("semi")

@@ -14,16 +14,27 @@ class SeqParticipant {
   status: "idle" | "active" | "thinking" | "working" = "idle"
   cursor = 0
   private replies: string[]
+  /** Handoff target to register (mirrors the handoff tool's execute()) when
+   *  the reply at the same index is produced. Undefined index → no handoff,
+   *  turn ends naturally — matches the real "didn't call handoff" contract. */
+  private handoffs: (string | undefined)[]
   callCount = 0
   customMessages: Array<{ customType: string; content: string }> = []
+  /** Set by MockRegistry.add() so run() can register a handoff, exactly like
+   *  the real handoff tool calling registry.register() during execution. */
+  registry: MockRegistry | null = null
 
-  constructor(persona: Persona, replies: string[]) {
+  constructor(persona: Persona, replies: string[], handoffs: (string | undefined)[] = []) {
     this.persona = persona
     this.replies = replies.length > 0 ? replies : ["(done)"]
+    this.handoffs = handoffs
   }
 
   async run(_text: string) {
-    const text = this.replies[Math.min(this.callCount, this.replies.length - 1)]
+    const idx = Math.min(this.callCount, this.replies.length - 1)
+    const text = this.replies[idx]
+    const handoffTo = this.handoffs[idx]
+    if (handoffTo) this.registry?.register(this.persona.id, handoffTo)
     this.callCount++
     return { text, activity: [], reasoning: undefined, question: undefined }
   }
@@ -54,6 +65,9 @@ class GateParticipant {
   callCount = 0
   aborted = false
   customMessages: Array<{ customType: string; content: string }> = []
+  /** Unused (this mock never dispatches via handoff) — present only so
+   *  MockRegistry.add() can assign it uniformly across the union type. */
+  registry: MockRegistry | null = null
   private release!: () => void
   private gate: Promise<void>
 
@@ -89,8 +103,11 @@ type MockParticipant = SeqParticipant | GateParticipant
 class MockRegistry {
   private parts = new Map<string, MockParticipant>()
   onChange: (() => void) | null = null
+  /** Per-agent pending handoff target — mirrors the real Registry's
+   *  HandoffSink implementation. */
+  private pendingHandoff = new Map<string, string>()
 
-  add(p: MockParticipant) { this.parts.set(p.persona.id, p) }
+  add(p: MockParticipant) { p.registry = this; this.parts.set(p.persona.id, p) }
   get(id: string) { return this.parts.get(id) }
   has(id: string) { return this.parts.has(id) }
   roster() {
@@ -101,6 +118,13 @@ class MockRegistry {
     }))
   }
   activeParticipants() { return [...this.parts.values()].filter(p => p.active) }
+  activeIds(): string[] { return this.activeParticipants().map((p) => p.persona.id) }
+  register(from: string, to: string): void { this.pendingHandoff.set(from, to) }
+  takeHandoff(from: string): string | undefined {
+    const to = this.pendingHandoff.get(from)
+    this.pendingHandoff.delete(from)
+    return to
+  }
   personaStates(): PersonaState[] {
     return [...this.parts.values()].map(p => ({ ...p.persona, active: p.active, parallel: p.parallel }))
   }
@@ -187,9 +211,9 @@ describe("Room goal-eval loop", () => {
     registry.add(worker)
     // iter1: not met, dispatch worker; iter2: met.
     const planner = new SeqParticipant(makePersona("planner"), [
-      "Not met yet — the file is empty. @worker write the content.",
+      "Not met yet — the file is empty. Dispatching worker to write the content.",
       "GOAL_MET — the file now has content, verified by read.",
-    ])
+    ], ["worker"])
     registry.add(planner)
     priv(room).fallbackAgentId = null
     await room.init()
@@ -238,9 +262,9 @@ describe("Room goal-eval loop", () => {
   test("eval mode: emits goal-eval events per iteration", async () => {
     registry.add(new SeqParticipant(makePersona("worker"), ["(done)"]))
     const planner = new SeqParticipant(makePersona("planner"), [
-      "Not met — @worker keep going.",
+      "Not met — dispatching worker to keep going.",
       "GOAL_MET done.",
-    ])
+    ], ["worker"])
     registry.add(planner)
     priv(room).fallbackAgentId = null
     await room.init()
@@ -255,15 +279,15 @@ describe("Room goal-eval loop", () => {
   test("evaluator-as-fallback: no double invocation, iteration count stays accurate", async () => {
     // Regression guard for the production interaction: planner is BOTH the
     // goalEvaluator AND the fallbackAgentId. Without suppression, a normal worker
-    // completion (no @mention) would trigger fallback routing back to the planner,
+    // completion (no handoff) would trigger fallback routing back to the planner,
     // doubling invocations per iteration and inflating goalIteration.
     const worker = new SeqParticipant(makePersona("worker"), ["(done)"])
     registry.add(worker)
     // iter1: dispatch worker (no GOAL_MET); iter2: GOAL_MET.
     const planner = new SeqParticipant(makePersona("planner"), [
-      "Not met — the output is missing. @worker produce it.",
+      "Not met — the output is missing. Dispatching worker to produce it.",
       "GOAL_MET — verified the output exists.",
-    ])
+    ], ["worker"])
     registry.add(planner)
     // Planner is the fallback agent (production default) — do NOT null it.
     priv(room).fallbackAgentId = "planner"

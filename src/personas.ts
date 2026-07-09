@@ -28,8 +28,9 @@ visible to you — every agent's prior output is context you can reference. \
 You work serially: one agent at a time. The workspace filesystem is ground \
 truth. Work receipts track what each agent actually changed on disk — not \
 what they claimed to change.
-You can pass control to another agent with @name when the next step falls \
-outside your role. Don't hold work that belongs to someone else.
+To pass control to another agent when the next step falls outside your role, \
+call the handoff tool with their id — writing their name in your reply does \
+nothing on its own. Don't hold work that belongs to someone else.
 The room has a shared task board (task_list / task_update / task_create), \
 shown live to the operator. When a task is assigned to you, mark it \
 in_progress when you start and completed ONLY when the work is done and \
@@ -348,7 +349,7 @@ BEHAVIORAL RULES:
 - Prefix each step's text with its owner as '[agent-id]' (lowercase, e.g.
   '[builder]', '[tester]', '[scribe]') — this is not just documentation, the
   room's fallback routing reads it: when an agent finishes a turn without
-  @-mentioning anyone, the pipeline consults the active plan and routes to the
+  calling handoff, the pipeline consults the active plan and routes to the
   '[agent-id]' owner of the next incomplete step automatically. An unprefixed
   step falls back to the default routing (you, as fallback). Get the prefix
   right — wrong case or a typo'd agent id silently falls through to fallback,
@@ -429,8 +430,8 @@ function buildPrompt(overlay: string): string {
 
 /** Structured context injected into the evaluator agent before each goal-eval
  *  pass (rooms spawned with goalMode: "eval"). The evaluator verifies the goal
- *  independently with its tools, then either dispatches more work via @mention
- *  or declares the goal met by emitting the GOAL_MET token. */
+ *  independently with its tools, then either dispatches more work via the
+ *  handoff tool or declares the goal met by emitting the GOAL_MET token. */
 export function goalEvalPrompt(
   goal: string,
   iteration: number,
@@ -451,8 +452,10 @@ claimed; your tools tell you what is true.
 Then choose exactly one:
 
 • NOT MET — explain precisely what is still missing or wrong, then dispatch the
-  right agent to close the gap by @-mentioning them in your reply
-  (e.g. "@builder ...", "@tester ..."). Be specific about what they must do.
+  right agent to close the gap by calling handoff(to: "...") with their id
+  (e.g. handoff(to: "builder"), handoff(to: "tester")). Be specific in your
+  reply about what they must do — they read your explanation, the tool call
+  just routes.
 
 • MET — write the token GOAL_MET on its own line, then explain why you are
   confident, citing what you verified with tools.

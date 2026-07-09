@@ -419,10 +419,21 @@ describe("Room integration: plan-aware routing end-to-end", () => {
   class IntMockRegistry {
     private parts = new Map<string, IntMockParticipant>()
     onChange: (() => void) | null = null
+    /** Mirrors the real Registry's HandoffSink — these tests exercise the
+     *  NO-handoff fallback path (plan-aware / generic), but proposeChain()
+     *  calls takeHandoff() unconditionally on every reply, so it must exist. */
+    private pendingHandoff = new Map<string, string>()
     add(p: IntMockParticipant) { this.parts.set(p.persona.id, p) }
     get(id: string) { return this.parts.get(id) }
     has(id: string) { return this.parts.has(id) }
     roster() { return [...this.parts.values()] }
+    activeIds(): string[] { return [...this.parts.values()].filter((p) => p.active).map((p) => p.persona.id) }
+    register(from: string, to: string): void { this.pendingHandoff.set(from, to) }
+    takeHandoff(from: string): string | undefined {
+      const to = this.pendingHandoff.get(from)
+      this.pendingHandoff.delete(from)
+      return to
+    }
     personaStates() { return [...this.parts.values()].map((p) => ({ ...p.persona, active: p.active })) }
     broadcastRoster() {}
     reset(_states: unknown[]) {}

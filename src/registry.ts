@@ -10,7 +10,7 @@ import type { ResolvedModel } from "./model.js"
 import type { ParentLink, RoomOrchestrator } from "./orchestrator.js"
 import type { TaskBoard } from "./task-board.js"
 import type { SseHub } from "./sse.js"
-import type { Persona, PersonaState } from "./types.js"
+import type { HandoffSink, Persona, PersonaState } from "./types.js"
 
 export interface RosterItem {
   id: string
@@ -41,10 +41,48 @@ export interface RosterItem {
   }
 }
 
-export class Registry {
+export class Registry implements HandoffSink {
   private participants = new Map<string, Participant>()
   /** Fired after any roster mutation (create/activate/kick). Used for autosave. */
   onChange: (() => void) | null = null
+  /** Per-agent handoff target registered by the `handoff` tool this turn,
+   *  keyed by the calling agent's id. Room consumes it once via
+   *  takeHandoff() when resolving that agent's reply — per-agent (not a
+   *  single slot) so a parallel wave of agents can each register their own
+   *  target without clobbering one another. */
+  private pendingHandoff = new Map<string, string>()
+  /** During a batch roster load (reset()), the full set of ids about to
+   *  exist — lets activeIds() see agents that haven't finished constructing
+   *  yet. Without this, reset()'s sequential loop means the FIRST persona in
+   *  the batch builds its tools while the map is still empty (it's added to
+   *  `participants` only after its OWN Participant.create() resolves), so it
+   *  would see zero candidates and permanently lose the handoff tool —
+   *  discovered live: the first seed persona (e.g. "scout") never got it.
+   *  Null outside a batch (single create() calls already see a fully-formed
+   *  registry, since every prior agent finished constructing before them). */
+  private pendingRosterIds: Set<string> | null = null
+
+  /** HandoffSink: ids of currently active participants — used by the
+   *  `handoff` tool to build its enum (at construction) and to hard-validate
+   *  the target against the live roster (at execution). */
+  activeIds(): string[] {
+    const live = this.activeParticipants().map((p) => p.persona.id)
+    if (!this.pendingRosterIds) return live
+    return [...new Set([...live, ...this.pendingRosterIds])]
+  }
+
+  /** HandoffSink: record `from`'s chosen handoff target for this turn. */
+  register(from: string, to: string): void {
+    this.pendingHandoff.set(from, to)
+  }
+
+  /** Consume (get-and-clear) the pending handoff target for `from`, if any.
+   *  Called once per turn by Room when resolving that agent's reply. */
+  takeHandoff(from: string): string | undefined {
+    const to = this.pendingHandoff.get(from)
+    this.pendingHandoff.delete(from)
+    return to
+  }
 
   /** Root directory for on-disk pi sessions, scoped to the current conversation
    *  (…/agents/<convId>). Each participant gets <root>/<personaId>. null →
@@ -174,7 +212,6 @@ export class Registry {
     if (this.participants.has(persona.id)) {
       throw new Error(`participant "${persona.id}" already exists`)
     }
-    console.log(`[Registry.create] persona=${persona.id} has orchestrator=${!!this.orchestrator}`)
     const participant = await Participant.create(
       persona,
       this.resolved,
@@ -188,6 +225,7 @@ export class Registry {
       this.taskBoard,
       this.roomId,
       this.parentLink,
+      this,
     )
     // A resumed on-disk session already holds everything up to the saved
     // cursor — restoring it avoids replaying that context a second time. A
@@ -233,6 +271,7 @@ export class Registry {
       this.taskBoard,
       this.roomId,
       this.parentLink,
+      this,
     )
     replacement.cursor = replacement.resumed ? cursorBefore : 0
     replacement.active = wasActive
@@ -278,6 +317,7 @@ export class Registry {
         this.taskBoard,
         this.roomId,
         this.parentLink,
+        this,
       )
       fresh.cursor = 0
       fresh.active = active
@@ -377,6 +417,11 @@ export class Registry {
   async reset(states: PersonaState[]): Promise<void> {
     const cb = this.onChange
     this.onChange = null // suppress per-participant autosave during a bulk swap
+    // See pendingRosterIds' doc comment: without this, the first persona in
+    // the batch builds its handoff tool against an empty roster and never
+    // gets it. Only active personas count — an inactive one isn't a valid
+    // handoff target even prospectively.
+    this.pendingRosterIds = new Set(states.filter((s) => s.active).map((s) => s.id))
     try {
       for (const p of this.participants.values()) p.dispose()
       this.participants.clear()
@@ -386,6 +431,7 @@ export class Registry {
       }
     } finally {
       this.onChange = cb
+      this.pendingRosterIds = null
     }
     this.broadcastRoster()
   }

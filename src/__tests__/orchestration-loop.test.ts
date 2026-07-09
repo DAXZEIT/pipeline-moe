@@ -60,8 +60,24 @@ class MockParticipant {
 class MockRegistry {
   private participants = new Map<string, MockParticipant>()
   onChange: (() => void) | null = null
+  /** Mirrors the real Registry's HandoffSink — no test here registers a
+   *  handoff (dispatch goes via ask_orchestrator/answer_room, not @-mention),
+   *  but proposeChain() calls takeHandoff() unconditionally on every reply,
+   *  so it must exist. */
+  private pendingHandoff = new Map<string, string>()
   activeParticipants() {
     return [...this.participants.values()].filter((p) => p.active)
+  }
+  activeIds(): string[] {
+    return this.activeParticipants().map((p) => p.persona.id)
+  }
+  register(from: string, to: string): void {
+    this.pendingHandoff.set(from, to)
+  }
+  takeHandoff(from: string): string | undefined {
+    const to = this.pendingHandoff.get(from)
+    this.pendingHandoff.delete(from)
+    return to
   }
   personaStates(): PersonaState[] {
     return [...this.participants.values()].map((p) => ({ ...p.persona, active: p.active, parallel: p.parallel }))

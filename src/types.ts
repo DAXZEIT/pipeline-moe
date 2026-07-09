@@ -87,10 +87,31 @@ export interface PersonaState extends Persona {
 
 /** A saved group conversation: its roster, transcript, and settings. */
 /** How agent→agent handoffs are routed within a room.
- *  - `auto`   — @mentions chain directly (default).
+ *  - `auto`   — handoffs chain directly (default).
  *  - `semi`   — each proposed handoff pauses for human approval before dispatch.
  *  - `manual` — no agent→agent chaining; the human routes every step. */
 export type RoutingMode = "auto" | "semi" | "manual"
+
+/** Capability surface for the `handoff` tool: lets an agent pass its turn to
+ *  another active agent via a single tool call instead of a free-text
+ *  @mention. Prose @mentions in an agent reply cannot be told apart from a
+ *  quote or description of someone else's handoff (F5) — the tool replaces
+ *  that ambiguity with a menu pick. The Registry implements this (it already
+ *  owns the live roster); the tool calls `activeIds()` to build/validate its
+ *  enum and `register()` to record the chosen target. Room consumes the
+ *  registration once per turn — see Room.resolveHandoff. Human `@name` 
+ *  routing (resolveTargets) is untouched; this only replaces the agent-reply
+ *  path (former resolveAgentMentions). */
+export interface HandoffSink {
+  /** Ids of currently active participants — the tool's enum is built from
+   *  this at construction, and execution re-checks it live so a roster
+   *  change mid-session is rejected with a correctable error instead of
+   *  silently misrouting. */
+  activeIds(): string[]
+  /** Record `from`'s chosen handoff target for the current turn. Overwrites
+   *  any earlier registration for the same agent within the turn. */
+  register(from: string, to: string): void
+}
 
 /** A human decision on a proposed handoff (semi/manual routing). */
 export interface RouteDecision {

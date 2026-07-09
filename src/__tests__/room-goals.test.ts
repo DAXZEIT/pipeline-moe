@@ -67,6 +67,10 @@ class GateParticipant {
 class MockRegistry {
   private parts = new Map<string, MockParticipant | GateParticipant>()
   onChange: (() => void) | null = null
+  /** Mirrors the real Registry's HandoffSink — no test here registers a
+   *  handoff (no @-dispatch in reply text), but proposeChain() calls
+   *  takeHandoff() unconditionally on every reply, so it must exist. */
+  private pendingHandoff = new Map<string, string>()
 
   add(p: MockParticipant | GateParticipant) { this.parts.set(p.persona.id, p) }
   get(id: string) { return this.parts.get(id) }
@@ -79,6 +83,13 @@ class MockRegistry {
     }))
   }
   activeParticipants() { return [...this.parts.values()].filter(p => p.active) }
+  activeIds(): string[] { return this.activeParticipants().map((p) => p.persona.id) }
+  register(from: string, to: string): void { this.pendingHandoff.set(from, to) }
+  takeHandoff(from: string): string | undefined {
+    const to = this.pendingHandoff.get(from)
+    this.pendingHandoff.delete(from)
+    return to
+  }
   personaStates(): PersonaState[] {
     return [...this.parts.values()].map(p => ({ ...p.persona, active: p.active, parallel: p.parallel }))
   }

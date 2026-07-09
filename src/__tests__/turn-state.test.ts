@@ -12,8 +12,8 @@ import type { Conversation, ConversationMeta, Persona, PersonaState } from "../t
 //        Fixed by a `turn {phase:"agent"}` event on every real agent start.
 // Bug 2: compact was refused during an ask_user pause (isBusy counts
 //        pendingQuestion) while the UI said "idle". Fixed by isGenerating().
-// Bug 3: a fresh @mention in the post-resume reply ran AFTER work frozen in
-//        the heldQueue, invisibly. Fixed: fresh mentions prepend + order notice.
+// Bug 3: a fresh handoff in the post-resume reply ran AFTER work frozen in
+//        the heldQueue, invisibly. Fixed: fresh handoffs prepend + order notice.
 
 type Activity = Array<{ toolCallId: string; toolName: string; args: Record<string, string>; status: "ok" | "error"; ts: number }>
 type RunResult = { text: string; activity: Activity; question?: string }
@@ -25,8 +25,11 @@ class MockParticipant {
   status: "idle" | "active" | "thinking" | "working" = "idle"
   cursor = 0
   compactCalls = 0
+  /** Set by MockRegistry.addParticipant() so exec() can register a handoff —
+   *  mirrors the real handoff tool's execute() calling registry.register(). */
+  registry: MockRegistry | null = null
 
-  private results: RunResult[] = []
+  private results: (RunResult & { handoffTo?: string })[] = []
   private delayMs = 0
 
   constructor(persona: Persona, private execLog: string[]) {
@@ -34,13 +37,14 @@ class MockParticipant {
   }
 
   /** Queue replies in order — first run() consumes the first, etc. */
-  queueResult(r: { text: string; question?: string }): this {
+  queueResult(r: { text: string; question?: string; handoffTo?: string }): this {
     this.results.push({
       text: r.text,
       activity: r.question
         ? [{ toolCallId: "t1", toolName: "ask_user", args: { question: r.question }, status: "ok", ts: Date.now() }]
         : [],
       question: r.question,
+      handoffTo: r.handoffTo,
     })
     return this
   }
@@ -53,7 +57,9 @@ class MockParticipant {
   private async exec(): Promise<RunResult> {
     this.execLog.push(this.persona.id)
     if (this.delayMs > 0) await new Promise((r) => setTimeout(r, this.delayMs))
-    return this.results.shift() ?? { text: "ok", activity: [] }
+    const result = this.results.shift() ?? { text: "ok", activity: [] }
+    if (result.handoffTo) this.registry?.register(this.persona.id, result.handoffTo)
+    return result
   }
 
   async run(_text: string, _images?: string[]) {
@@ -80,9 +86,25 @@ class MockParticipant {
 class MockRegistry {
   private participants = new Map<string, MockParticipant>()
   onChange: (() => void) | null = null
+  /** Mirrors the real Registry's HandoffSink. */
+  private pendingHandoff = new Map<string, string>()
 
   activeParticipants(): MockParticipant[] {
     return [...this.participants.values()].filter((p) => p.active)
+  }
+
+  activeIds(): string[] {
+    return this.activeParticipants().map((p) => p.persona.id)
+  }
+
+  register(from: string, to: string): void {
+    this.pendingHandoff.set(from, to)
+  }
+
+  takeHandoff(from: string): string | undefined {
+    const to = this.pendingHandoff.get(from)
+    this.pendingHandoff.delete(from)
+    return to
   }
 
   personaStates(): PersonaState[] {
@@ -120,6 +142,7 @@ class MockRegistry {
   }
   reset(_states: PersonaState[]) {}
   addParticipant(p: MockParticipant) {
+    p.registry = this
     this.participants.set(p.persona.id, p)
   }
   disposeAll() {
@@ -200,7 +223,7 @@ describe("Turn-state tracking (PLAN-ea321024)", () => {
   })
 
   test("turn {phase:'agent'} tracks each agent of a chained drain, in order", async () => {
-    const a = new MockParticipant(makePersona("planner"), execLog).queueResult({ text: "over to @builder" })
+    const a = new MockParticipant(makePersona("planner"), execLog).queueResult({ text: "over to builder", handoffTo: "builder" })
     const b = new MockParticipant(makePersona("builder"), execLog).queueResult({ text: "done" })
     registry.addParticipant(a)
     registry.addParticipant(b)
@@ -273,7 +296,7 @@ describe("Turn-state tracking (PLAN-ea321024)", () => {
   test("post-resume fresh mention runs BEFORE the held queue, with an order notice", async () => {
     const asker = new MockParticipant(makePersona("planner"), execLog)
     asker.queueResult({ text: "hold on", question: "Approve?" })
-    asker.queueResult({ text: "approved — @builder take over" })
+    asker.queueResult({ text: "approved — builder take over", handoffTo: "builder" })
     const held = new MockParticipant(makePersona("scribe"), execLog).queueResult({ text: "memory updated" })
     const fresh = new MockParticipant(makePersona("builder"), execLog).queueResult({ text: "building" })
     registry.addParticipant(asker)
@@ -285,7 +308,7 @@ describe("Turn-state tracking (PLAN-ea321024)", () => {
     await new Promise((r) => setTimeout(r, 200))
     expect(execLog).toEqual(["planner"])
 
-    // Answer → planner's reply mentions @builder: recent intent runs first,
+    // Answer → planner's reply hands off to builder: recent intent runs first,
     // the held @scribe follows (dax's call, 2026-07-08).
     room.submit("yes, approved")
     await new Promise((r) => setTimeout(r, 400))

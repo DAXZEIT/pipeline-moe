@@ -21,7 +21,7 @@ import { buildCustomTools } from "./custom-tools/index.js"
 import { resolveModelRef, type ResolvedModel } from "./model.js"
 import type { ParentLink, RoomOrchestrator } from "./orchestrator.js"
 import type { TaskBoard } from "./task-board.js"
-import type { Persona, ParticipantStatus, ToolActivity } from "./types.js"
+import type { HandoffSink, Persona, ParticipantStatus, ToolActivity } from "./types.js"
 
 /** Cap a tool result/arg to keep SSE frames and persisted transcripts small. */
 function clip(value: unknown, max = 2000): string {
@@ -50,16 +50,14 @@ function workspaceNote(root: string): string {
 }
 
 const ROOM_NOTE =
-  "You are one agent in a shared multi-agent chat room. Other agents are addressed by " +
-  "@<id> in lowercase (e.g. @scout, @builder, @auditor, @scribe, @tester). To hand work " +
-  "to another agent, write @<id> EXPLICITLY in your reply — a plain sentence like " +
-  "'over to the builder' does NOT trigger anything. Only @-mention an agent when you " +
-  "genuinely need it. Do not @-mention yourself, and do not use @all (that is for the human).\n" +
-  "You can refer to other agents by name in discussion (e.g. 'the builder said...') without " +
-  "triggering a handoff — only the @prefix routes work.\n" +
-  "When handing off work to another agent, @-mention them in your reply — " +
-  "any @mention triggers routing. Example: 'I've finished the analysis. @builder please implement " +
-  "the fix above.'\n" +
+  "You are one agent in a shared multi-agent chat room. Other agents (e.g. scout, builder, " +
+  "auditor, scribe, tester) are referred to by their lowercase id. To pass your turn to another " +
+  "agent, call the handoff tool with their id — that is the ONLY way to hand off. Writing " +
+  "'@name' or their name in your reply does NOTHING — there is no text-based routing anymore. " +
+  "You can freely discuss, quote, or refer to other agents by name in your reply (e.g. 'the " +
+  "builder said...', or narrating what @tester did earlier) without triggering anything — only " +
+  "the handoff tool call routes. If you don't call handoff, your turn ends and control returns " +
+  "to the human — that is a valid, normal ending, not an error.\n" +
   "If you need information only the user can provide (preferences, credentials, context), " +
   "use the ask_user tool — it will pause the pipeline and wait for their response. Do NOT " +
   "use it for rhetorical questions or self-clarification.\n" +
@@ -134,6 +132,10 @@ export class Participant {
     /** Link to the parent room, present only in spawned sub-rooms — grants
      *  the ask_orchestrator escalation tool. */
     parentLink?: ParentLink,
+    /** The room's live roster capability for the handoff tool. Present for
+     *  every room (Registry implements it); the tool itself is only granted
+     *  when at least one other active agent exists to hand off to. */
+    handoffSink?: HandoffSink,
   ): Promise<Participant> {
     const p = new Participant(persona, emit, workspaceDir)
 
@@ -194,8 +196,7 @@ export class Participant {
       noTools: "builtin",
       customTools: (() => {
         const confined = buildConfinedTools(workspaceDir, persona.tools)
-        const custom = buildCustomTools(persona.tools, { orchestrator, taskBoard, personaId: persona.id, roomId, parentLink })
-        console.log(`[Participant.create] persona=${persona.id} orchestrator=${!!orchestrator} confined=${confined.length} custom=${custom.length} customNames=${custom.map(t => t.name).join(",")}`)
+        const custom = buildCustomTools(persona.tools, { orchestrator, taskBoard, personaId: persona.id, roomId, parentLink, handoffSink })
         return [...confined, ...custom]
       })(),
       thinkingLevel: persona.thinkingLevel ?? defaultThinkingLevel,

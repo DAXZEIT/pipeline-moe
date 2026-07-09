@@ -716,7 +716,7 @@ export class Room {
    *  the evaluator agent with a structured prompt. The evaluator verifies the
    *  goal independently (using its tools), then either:
    *    - declares GOAL_MET  → goal completes, loop exits; or
-   *    - @-mentions an agent → that agent runs (via drainQueue chaining), then
+   *    - calls handoff(to)  → that agent runs (via drainQueue chaining), then
    *      the loop re-evaluates.
    *  Bounded by maxGoalIterations to guarantee termination. Called from within
    *  endTurn(); it drives drainQueue() directly and never re-enters endTurn(),
@@ -765,7 +765,7 @@ export class Room {
           maxIterations: this.maxGoalIterations,
         })
 
-        // Run the evaluator and any agents it dispatches via @mention chaining.
+        // Run the evaluator and any agents it dispatches via handoff chaining.
         this.queue = [evaluator]
         this.aborted = false
         this.chainBudget = 0
@@ -979,22 +979,19 @@ export class Room {
     return targets
   }
 
-  /** Resolve @mentions emitted BY an agent. No @all (human-only), never the
-   *  speaker itself, active participants only. Scans the full reply text.
-   *  No budget / anti-rebound for now. */
-  private resolveAgentMentions(text: string, selfId: string): Participant[] {
-    const mentioned = new Set<string>()
-    let m: RegExpExecArray | null
-    while ((m = MENTION_RE.exec(text)) !== null) mentioned.add(m[1].toLowerCase())
-    mentioned.delete("all") // agents cannot fan out to everyone
-    mentioned.delete(selfId) // no self-invocation
-
-    const out: Participant[] = []
-    for (const id of mentioned) {
-      const p = this.registry.get(id)
-      if (p && p.active) out.push(p)
-    }
-    return out
+  /** Resolve the handoff target registered BY an agent via the `handoff`
+   *  tool during its turn (replaces the old @mention text-scan — see F5:
+   *  prose "@name" in a reply couldn't be told apart from a quote or
+   *  description of someone else's handoff). Consumes (clears) the
+   *  registration so it is used exactly once. Defensively re-checks active +
+   *  not-self even though the tool already validates at execution time —
+   *  the roster can change between the tool call and this read. */
+  private resolveHandoff(selfId: string): Participant[] {
+    const to = this.registry.takeHandoff(selfId)
+    if (!to || to === selfId) return []
+    const p = this.registry.get(to)
+    if (!p || !p.active) return []
+    return [p]
   }
 
   /** Build the prompt for a participant: the room lines it hasn't seen yet
@@ -1168,7 +1165,7 @@ export class Room {
         // prepend: a mention in the post-resume reply is recent intent and runs
         // BEFORE work frozen at pause time (dax's call, 2026-07-08).
         if (this.chaining) {
-          const proposed = await this.proposeChain(asker.persona.id, result.reply, pq.heldQueue, { prepend: true })
+          const proposed = await this.proposeChain(asker.persona.id, pq.heldQueue, { prepend: true })
           if (proposed.length > 0) {
             // semi/manual: pause for approval instead of continuing the drain.
             this.pendingRoute = {
@@ -1626,14 +1623,15 @@ export class Room {
    *  Returns true if the pipeline was paused by an ask_user (caller should return).
    *  Handles parallel-wave questions correctly: posts ALL results from the wave
    *  before pausing on the first question, so no agent output is silently dropped. */
-  /** Decide who runs next from `fromId`'s reply and append them onto `target`.
-   *  Honors the chain-hop budget; when no @mention is found and a fallback agent
-   *  is configured, routes there with a nudge to pick the next agent. Shared by
-   *  the main drain loop and the ask-user resume path so routing is identical in
-   *  both — the resume path previously pushed @mentions onto a queue it then
-   *  discarded, silently dropping a handoff made right after answering a question. */
-  private async proposeChain(fromId: string, reply: string, target: Participant[], opts?: { prepend?: boolean }): Promise<Participant[]> {
-    const mentioned = this.resolveAgentMentions(reply, fromId)
+  /** Decide who runs next from `fromId`'s turn and append them onto `target`.
+   *  Honors the chain-hop budget; when no handoff was registered and a fallback
+   *  agent is configured, routes there with a nudge to pick the next agent.
+   *  Shared by the main drain loop and the ask-user resume path so routing is
+   *  identical in both — the resume path previously pushed @mentions onto a
+   *  queue it then discarded, silently dropping a handoff made right after
+   *  answering a question. */
+  private async proposeChain(fromId: string, target: Participant[], opts?: { prepend?: boolean }): Promise<Participant[]> {
+    const mentioned = this.resolveHandoff(fromId)
     if (mentioned.length > 0) {
       // De-dupe against the pending queue: if e.g. scout AND builder both hand
       // off to @planner in the same pass, enqueue the planner once instead of
@@ -1704,7 +1702,7 @@ export class Room {
           await routedTo.sendCustomMessage(
             {
               customType: "routing_fallback",
-              content: `(Routing fallback: @${fromId} finished without handing off. Based on the conversation state, decide who should go next — @-mention them in your reply. If the work is complete, say so without mentioning anyone.)`,
+              content: `(Routing fallback: @${fromId} finished without handing off. Based on the conversation state, decide who should go next — call handoff(to: "...") with their id. If the work is complete, just say so — don't call handoff.)`,
               display: false,
             },
             { deliverAs: "nextTurn" },
@@ -1818,9 +1816,10 @@ export class Room {
         out.target.cursor = this.transcript.length
 
         // Chain from this reply (even if it had a question — the question is
-        // posted as part of the message, so @mentions in the text still chain).
+        // posted as part of the message, and a handoff call earlier in the
+        // same turn still registers and chains).
         if (this.chaining) {
-          const proposed = await this.proposeChain(out.target.persona.id, out.reply, this.queue)
+          const proposed = await this.proposeChain(out.target.persona.id, this.queue)
           for (const t of proposed) {
             if (!waveProposals.some((wp) => wp.target === t)) {
               waveProposals.push({ fromId: out.target.persona.id, target: t })
