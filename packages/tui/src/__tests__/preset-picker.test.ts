@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest"
 import type { PresetFile } from "@pipeline-moe/client-core"
-import { presetPickerLayout, presetSummary, previewPersonas } from "../preset-picker"
+import { presetPickerLayout, presetSummary, previewPersonas, roomFormPreviewMax } from "../preset-picker"
 
 function persona(overrides: Partial<PresetFile["personas"][number]> = {}): PresetFile["personas"][number] {
   return {
@@ -66,6 +66,22 @@ describe("presetPickerLayout", () => {
     const { listVisible, previewMax } = presetPickerLayout(40, 0)
     expect(listVisible).toBe(1)
     expect(previewMax).toBeGreaterThanOrEqual(2)
+  })
+})
+
+describe("roomFormPreviewMax", () => {
+  test("caps at 8 on tall terminals — the form stays compact", () => {
+    expect(roomFormPreviewMax(50)).toBe(8)
+  })
+
+  test("shrinks with the terminal below the cap", () => {
+    // rows - 13 rows of form chrome
+    expect(roomFormPreviewMax(18)).toBe(5)
+  })
+
+  test("floors at 2 on very short terminals", () => {
+    expect(roomFormPreviewMax(10)).toBe(2)
+    expect(roomFormPreviewMax(0)).toBe(2)
   })
 })
 

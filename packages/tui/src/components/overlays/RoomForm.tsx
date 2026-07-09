@@ -1,6 +1,9 @@
 import { Box, Text, useInput } from "ink"
 import { useEffect, useState } from "react"
-import type { Api } from "@pipeline-moe/client-core"
+import type { Api, PresetFile } from "@pipeline-moe/client-core"
+import { useTerminalSize } from "../../useTerminalSize"
+import { shortModel } from "../../commands/registry"
+import { presetSummary, previewPersonas, roomFormPreviewMax } from "../../preset-picker"
 
 interface Field {
   key: "name" | "workspaceDir" | "goal"
@@ -46,21 +49,23 @@ export function RoomForm({
     workspaceDir: "",
     goal: "",
   })
-  const [presets, setPresets] = useState<string[]>([])
+  const [presets, setPresets] = useState<PresetFile[]>([])
   const [presetIdx, setPresetIdx] = useState(0) // 0 = default roster
   const [focus, setFocus] = useState(0)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const { rows } = useTerminalSize()
 
   useEffect(() => {
     api
       .presets()
-      .then((ps) => setPresets(ps.map((p) => p.name)))
+      .then(setPresets)
       .catch(() => {})
   }, [api])
 
-  const presetLabels = ["— default roster —", ...presets]
-  const preset = presetIdx > 0 ? presets[presetIdx - 1] : undefined
+  const presetLabels = ["— default roster —", ...presets.map((p) => p.name)]
+  const selectedPreset = presetIdx > 0 ? presets[presetIdx - 1] : undefined
+  const preset = selectedPreset?.name
 
   const submit = () => {
     if (busy) return
@@ -150,6 +155,9 @@ export function RoomForm({
   }
 
   const presetFocused = focus === PRESET_ROW
+  // Same per-agent preview as the Presets overlay (icon + name, model, tools)
+  // so picking a preset here shows WHAT you're about to spawn, not just a name.
+  const { shown, hidden } = previewPersonas(selectedPreset, roomFormPreviewMax(rows))
   return (
     <Box flexDirection="column" borderStyle="round" borderColor="green" paddingX={1}>
       <Text color="green" bold>
@@ -165,7 +173,20 @@ export function RoomForm({
           {presetFocused ? " ›" : ""}
         </Text>
         {presets.length === 0 ? <Text dimColor> (no saved presets)</Text> : null}
+        {selectedPreset ? <Text dimColor>  {presetSummary(selectedPreset)}</Text> : null}
       </Box>
+      {shown.map((p) => (
+        <Text key={p.id} wrap="truncate-end">
+          {"    "}
+          <Text color={p.color}>
+            {p.icon} {p.name}
+          </Text>
+          {"  "}
+          <Text color="cyan">{shortModel(p.model) ?? "default"}</Text>
+          {p.tools.length ? <Text dimColor>{"  " + p.tools.join(" ")}</Text> : null}
+        </Text>
+      ))}
+      {hidden > 0 ? <Text dimColor>{`      … +${hidden} more agents`}</Text> : null}
       {textRow(WORKDIR_ROW)}
       {textRow(GOAL_ROW)}
       <Box marginTop={1}>

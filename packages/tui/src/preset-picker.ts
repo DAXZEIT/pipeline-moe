@@ -24,6 +24,16 @@ export function presetPickerLayout(rows: number, presetCount: number): { listVis
   return { listVisible, previewMax }
 }
 
+/** Persona-preview budget for the create-room form (RoomForm). Unlike the
+ *  full-screen picker, the form already draws ~13 rows of fixed chrome
+ *  (border, title, four fields, create button + its spacer, error slot,
+ *  footer), and the preview is a confirmation aid, not the main event — so
+ *  it is capped low to keep the form compact, and floors at 2 so a selected
+ *  preset always shows at least a hint of its roster on short terminals. */
+export function roomFormPreviewMax(rows: number): number {
+  return Math.max(2, Math.min(8, rows - 13))
+}
+
 /** Truncate a preset's persona list to what the preview panel has room for,
  *  reporting how many were cut so the UI can render "+N more agents". */
 export function previewPersonas(
