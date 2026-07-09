@@ -14,7 +14,7 @@ import { conversationMeta } from "./store.js"
 import type { SseHub, SseEventName } from "./sse.js"
 import type { LocalModelLock } from "./local-model-lock.js"
 import { goalEvalPrompt } from "./personas.js"
-import { findActivePlan, nextStepOwner } from "./plan-routing.js"
+import { findPlanById, nextStepOwner, planAdoptionId } from "./plan-routing.js"
 import { TaskBoard } from "./task-board.js"
 import type {
   Conversation,
@@ -171,6 +171,13 @@ export class Room {
    *  and by submitGoal — so a model that never chooses is bounded by the goal
    *  iteration budget, not looped forever. */
   private noHandoffMenuUsed = new Set<string>()
+  /** The plan THIS conversation has adopted — the ONLY plan plan-aware routing
+   *  will consult (bare id). Set when an agent in this room mutates a plan
+   *  (planAdoptionId), null until then. Deliberately in-memory and reset on a
+   *  new goal / conversation load: a room that hasn't actively worked a plan
+   *  routes by no plan, so a stale plan in the shared .pi/plans graveyard can
+   *  never hijack a turn (the planner↔tester incident, 2026-07-09). */
+  private activePlanId: string | null = null
 
   // ── Current conversation identity ──────────────────────────────────────────
   private convId = newConvId()
@@ -274,6 +281,9 @@ export class Room {
     this.goalIteration = 0
     this.goalCancelled = false
     this.noHandoffMenuUsed.clear()
+    // A new goal is a fresh workflow: drop any plan adopted by prior work so
+    // this goal only routes by a plan its own agents actually touch.
+    this.activePlanId = null
     // In eval mode the eval loop is the sole router: the evaluator is invoked
     // deliberately after every natural drain. Leaving generic fallback routing
     // active would re-invoke the evaluator (when it is also the fallback agent)
@@ -555,6 +565,10 @@ export class Room {
     this.defaultAgentId = conv.defaultAgent ?? null
     this.fallbackAgentId = conv.fallbackAgent ?? "planner"
     this.planAwareRoutingEnabled = conv.planAwareRouting ?? true
+    // Adoption is in-memory only: a freshly loaded conversation has adopted no
+    // plan until one of its agents touches a plan again — safest default (no
+    // stale plan can route on restart mid-workflow).
+    this.activePlanId = null
     // Back-compat: older saves don't have these fields — fall back to config defaults.
     if (conv.defaultThinkingLevel) {
       const level = conv.defaultThinkingLevel as "off" | "minimal" | "low" | "medium" | "high" | "xhigh"
@@ -1742,11 +1756,14 @@ export class Room {
       let routedTo: Participant | null = null
       let viaPlan = false
 
-      // Plan-aware routing: consult the active plan before falling back to the
-      // generic fallback agent. If the next incomplete step has an [agent]
-      // owner prefix and that agent is available, route there instead.
-      if (this.planAwareRoutingEnabled) {
-        const plan = await findActivePlan(this.plansDir())
+      // Plan-aware routing: consult the plan THIS room has adopted before
+      // falling back to the generic fallback agent. If the next incomplete step
+      // has an [agent] owner prefix and that agent is available, route there
+      // instead. Scoped to activePlanId — a room that hasn't worked a plan
+      // routes by none, so no stale plan in the shared graveyard can hijack a
+      // turn (the planner↔tester incident, 2026-07-09).
+      if (this.planAwareRoutingEnabled && this.activePlanId) {
+        const plan = await findPlanById(this.plansDir(), this.activePlanId)
         const ownerId = nextStepOwner(plan)
         if (ownerId && ownerId !== fromId) {
           const owner = this.registry.get(ownerId)
@@ -1946,6 +1963,14 @@ export class Room {
         this.post(out.target.persona.id, out.target.persona.name, (out.reply || "(no response)") + marker, out.activity, out.reasoning, undefined, out.question)
         if (receiptHasChanges(out.receipt)) this.emit("receipt", out.receipt)
         out.target.cursor = this.transcript.length
+
+        // Plan adoption: if this turn actively worked a plan (create/claim/
+        // update — not a read-only list/get), that becomes the plan this room
+        // routes by. Runs BEFORE proposeChain so a plan created this very turn
+        // is routable at this turn's end. Read-only plan calls never adopt, so
+        // a stale plan can't be picked up just by an agent glancing at it.
+        const adopted = planAdoptionId(out.activity ?? [])
+        if (adopted) this.activePlanId = adopted
 
         // Chain from this reply (even if it had a question — the question is
         // posted as part of the message, and a handoff call earlier in the

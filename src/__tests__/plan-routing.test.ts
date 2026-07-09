@@ -8,6 +8,8 @@ import {
   parseStepOwner,
   nextStepOwner,
   findActivePlan,
+  findPlanById,
+  planAdoptionId,
   type ParsedPlan,
 } from "../plan-routing.js"
 import { config } from "../config.js"
@@ -350,6 +352,69 @@ describe("findActivePlan", () => {
   })
 })
 
+// ── planAdoptionId ──────────────────────────────────────────────────────────
+
+describe("planAdoptionId", () => {
+  const call = (over: Record<string, unknown> = {}) => ({
+    toolName: "plan", status: "ok", ...over,
+  })
+
+  test("a read-only plan call NEVER adopts — the exact incident (plan list on a stale plan)", () => {
+    // Tester ran `plan list`, which surfaced a days-old plan; the mtime router
+    // then drove routing to it. Read-only calls must not adopt.
+    expect(planAdoptionId([call({ args: { action: "list" }, result: 'PLAN-6aa4e960 "active"' })])).toBeNull()
+    expect(planAdoptionId([call({ args: { action: "get", id: "PLAN-6aa4e960" } })])).toBeNull()
+  })
+
+  test("a claim/update adopts the plan id from args (PLAN- prefix stripped)", () => {
+    expect(planAdoptionId([call({ args: { action: "update", id: "PLAN-abc123" } })])).toBe("abc123")
+    expect(planAdoptionId([call({ args: { action: "claim", id: "def456" } })])).toBe("def456")
+  })
+
+  test("a create adopts the fresh id parsed from the tool result (no id in args)", () => {
+    expect(planAdoptionId([call({ args: { action: "create", title: "x" }, result: "Created PLAN-9f9f9f with 3 steps" })])).toBe("9f9f9f")
+  })
+
+  test("ignores non-plan tools, failed calls, and unrecoverable ids", () => {
+    expect(planAdoptionId([call({ toolName: "read", args: { action: "update", id: "abc" } })])).toBeNull()
+    expect(planAdoptionId([call({ args: { action: "update", id: "abc" }, status: "error" })])).toBeNull()
+    expect(planAdoptionId([call({ args: { action: "create" } })])).toBeNull() // no id, no PLAN- in result
+  })
+
+  test("the LAST mutated plan in a turn wins", () => {
+    expect(
+      planAdoptionId([
+        call({ args: { action: "update", id: "first" } }),
+        call({ args: { action: "list" } }),
+        call({ args: { action: "claim", id: "second" } }),
+      ]),
+    ).toBe("second")
+  })
+})
+
+// ── findPlanById ──────────────────────────────────────────────────────────────
+
+describe("findPlanById", () => {
+  let tmpDir: string
+  beforeEach(() => { tmpDir = mkdtempSync(resolve(tmpdir(), "plan-by-id-")) })
+  afterEach(() => rmSync(tmpDir, { recursive: true, force: true }))
+
+  test("reads the named plan file and parses it", async () => {
+    makePlanFile(tmpDir, "abc123", "By Id", "draft", [{ id: 1, text: "[builder] go", done: false }])
+    const plan = await findPlanById(tmpDir, "abc123")
+    expect(plan?.id).toBe("abc123")
+    expect(nextStepOwner(plan)).toBe("builder")
+  })
+
+  test("returns null for a missing file, and for completed/archived plans", async () => {
+    expect(await findPlanById(tmpDir, "nope")).toBeNull()
+    makePlanFile(tmpDir, "done", "Done", "completed", [])
+    expect(await findPlanById(tmpDir, "done")).toBeNull()
+    makePlanFile(tmpDir, "gone", "Gone", "archived", [])
+    expect(await findPlanById(tmpDir, "gone")).toBeNull()
+  })
+})
+
 // ── Hermetic config.plansDir control (pure-function level) ──────────────────
 
 describe("plansDir hermetic swap (pure findActivePlan, no Room)", () => {
@@ -391,15 +456,17 @@ describe("Room integration: plan-aware routing end-to-end", () => {
     calls = 0
     customMessages: Array<{ customType: string; content: string }> = []
     private _reply: string
+    private _activity: unknown[]
 
-    constructor(persona: Persona, reply = "(done)") {
+    constructor(persona: Persona, reply = "(done)", activity: unknown[] = []) {
       this.persona = persona
       this._reply = reply
+      this._activity = activity
     }
 
     async run(_text: string) {
       this.calls++
-      return { text: this._reply, activity: [], reasoning: undefined, question: undefined }
+      return { text: this._reply, activity: this._activity, reasoning: undefined, question: undefined }
     }
 
     async followUp(_text: string) { return this.run(_text) }
@@ -458,6 +525,13 @@ describe("Room integration: plan-aware routing end-to-end", () => {
     return { id, name: id, color: "#000", icon: "\u{1F916}", tools: [], systemPrompt: "" }
   }
 
+  /** A turn's activity that ADOPTS a plan — a mutating `plan` call. Plan-aware
+   *  routing only consults a plan the room has adopted this way, so the routing
+   *  tests must have their kickoff agent actually work the plan. */
+  const adopt = (id: string) => [
+    { toolCallId: "p1", toolName: "plan", args: { action: "update", id }, status: "ok", ts: Date.now() },
+  ]
+
   let tmpDir: string
   const realPlansDir = config.plansDir
   let hub: SseHub
@@ -485,7 +559,7 @@ describe("Room integration: plan-aware routing end-to-end", () => {
       { id: 1, text: "[builder] Ship the feature", done: false },
     ])
 
-    const planner = new IntMockParticipant(makePersona("planner"), "All good here, nothing more to add.")
+    const planner = new IntMockParticipant(makePersona("planner"), "All good here, nothing more to add.", adopt("live-plan"))
     const builder = new IntMockParticipant(makePersona("builder"), "(done)")
     registry.add(planner)
     registry.add(builder)
@@ -512,12 +586,41 @@ describe("Room integration: plan-aware routing end-to-end", () => {
     expect(builder.customMessages.some((m) => m.customType === "plan_step_routing")).toBe(true)
   })
 
+  test("does NOT route by a plan the room only READ — the planner↔tester incident", async () => {
+    // The exact bug (2026-07-09): the shared plans dir holds a stale plan whose
+    // next step is owned by [tester]. Planner replies conversationally, only
+    // GLANCING at the plan (read-only `plan list`), with no handoff. Before the
+    // adoption fix, the mtime router picked this stale plan and dispatched to
+    // tester — who began restarting/killing backend processes. With adoption,
+    // a read-only glance never adopts, so the turn just ends: tester is untouched.
+    makePlanFile(tmpDir, "stale-plan", "Stale Plan", "active", [
+      { id: 1, text: "[tester] Restart the backend and kill processes", done: false },
+    ])
+
+    const planner = new IntMockParticipant(
+      makePersona("planner"),
+      "Nice work — nothing more from me.",
+      [{ toolCallId: "p1", toolName: "plan", args: { action: "list" }, status: "ok", ts: Date.now() }],
+    )
+    const tester = new IntMockParticipant(makePersona("tester"), "(done)")
+    registry.add(planner)
+    registry.add(tester)
+    await room.init()
+    // fallbackAgentId defaults to "planner" (== fromId → self-loop guard skips
+    // it), so plan-aware routing is the ONLY thing that could reach tester.
+    room.submit("@planner what do you think of the fix?")
+    await new Promise<void>((r) => setTimeout(r, 200))
+
+    expect(planner.calls).toBe(1)
+    expect(tester.calls).toBe(0)
+  })
+
   test("falls through to generic fallback when the plan's next step has no owner", async () => {
     makePlanFile(tmpDir, "live-plan-2", "Live Plan 2", "draft", [
       { id: 1, text: "No owner prefix here", done: false },
     ])
 
-    const planner = new IntMockParticipant(makePersona("planner"), "Wrapping up now.")
+    const planner = new IntMockParticipant(makePersona("planner"), "Wrapping up now.", adopt("live-plan-2"))
     const auditor = new IntMockParticipant(makePersona("auditor"), "(done)")
     registry.add(planner)
     registry.add(auditor)
@@ -536,7 +639,7 @@ describe("Room integration: plan-aware routing end-to-end", () => {
       { id: 1, text: "[scout] Investigate, but scout isn't in this room", done: false },
     ])
 
-    const planner = new IntMockParticipant(makePersona("planner"), "Done for now.")
+    const planner = new IntMockParticipant(makePersona("planner"), "Done for now.", adopt("live-plan-4"))
     const auditor = new IntMockParticipant(makePersona("auditor"), "(done)")
     registry.add(planner)
     registry.add(auditor)
@@ -561,7 +664,7 @@ describe("Room integration: plan-aware routing end-to-end", () => {
     const otherWs = mkdtempSync(resolve(tmpdir(), "plan-room-scoped-"))
     try {
       const scopedRoom = new Room(registry as any, hub, store as any, [], "scoped", undefined, otherWs)
-      const planner = new IntMockParticipant(makePersona("planner"), "All wrapped up.")
+      const planner = new IntMockParticipant(makePersona("planner"), "All wrapped up.", adopt("main-room-plan"))
       const builder = new IntMockParticipant(makePersona("builder"), "(done)")
       const auditor = new IntMockParticipant(makePersona("auditor"), "(done)")
       registry.add(planner)
@@ -593,7 +696,7 @@ describe("Room integration: plan-aware routing end-to-end", () => {
         { id: 1, text: "[builder] A step in THIS room's workspace", done: false },
       ])
       const scopedRoom = new Room(registry as any, hub, store as any, [], "scoped2", undefined, otherWs)
-      const planner = new IntMockParticipant(makePersona("planner"), "All wrapped up.")
+      const planner = new IntMockParticipant(makePersona("planner"), "All wrapped up.", adopt("scoped-plan"))
       const builder = new IntMockParticipant(makePersona("builder"), "(done)")
       registry.add(planner)
       registry.add(builder)
@@ -616,7 +719,7 @@ describe("Room integration: plan-aware routing end-to-end", () => {
       { id: 1, text: "[builder] Must not be auto-routed to during eval suppression", done: false },
     ])
 
-    const worker = new IntMockParticipant(makePersona("worker"), "Made some progress, not mentioning anyone.")
+    const worker = new IntMockParticipant(makePersona("worker"), "Made some progress, not mentioning anyone.", adopt("live-plan-3"))
     const builder = new IntMockParticipant(makePersona("builder"), "(done)")
     const evaluator = new IntMockParticipant(makePersona("planner"), "GOAL_MET")
     registry.add(worker)
@@ -638,7 +741,7 @@ describe("Room integration: plan-aware routing end-to-end", () => {
       { id: 1, text: "[builder] Should be ignored", done: false },
     ])
 
-    const planner = new IntMockParticipant(makePersona("planner"), "Done.")
+    const planner = new IntMockParticipant(makePersona("planner"), "Done.", adopt("live-plan-5"))
     const auditor = new IntMockParticipant(makePersona("auditor"), "(done)")
     const builder = new IntMockParticipant(makePersona("builder"), "(done)")
     registry.add(planner)

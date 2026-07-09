@@ -20,6 +20,23 @@ TOCTOU if a consumer ever acts automatically on 📬 reports.
 
 ## Fixed
 
+### Stale plan hijacked a conversational turn (planner→tester) — fixed (2026-07-09)
+Planner replied to a direct user mention with no handoff; the room silently
+dispatched to **tester**, who began restarting/killing backend processes. Root
+cause: plan-aware fallback routing selected "the most-recently-modified
+non-completed `.md`" in the shared `.pi/plans` graveyard (~50 never-closed
+plans across all sessions). The winner was `6aa4e960` — tester's OWN validation
+plan from a *different* session, step 1 `[tester] Restart the backend…` — and its
+mtime kept getting re-bumped by tester's own `task_update`, making the hijack
+self-reinforcing. The 6fecb34 workspace-scoping fix didn't cover this: the
+default room legitimately points at that graveyard. Fix: **explicit adoption**
+(room.ts `activePlanId` + plan-routing.ts `planAdoptionId`/`findPlanById`) — a
+room routes ONLY by a plan its own agents actively worked this conversation
+(create/claim/update); a read-only `plan list`/`get` never adopts, and with no
+adopted plan the turn just ends. In-memory, reset on new goal / conversation
+load, so no stale plan can ever drive routing. Regression test reproduces the
+exact incident (read-only glance → tester untouched). 1028 tests green.
+
 ### Batch-terminate edge — turn-control tool batched with a normal tool — fixed (2026-07-09)
 `terminate: true` only ends the turn if EVERY tool result in the batch sets it
 (pi-agent-core agent-loop.js:345), so a model batching `handoff`/`ask_orchestrator`

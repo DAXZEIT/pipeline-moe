@@ -182,6 +182,73 @@ export async function findActivePlan(plansDir: string = config.plansDir): Promis
   return null
 }
 
+/** Read and parse a single plan by its bare id (`<id>.md` in plansDir), the
+ *  adoption-scoped counterpart of findActivePlan. Returns null if the file is
+ *  missing/unparseable or the plan is completed/archived. Never throws.
+ *
+ *  This is what plan-aware routing consults now: a room routes ONLY by the plan
+ *  it has actually adopted (see planAdoptionId), never "whatever .md was touched
+ *  most recently". That mtime heuristic hijacked a conversational planner reply
+ *  into a stale, unrelated plan whose next step happened to be owned by tester
+ *  (observed live 2026-07-09: tester began killing backend processes from a
+ *  days-old plan the room never worked). */
+export async function findPlanById(plansDir: string, id: string): Promise<ParsedPlan | null> {
+  let content: string
+  try {
+    content = await readFile(`${plansDir}/${id}.md`, "utf8")
+  } catch {
+    return null
+  }
+  const plan = parsePlanContent(content)
+  if (!plan) return null
+  if (plan.status === "completed" || plan.status === "archived") return null
+  return plan
+}
+
+/** The structural subset of a tool-call record we need to decide adoption —
+ *  kept minimal so this module stays decoupled from the app's ToolActivity. */
+export interface PlanToolCall {
+  toolName: string
+  status: string
+  args?: unknown
+  result?: string
+}
+
+const PLAN_ID_RE = /PLAN-([0-9a-f]+)/i
+/** Plan tool actions that only READ. They must never adopt a plan — the bug
+ *  was a `plan list` surfacing a stale plan and that plan then driving routing.
+ *  Anything not in this set (create/claim/update/complete/…) mutates and so
+ *  signals the room is actively working that plan. */
+const READ_ONLY_PLAN_ACTIONS = new Set(["list", "get", "read", "show", "view"])
+
+/** Strip the display-only "PLAN-" prefix so ids compare against on-disk file
+ *  basenames and ParsedPlan.id (both bare). */
+function bareId(id: string): string {
+  return id.replace(/^PLAN-/i, "")
+}
+
+/** Scan one finished turn's tool activity for a plan the agent actively worked
+ *  (a mutating `plan` call — create/claim/update/…) and return that plan's bare
+ *  id: the plan THIS room should now route by. Read-only plan calls never adopt.
+ *  The last mutated plan in the turn wins. Returns null if no plan was mutated
+ *  or the id can't be recovered. Never throws. */
+export function planAdoptionId(activity: readonly PlanToolCall[]): string | null {
+  let adopted: string | null = null
+  for (const a of activity) {
+    if (a.toolName !== "plan" || a.status !== "ok") continue
+    const args = (a.args ?? {}) as Record<string, unknown>
+    const action = typeof args.action === "string" ? args.action.toLowerCase() : ""
+    if (READ_ONLY_PLAN_ACTIONS.has(action)) continue
+    // id from args (claim/update/complete/…), else parsed from the result text
+    // (create returns a fresh PLAN-xxxx and carries no id arg).
+    const argId = typeof args.id === "string" ? args.id : null
+    const resId = typeof a.result === "string" ? a.result.match(PLAN_ID_RE)?.[1] : null
+    const id = argId ?? (resId ? `PLAN-${resId}` : null)
+    if (id) adopted = bareId(id)
+  }
+  return adopted
+}
+
 /** Parse a leading `[agent-id]` owner prefix from step text. Returns null if
  *  the step has no owner prefix (legacy/unowned steps fall back to default
  *  routing). */
