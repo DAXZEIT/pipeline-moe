@@ -8,17 +8,21 @@ Steering `@planner` in the WebUI while the agent was mid-retry on a provider 529
 turns for each queued wake. Needs repro; likely steer-during-retry interplay,
 unrelated to handoff. Observed 2026-07-09 ~05:18 (session mrcpe1pb).
 
-### Cosmetic — `(no response)` shown for ask_user-only turns
-A turn that ends on `ask_user` with no prose text renders as `(no response)` in the
-room transcript even though the agent did real work (tools ran, question is stored
-separately). Pollutes the transcript; display-level fix.
-
 ### Stale-wake race (documented, wontfix for now)
 A 📬 report enqueued by `stop_room` is still delivered after `destroy_room` — confirmed
 systematic (2 occurrences). Benign while reports are informational only; becomes a real
 TOCTOU if a consumer ever acts automatically on 📬 reports.
 
 ## Fixed
+
+### `(no response)` shown for ask_user-only turns — fixed (2026-07-09)
+A turn ending on `ask_user`/`ask_orchestrator` with no prose posted a literal
+`(no response)` into the transcript above the 🤚 question callout. Root fix in
+room.ts (`turnBody`): a question-only turn posts empty text — the callout IS the
+body; a genuinely empty turn (incl. interrupted/failed, whose question is nulled)
+keeps the placeholder and its partial marker. TUI/web skip the placeholder/bubble
+when a question follows. Old persisted entries keep their literal text (back-compat).
+Live-verified: planner QCM turn renders thought → tool call → 🤚 + options, no filler.
 
 ### Stale plan hijacked a conversational turn (planner→tester) — fixed (2026-07-09)
 Planner replied to a direct user mention with no handoff; the room silently

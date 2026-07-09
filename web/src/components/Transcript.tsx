@@ -135,9 +135,13 @@ export function Transcript({
                 <pre>{m.reasoning}</pre>
               </details>
             )}
-            <div className="bubble bubble-agent" style={{ borderColor: color }}>
-              {m.text}
-            </div>
+            {/* An ask_user-only turn has empty text by design — the question
+                callout below is the body, so render no (empty) bubble. */}
+            {m.text && (
+              <div className="bubble bubble-agent" style={{ borderColor: color }}>
+                {m.text}
+              </div>
+            )}
             {m.question && (
               <div className="ask-callout">
                 <span className="ask-callout-icon">🤚</span>

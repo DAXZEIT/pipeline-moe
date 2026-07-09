@@ -161,7 +161,7 @@ export function Transcript({
           ? wrap(m.text, width)
           : renderMarkdownLines(m.text, width) ?? wrap(m.text, width)
       for (const l of rendered) lines.push({ text: l })
-    } else lines.push({ text: "(no response)", dim: true })
+    } else if (!m.question) lines.push({ text: "(no response)", dim: true })
     // ask_user callout — the WebUI shows this as a 🤚 banner under the bubble;
     // the TUI only surfaced the question in the status bar, so it vanished
     // from the story once answered. Options render dim so the scrollback

@@ -83,6 +83,16 @@ function newConvId(): string {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
 }
 
+/** Body text for a posted agent turn. An ask_user/ask_orchestrator-only turn
+ *  has no prose by design — the question callout IS the body, so don't bake a
+ *  "(no response)" placeholder into the transcript above it. A genuinely
+ *  empty turn keeps the placeholder (including interrupted/failed turns:
+ *  executeAgent nulls their question, so they land in the fallback and the
+ *  partial marker still reads naturally after it). */
+function turnBody(reply: string, question: string | undefined): string {
+  return reply || (question ? "" : "(no response)")
+}
+
 export class Room {
   private transcript: TranscriptEntry[] = []
   private chain: Promise<void> = Promise.resolve()
@@ -1190,7 +1200,7 @@ export class Room {
             ? ` _(failed — partial${result.errorMessage ? `: ${result.errorMessage}` : ""})_`
             : ""
         // Post with question field if the asker asked another question.
-        this.post(asker.persona.id, asker.persona.name, (result.reply || "(no response)") + marker, result.activity, result.reasoning, undefined, result.question, result.questionOptions)
+        this.post(asker.persona.id, asker.persona.name, turnBody(result.reply, result.question) + marker, result.activity, result.reasoning, undefined, result.question, result.questionOptions)
         if (receiptHasChanges(result.receipt)) this.emit("receipt", result.receipt)
         asker.cursor = this.transcript.length
 
@@ -1967,7 +1977,7 @@ export class Room {
           : out.stopReason === "error"
             ? ` _(failed — partial${out.errorMessage ? `: ${out.errorMessage}` : ""})_`
             : ""
-        this.post(out.target.persona.id, out.target.persona.name, (out.reply || "(no response)") + marker, out.activity, out.reasoning, undefined, out.question, out.questionOptions)
+        this.post(out.target.persona.id, out.target.persona.name, turnBody(out.reply, out.question) + marker, out.activity, out.reasoning, undefined, out.question, out.questionOptions)
         if (receiptHasChanges(out.receipt)) this.emit("receipt", out.receipt)
         out.target.cursor = this.transcript.length
 

@@ -458,6 +458,35 @@ describe("ask_user — pause/resume", () => {
     expect(agentMsg!.questionOptions).toBeUndefined()
   })
 
+  test("a question-only turn posts empty text — the callout is the body, not '(no response)'", async () => {
+    const agent = makeMockParticipant("builder")
+    agent.withResult({
+      text: "",
+      activity: [{ toolCallId: "t1", toolName: "ask_user", args: { question: "Which one?" }, status: "ok", ts: Date.now() }],
+      question: "Which one?",
+    })
+    registry.addParticipant(agent)
+
+    room.submit("@builder hello")
+    await new Promise((r) => setTimeout(r, 200))
+
+    const agentMsg = events.messages.find((m) => m.author === "builder")
+    expect(agentMsg!.text).toBe("")
+    expect(agentMsg!.question).toBe("Which one?")
+  })
+
+  test("a genuinely empty turn (no question) keeps the '(no response)' placeholder", async () => {
+    const agent = makeMockParticipant("builder")
+    agent.withResult({ text: "", activity: [] })
+    registry.addParticipant(agent)
+
+    room.submit("@builder hello")
+    await new Promise((r) => setTimeout(r, 200))
+
+    const agentMsg = events.messages.find((m) => m.author === "builder")
+    expect(agentMsg!.text).toBe("(no response)")
+  })
+
   test("ensureIdle blocks while paused", async () => {
     const agent = makeMockParticipant("builder")
     agent.withResult({
