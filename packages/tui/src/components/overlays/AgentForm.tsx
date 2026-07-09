@@ -5,6 +5,9 @@ import type { RoomStore } from "@pipeline-moe/client-core"
 // Everything the server's parsePersona accepts (src/validation.ts VALID_TOOLS)
 // — the web UI's chip row shows only the first seven, but the web tools are
 // just as valid, so the TUI offers the full set.
+// Orchestration tools are gated at runtime by ctx.orchestrator/ctx.parentLink
+// (buildCustomTools), not by this list — assigning them here just makes them
+// grantable to any persona through the chip UI, same as via the API.
 export const ALL_TOOLS = [
   "read",
   "bash",
@@ -18,6 +21,11 @@ export const ALL_TOOLS = [
   "youtube_transcript",
   "arxiv_search",
   "youcom_search",
+  "spawn_room",
+  "check_room",
+  "stop_room",
+  "destroy_room",
+  "answer_room",
 ]
 const DEFAULT_TOOLS = ["read", "grep", "find", "ls"]
 

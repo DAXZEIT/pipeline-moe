@@ -1,8 +1,22 @@
 // Validation utilities extracted from server.ts for testability.
 
 import type { Persona } from "./types.js"
+import { ORCHESTRATION_TOOLS } from "./custom-tools/index.js"
 
-export const VALID_TOOLS = new Set(["read", "bash", "edit", "write", "grep", "find", "ls", "web_search", "web_read", "youtube_transcript", "arxiv_search", "youcom_search"])
+// Base tools + orchestration tools (spawn_room, check_room, stop_room,
+// destroy_room, answer_room). ORCHESTRATION_TOOLS is the source of truth —
+// keeping the two in sync avoids a repeat of the 0.1.22 defect where these
+// tools were wired into buildCustomTools() but silently stripped by this
+// allowlist on every create/edit (only the code-built seed planner escaped it).
+// Note: being in VALID_TOOLS makes a tool *grantable* via the API to any
+// persona — assignment discipline ("only the planner gets these") stays a
+// roster convention, not an allowlist restriction; buildCustomTools() already
+// gates actual behavior on ctx.orchestrator/ctx.parentLink being present.
+export const VALID_TOOLS = new Set([
+  "read", "bash", "edit", "write", "grep", "find", "ls",
+  "web_search", "web_read", "youtube_transcript", "arxiv_search", "youcom_search",
+  ...ORCHESTRATION_TOOLS,
+])
 
 function slug(s: string): string {
   return s
