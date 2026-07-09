@@ -1746,7 +1746,7 @@ export class Room {
       // generic fallback agent. If the next incomplete step has an [agent]
       // owner prefix and that agent is available, route there instead.
       if (this.planAwareRoutingEnabled) {
-        const plan = await findActivePlan()
+        const plan = await findActivePlan(this.plansDir())
         const ownerId = nextStepOwner(plan)
         if (ownerId && ownerId !== fromId) {
           const owner = this.registry.get(ownerId)
@@ -1794,6 +1794,19 @@ export class Room {
       }
     }
     return []
+  }
+
+  /** The plans directory THIS room's plan-aware routing consults. Rooms on
+   *  the default workspace keep the global config.plansDir (honors the
+   *  PIPELINE_PLANS_DIR override and the hermetic test sentinel); a room with
+   *  its own workspaceDir gets `<workspace>/.pi/plans` instead. Without this
+   *  scoping, every secondary room read the MAIN workspace's active plan and
+   *  routed by it — observed live: a sandbox room ping-ponged planner↔tester
+   *  ~11 turns because the main repo's active plan had a [tester] step. */
+  private plansDir(): string {
+    return this.workspaceDir === config.workspaceDir
+      ? config.plansDir
+      : resolve(this.workspaceDir, ".pi", "plans")
   }
 
   /** The one-shot closed menu injected when a goal-eval agent ends its turn

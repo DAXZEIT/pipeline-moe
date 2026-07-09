@@ -549,6 +549,68 @@ describe("Room integration: plan-aware routing end-to-end", () => {
     expect(auditor.calls).toBe(1)
   })
 
+  test("a room with its own workspaceDir does NOT consult the global plansDir", async () => {
+    // Regression guard for the cross-room plan leak: config.plansDir (the
+    // MAIN workspace's plans) has an active plan owned by [builder], but this
+    // room lives in its own workspace — it must not route by that plan.
+    // Observed live: a sandbox room ping-ponged planner↔tester for ~11 turns
+    // because the main repo's active plan had a [tester] step.
+    makePlanFile(tmpDir, "main-room-plan", "Main Room Plan", "draft", [
+      { id: 1, text: "[builder] A step that belongs to the MAIN room", done: false },
+    ])
+    const otherWs = mkdtempSync(resolve(tmpdir(), "plan-room-scoped-"))
+    try {
+      const scopedRoom = new Room(registry as any, hub, store as any, [], "scoped", undefined, otherWs)
+      const planner = new IntMockParticipant(makePersona("planner"), "All wrapped up.")
+      const builder = new IntMockParticipant(makePersona("builder"), "(done)")
+      const auditor = new IntMockParticipant(makePersona("auditor"), "(done)")
+      registry.add(planner)
+      registry.add(builder)
+      registry.add(auditor)
+      await scopedRoom.init()
+      scopedRoom.setMaxChainHops(1)
+      scopedRoom.setFallbackAgent("auditor")
+
+      scopedRoom.submit("@planner kick things off")
+      await new Promise<void>((r) => setTimeout(r, 200))
+
+      // The main workspace's plan must NOT have routed builder; the generic
+      // fallback (auditor) runs instead.
+      expect(builder.calls).toBe(0)
+      expect(auditor.calls).toBe(1)
+      await scopedRoom.abortCurrent()
+    } finally {
+      rmSync(otherWs, { recursive: true, force: true })
+    }
+  })
+
+  test("a room with its own workspaceDir routes by ITS OWN workspace plans", async () => {
+    const otherWs = mkdtempSync(resolve(tmpdir(), "plan-room-own-"))
+    try {
+      const ownPlans = resolve(otherWs, ".pi", "plans")
+      mkdirSync(ownPlans, { recursive: true })
+      makePlanFile(ownPlans, "scoped-plan", "Scoped Plan", "draft", [
+        { id: 1, text: "[builder] A step in THIS room's workspace", done: false },
+      ])
+      const scopedRoom = new Room(registry as any, hub, store as any, [], "scoped2", undefined, otherWs)
+      const planner = new IntMockParticipant(makePersona("planner"), "All wrapped up.")
+      const builder = new IntMockParticipant(makePersona("builder"), "(done)")
+      registry.add(planner)
+      registry.add(builder)
+      await scopedRoom.init()
+      scopedRoom.setMaxChainHops(1)
+
+      scopedRoom.submit("@planner kick things off")
+      await new Promise<void>((r) => setTimeout(r, 200))
+
+      expect(builder.calls).toBe(1)
+      expect(builder.customMessages.some((m) => m.customType === "plan_step_routing")).toBe(true)
+      await scopedRoom.abortCurrent()
+    } finally {
+      rmSync(otherWs, { recursive: true, force: true })
+    }
+  })
+
   test("plan-aware routing is suppressed during an eval-mode goal, same as generic fallback", async () => {
     makePlanFile(tmpDir, "live-plan-3", "Live Plan 3", "draft", [
       { id: 1, text: "[builder] Must not be auto-routed to during eval suppression", done: false },
