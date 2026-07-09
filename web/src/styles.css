@@ -899,6 +899,11 @@ body {
   background: var(--bg3);
   border: 1px solid var(--border);
 }
+/* "You" head above user bubbles — parity with agent-head and the TUI's
+   "── You ──" rule; muted so the accent colors stay with the agents. */
+.user-head {
+  color: var(--muted);
+}
 .bubble-agent {
   background: var(--bg2);
   border-left: 3px solid var(--accent);

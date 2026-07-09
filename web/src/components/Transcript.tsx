@@ -97,6 +97,12 @@ export function Transcript({
         if (m.author === "user") {
           return (
             <div key={m.index} className="row user">
+              {/* Author head for parity with agent replies (and the TUI's
+                  "── You ──" rule) — the bubble alone reads ambiguously in a
+                  long scrollback. */}
+              <div className="agent-head user-head">
+                <span className="agent-name">You</span>
+              </div>
               {m.images && m.images.length > 0 && <ImageGallery images={m.images} />}
               <div className="bubble bubble-user">{m.text}</div>
             </div>
