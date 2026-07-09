@@ -27,6 +27,7 @@ import { lookup } from "./commands/registry"
 import type { CommandContext, Overlay } from "./commands/types"
 import { useTerminalSize } from "./useTerminalSize"
 import { pickerRows } from "./answer-picker"
+import { stripRowCount } from "./roster-strip"
 import { readClipboardImage, readClipboardText } from "./clipboard-image"
 
 /** Strip terminal escape sequences, CR rewrites (progress bars) and `script`
@@ -336,7 +337,7 @@ export function App({
   // the frame never exceeds the screen. rows-1, not rows: at outputHeight >=
   // rows Ink abandons incremental erase-and-redraw for a full clearTerminal
   // on every frame, which flickers on each keystroke.
-  const { rows } = useTerminalSize()
+  const { rows, columns } = useTerminalSize()
 
   // Bridge from CommandLine's ↑/↓ (which is what the mouse wheel sends in the
   // alt screen via alternate-scroll mode) to the Transcript's scroll offset.
@@ -394,12 +395,13 @@ export function App({
             // Every row the fixed "rows - 8" budget doesn't know about must be
             // declared here, or the layout exceeds the screen and Ink
             // row-diffing corrupts (the vanished "── You ──" header,
-            // 2026-07-09): the roster strip (1), the task line (1 when the
-            // board is non-empty), and the QCM picker while a paused question
-            // carries options — reserved even while the picker is hidden by
-            // typing (stable layout beats a jumping one).
+            // 2026-07-09): the roster strip (1, or 2 with its model row),
+            // the task line (1 when the board is non-empty), and the QCM
+            // picker while a paused question carries options — reserved even
+            // while the picker is hidden by typing (stable layout beats a
+            // jumping one).
             reservedRows={
-              (state.roster.length > 0 ? 1 : 0) +
+              stripRowCount(state.roster, columns) +
               (state.tasks.length > 0 ? 1 : 0) +
               (state.paused && state.pausedOptions?.length ? pickerRows(state.pausedOptions.length) : 0)
             }
