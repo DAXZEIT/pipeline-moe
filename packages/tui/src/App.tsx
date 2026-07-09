@@ -508,6 +508,7 @@ export function App({
         onRosterMenu={() => runCommand("/roster")}
         onAbort={() => runCommand("/abort")}
         turnActive={state.turnActive}
+        routingMode={state.routingMode}
         answerOptions={state.paused ? state.pausedOptions : null}
         pausedAskerId={state.pausedAskerId}
         pasteInsertRef={pasteInsertRef}

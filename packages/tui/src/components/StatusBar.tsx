@@ -1,5 +1,6 @@
 import { Box, Text } from "ink"
 import type { RosterItem, RoutingMode } from "@pipeline-moe/client-core"
+import { ROUTING_COLOR } from "../input-mode"
 
 /** One-line room status. `connection` distinguishes the EventSource retrying
  *  after a drop (reconnecting) from the initial connect, since the store only
@@ -54,8 +55,11 @@ export function StatusBar({
       ) : (
         <Text color="gray">idle</Text>
       )}
+      {/* routing gets the same color the input border wears in plain-text
+          mode — one color per meaning across the whole chrome. */}
+      <Text dimColor>{"   "}routing:</Text>
+      <Text color={ROUTING_COLOR[routingMode]}>{routingMode}</Text>
       <Text dimColor>
-        {"   "}routing:{routingMode}
         {"  "}room:{roomId}
         {"  "}msgs:{messageCount}
       </Text>

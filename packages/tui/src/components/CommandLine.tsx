@@ -3,6 +3,8 @@ import { useEffect, useState } from "react"
 import { matchCommands } from "../commands/registry"
 import { shouldAbortOnEscape } from "../escape-behavior"
 import { pickerKeyAction, pickerVisible } from "../answer-picker"
+import { inputBorderColor, inputMode, inputModeHint } from "../input-mode"
+import type { RoutingMode } from "@pipeline-moe/client-core"
 
 /**
  * The input line. Plain text is sent as a room message; a leading "/" turns it
@@ -29,6 +31,7 @@ export function CommandLine({
   onRosterMenu,
   onAbort,
   turnActive,
+  routingMode,
   answerOptions,
   pausedAskerId,
   pasteInsertRef,
@@ -63,6 +66,10 @@ export function CommandLine({
   onAbort?: () => void
   /** Whether a turn is currently running — gates the Esc-to-abort shortcut. */
   turnActive?: boolean
+  /** Current handoff routing mode — the plain-text border color follows it
+   *  (cyan auto / blue semi / gray manual), so the box itself tells you how a
+   *  message will dispatch. "/" and "!" override with yellow/red. */
+  routingMode?: RoutingMode
   /** Closed answer choices while the room is paused on an ask_user question —
    *  renders the QCM picker above the input (↑↓⏎ or 1-N to answer; typing
    *  stays free text). Null/empty = no picker, plain answer as before. */
@@ -270,6 +277,15 @@ export function CommandLine({
   const atChar = disp[dcur] ?? " "
   const after = disp.slice(dcur + 1)
 
+  // The border speaks the mode: "/" yellow, "!" red, plain text follows the
+  // routing mode (cyan auto / blue semi / gray manual). Dead input dims.
+  const mode = inputMode(value)
+  const live = isActive && connected
+  const border = inputBorderColor(mode, routingMode ?? "auto", live)
+  // Name the mode while its command part is still empty — the bare glyph
+  // ("! ") gave no feedback that the input switched semantics.
+  const modeHint = disp.length === 0 && value ? inputModeHint(mode) : null
+
   return (
     <Box flexDirection="column">
       {picker ? (
@@ -300,16 +316,20 @@ export function CommandLine({
           <Text dimColor>↑↓ select · ⇥ complete · ⏎ run</Text>
         </Box>
       ) : null}
-      <Box borderStyle="round" borderColor={isActive && connected ? "cyan" : "gray"} paddingX={1}>
+      <Box borderStyle="round" borderColor={border} borderDimColor={!live} paddingX={1}>
         {pendingImageCount ? <Text color="cyan">📎 {pendingImageCount} </Text> : null}
-        <Text color={isSlash ? "yellow" : isBang ? "red" : "cyan"}>
-          {isSlash ? "/ " : isBang ? "! " : "› "}
-        </Text>
+        <Text color={border}>{isSlash ? "/ " : isBang ? "! " : "› "}</Text>
         {value ? (
           <Text>
             {before}
             <Text inverse>{atChar}</Text>
             {after}
+            {modeHint ? (
+              <Text color={border} dimColor>
+                {"  "}
+                {modeHint}
+              </Text>
+            ) : null}
           </Text>
         ) : (
           <Text dimColor>Message the room · / commands · ! shell · ⇧⇥ routing · Ctrl+C quit</Text>
