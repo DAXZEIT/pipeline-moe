@@ -26,6 +26,7 @@ export function CommandLine({
   onScroll,
   onPaste,
   onToggleTasks,
+  onRosterMenu,
   onAbort,
   turnActive,
   answerOptions,
@@ -54,6 +55,8 @@ export function CommandLine({
   onPaste?: () => void
   /** Ctrl+P — opens the shared task board overlay. */
   onToggleTasks?: () => void
+  /** Ctrl+R — opens the per-agent roster menu (same as /roster). */
+  onRosterMenu?: () => void
   /** Esc on an empty line with no pending image — only wired up when
    *  `turnActive` is true (otherwise Esc's existing clear behavior on an
    *  already-empty line stays a no-op, unchanged). Same effect as /abort. */
@@ -226,6 +229,10 @@ export function CommandLine({
       }
       if (key.ctrl && input === "p") {
         onToggleTasks?.()
+        return
+      }
+      if (key.ctrl && input === "r") {
+        onRosterMenu?.()
         return
       }
       if (key.backspace) {

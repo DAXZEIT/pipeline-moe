@@ -398,6 +398,11 @@ export function App({
       <Box flexDirection="column" flexShrink={0}>
       {overlay?.kind === "select" ? (
         <SelectOverlay
+          // Keyed by title: chained select overlays (roster picker → agent
+          // actions → kick confirm) are the same component type in the same
+          // slot, so without a key React keeps the previous menu's cursor and
+          // filter state across the transition.
+          key={overlay.title}
           title={overlay.title}
           items={overlay.items}
           emptyText={overlay.emptyText}
@@ -493,6 +498,7 @@ export function App({
         onScroll={(delta) => transcriptScrollRef.current(delta)}
         onPaste={pasteClipboard}
         onToggleTasks={() => setOverlay((o) => (o?.kind === "tasks" ? null : { kind: "tasks" }))}
+        onRosterMenu={() => runCommand("/roster")}
         onAbort={() => runCommand("/abort")}
         turnActive={state.turnActive}
         answerOptions={state.paused ? state.pausedOptions : null}

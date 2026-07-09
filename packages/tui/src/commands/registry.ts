@@ -1,6 +1,7 @@
 import type { RoomState, RoutingMode } from "@pipeline-moe/client-core"
 import type { Command, CommandContext } from "./types"
 import { loadImageAttachment } from "../image-attach"
+import { openRosterMenu } from "../roster-menu"
 
 /** Resolve a "@name" / "name" / id token to a roster participant id, or null. */
 export function resolveAgent(state: RoomState, token: string): string | null {
@@ -483,6 +484,11 @@ export const COMMANDS: Command[] = [
     name: "lineup",
     summary: "Edit the room line-up (reorder, pause, add, kick)",
     run: (ctx) => ctx.openOverlay({ kind: "lineup" }),
+  },
+  {
+    name: "roster",
+    summary: "Per-agent action menu (also Ctrl+R)",
+    run: (ctx) => openRosterMenu(ctx),
   },
   {
     name: "tasks",
