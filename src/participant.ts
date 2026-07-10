@@ -221,9 +221,16 @@ export class Participant {
       // No memory file — fine, first run or not yet populated.
     }
 
+    // Persona-scoped Agent Skills: each name resolves to a skill root under
+    // config.skillsDir. The loader injects name+description into the system
+    // prompt; the agent reads the SKILL.md body on demand, so the read tool
+    // must be granted these dirs too (read-only) — see buildConfinedTools.
+    const skillRoots = (persona.skills ?? []).map((s) => join(config.skillsDir, s))
+
     const loader = new DefaultResourceLoader({
       cwd: workspaceDir,
       agentDir: getAgentDir(),
+      ...(skillRoots.length > 0 ? { additionalSkillPaths: skillRoots } : {}),
       // Append the persona to pi's default prompt so we keep tool-usage guidance.
       appendSystemPromptOverride: (base: string[]) => [
         ...base,
@@ -263,7 +270,7 @@ export class Participant {
       // gated to this persona's allowlist. Keeps all file work inside the workspace.
       noTools: "builtin",
       customTools: (() => {
-        const confined = buildConfinedTools(workspaceDir, persona.tools)
+        const confined = buildConfinedTools(workspaceDir, persona.tools, skillRoots)
         const custom = buildCustomTools(persona.tools, { orchestrator, taskBoard, personaId: persona.id, roomId, parentLink, handoffSink })
         return [...confined, ...custom]
       })(),

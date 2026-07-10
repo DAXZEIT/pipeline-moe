@@ -511,6 +511,7 @@ export const SEED_PERSONAS: Persona[] = [
     color: "#4A90D9",
     icon: "📋",
     tools: ["read", "grep", "find", "ls", "spawn_room", "check_room", "stop_room", "destroy_room", "answer_room"],
+    skills: ["orchestrator"],
     systemPrompt: buildPrompt(PLANNER_OVERLAY),
     compactionInstructions: "Preserve all plans created, their steps and status, and architectural decisions. Discard source code reads done only for verification.",
   },

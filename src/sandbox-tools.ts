@@ -72,20 +72,42 @@ export function createAskUserToolDefinition(): ToolDefinition<typeof askUserSche
 }
 
 /** Build the confined tool definitions for the given built-in tool names. */
-export function buildConfinedTools(root: string, toolNames: string[]): ToolDefinition[] {
+export function buildConfinedTools(
+  root: string,
+  toolNames: string[],
+  /** Extra directories the READ tool may open (never write/edit/bash) — used
+   *  to expose persona skill roots (SKILL.md + companion files) that live
+   *  outside the workspace. */
+  extraReadRoots: string[] = [],
+): ToolDefinition[] {
   const wanted = new Set(toolNames)
   const tools: ToolDefinition[] = []
+
+  // Readable = inside the workspace root, or inside one of the read-only
+  // extra roots. Re-throws assertInside's permission error when nothing matches.
+  const assertReadable = (p: string): void => {
+    let lastErr: unknown
+    for (const r of [root, ...extraReadRoots]) {
+      try {
+        assertInside(r, p)
+        return
+      } catch (err) {
+        lastErr = err
+      }
+    }
+    throw lastErr
+  }
 
   if (wanted.has("read")) {
     tools.push(
       createReadToolDefinition(root, {
         operations: {
           readFile: async (p) => {
-            assertInside(root, p)
+            assertReadable(p)
             return readFile(p)
           },
           access: async (p) => {
-            assertInside(root, p)
+            assertReadable(p)
             await fsAccess(p, constants.R_OK)
           },
         },

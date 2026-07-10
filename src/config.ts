@@ -31,6 +31,11 @@ export const config = {
     process.env.PIPELINE_PLANS_DIR ??
       (process.env.VITEST ? resolve(process.cwd(), ".pi/__no-plans-dir-in-tests__") : resolve(process.cwd(), ".pi/plans")),
   ),
+  /** Where persona-scoped Agent Skills live: one directory per skill, each
+   *  with a SKILL.md (agentskills.io layout). Personas opt in by name via
+   *  `skills: ["orchestrator"]`; the dirs are also granted read-only access
+   *  so the agent can open the skill body on demand. */
+  skillsDir: resolve(process.env.PIPELINE_SKILLS_DIR ?? resolve(process.cwd(), "skills")),
   /** Persist each agent's pi session to disk (context survives restarts and
    *  room resume). Set PIPELINE_EPHEMERAL_AGENTS=1 for the old in-memory
    *  behavior where agents catch up by replaying the room transcript. */

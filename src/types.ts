@@ -25,6 +25,12 @@ export interface Persona {
    *  capable). Set false for a local model with no mmproj loaded — llama.cpp
    *  refuses the request outright if an image reaches a vision-less model. */
   vision?: boolean
+  /** Agent Skills (agentskills.io) granted to this persona, by directory name
+   *  under the process skills dir (config.skillsDir, default <cwd>/skills).
+   *  Each name resolves to a SKILL.md skill root; pi injects its name +
+   *  description into the system prompt and the agent reads the body on
+   *  demand — procedural playbooks stay out of the always-on prompt. */
+  skills?: string[]
 }
 
 export type ParticipantStatus = "idle" | "active" | "thinking" | "working" | "compacting" | "retrying"
