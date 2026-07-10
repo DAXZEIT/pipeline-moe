@@ -42,14 +42,22 @@ describe("stripCells", () => {
     expect(cells[0].dim).toBe(true)
   })
 
-  it("hot context (≥80%) appends the percent and sets warn", () => {
+  it("usage row carries tokens/window; hot context (≥80%) sets warn", () => {
     const hot = agent({ contextUsage: { tokens: 160_000, contextWindow: 200_000, percent: 84 } as RosterItem["contextUsage"] })
     const cells = stripCells([hot], null, 120)
-    expect(cells[0].text).toContain("84%")
+    expect(cells[0].use).toBe("160K/200K")
     expect(cells[0].warn).toBe(true)
+    // the % alarm lives in the usage row now, not the cell text
+    expect(cells[0].text).not.toContain("%")
     const cold = stripCells([agent({ contextUsage: { tokens: 10, contextWindow: 200_000, percent: 12 } as RosterItem["contextUsage"] })], null, 120)
-    expect(cold[0].text).not.toContain("%")
+    expect(cold[0].use).toBe("10/200K")
     expect(cold[0].warn).toBe(false)
+  })
+
+  it("without a usage row, hot context falls back to the in-cell percent", () => {
+    // roster fixtures without contextUsage → no usage row → the old alarm
+    const cells = stripCells([agent({})], null, 120)
+    expect(cells[0].use).toBeUndefined()
   })
 
   it("marks vision-off agents", () => {
@@ -57,48 +65,65 @@ describe("stripCells", () => {
     expect(cells[0].text).toContain("🚫")
   })
 
-  it("model row: pretty name under pinned agents, 'default' under the rest", () => {
+  it("model row: pretty name under pinned agents, resolved default under the rest", () => {
     const cells = stripCells(
       [agent({ model: "anthropic/claude-opus-4-8" }), agent({ id: "builder", name: "builder", model: undefined })],
       null,
       120,
+      "local/Qwopus3.6-27B-v2-MTP-Q4_K_M.gguf",
     )
     expect(cells[0].sub).toBe("Opus 4.8")
+    expect(cells[1].sub).toBe("Qwopus3.6 27B V2 MTP")
+  })
+
+  it("falls back to 'default' when the server doesn't say what default resolves to", () => {
+    const cells = stripCells([agent({ model: "anthropic/claude-fable-5" }), agent({ id: "b", name: "b", model: undefined })], null, 120)
     expect(cells[1].sub).toBe("default")
   })
 
-  it("no model row when no agent pins a model, nor at icon tier", () => {
+  it("no model row when nothing is pinned and no default is known, nor at icon tier", () => {
     const cells = stripCells([agent({ model: undefined })], null, 120)
     expect(cells[0].sub).toBeUndefined()
     const many = Array.from({ length: 8 }, (_, i) => agent({ id: `a${i}`, name: `agent-number-${i}` }))
-    for (const c of stripCells(many, null, 60)) expect(c.sub).toBeUndefined()
+    for (const c of stripCells(many, null, 60, "local/qwopus")) {
+      expect(c.sub).toBeUndefined()
+      expect(c.use).toBeUndefined()
+    }
   })
 })
 
 describe("stripRowCount", () => {
-  it("0 empty, 1 without models, 2 with a pinned model at name tier", () => {
+  it("0 empty; 1 + model row + usage row as the data appears", () => {
     expect(stripRowCount([], 120)).toBe(0)
     expect(stripRowCount([agent({ model: undefined })], 120)).toBe(1)
     expect(stripRowCount([agent({})], 120)).toBe(2)
-    // icon tier drops the model row again
-    const many = Array.from({ length: 8 }, (_, i) => agent({ id: `a${i}`, name: `agent-number-${i}` }))
-    expect(stripRowCount(many, 60)).toBe(1)
+    expect(stripRowCount([agent({ model: undefined })], 120, "local/qwopus")).toBe(2)
+    const full = agent({ contextUsage: { tokens: 1000, contextWindow: 200_000, percent: 1 } as RosterItem["contextUsage"] })
+    expect(stripRowCount([full], 120, "local/qwopus")).toBe(3)
+    // icon tier drops the under-rows again
+    const many = Array.from({ length: 8 }, (_, i) => full && agent({ id: `a${i}`, name: `agent-number-${i}`, contextUsage: full.contextUsage }))
+    expect(stripRowCount(many, 60, "local/qwopus")).toBe(1)
   })
 })
 
 describe("renderStrip", () => {
   const plain = (s: string) => s.replace(/\x1b\[[0-9;]*m/g, "")
+  const usage = { tokens: 220_000, contextWindow: 1_000_000, percent: 22 } as RosterItem["contextUsage"]
 
-  it("model row gutters line up with the top row's", () => {
+  it("under-row gutters line up with the top row's, all rows equal width", () => {
     const cells = stripCells(
-      [agent({ model: "anthropic/claude-opus-4-8" }), agent({ id: "builder", name: "builder", icon: "🔨" })],
+      [agent({ model: "anthropic/claude-opus-4-8", contextUsage: usage }), agent({ id: "builder", name: "builder", icon: "🔨", contextUsage: usage })],
       "builder",
       120,
+      "local/qwopus",
     )
-    const [top, sub] = renderStrip(cells).map(plain)
-    expect(sub).toBeDefined()
-    expect(top.indexOf(" │ ")).toBe(sub.indexOf(" │ "))
-    expect(stringWidth(top)).toBe(stringWidth(sub))
+    const rows = renderStrip(cells).map(plain)
+    expect(rows).toHaveLength(3)
+    expect(rows[2]).toContain("220K/1000K")
+    for (const r of rows.slice(1)) {
+      expect(r.indexOf(" │ ")).toBe(rows[0].indexOf(" │ "))
+      expect(stringWidth(r)).toBe(stringWidth(rows[0]))
+    }
   })
 
   it("a long model name truncates to its cell instead of widening it", () => {
@@ -106,5 +131,19 @@ describe("renderStrip", () => {
     const [top, sub] = renderStrip(cells).map(plain)
     expect(stringWidth(sub)).toBe(stringWidth(top))
     expect(sub).toContain("…")
+  })
+
+  it("hot usage paints yellow", async () => {
+    // chalk auto-detects no color under vitest — force it for this assertion
+    const { default: chalk } = await import("chalk")
+    const level = chalk.level
+    chalk.level = 3
+    try {
+      const hot = agent({ contextUsage: { tokens: 900_000, contextWindow: 1_000_000, percent: 90 } as RosterItem["contextUsage"] })
+      const rows = renderStrip(stripCells([hot], null, 120))
+      expect(rows[2]).toContain("\x1b[33m")
+    } finally {
+      chalk.level = level
+    }
   })
 })

@@ -152,6 +152,7 @@ export function createRoomStore(opts: RoomStoreOptions) {
       if (s.defaultThinkingLevel !== undefined) next.defaultThinkingLevel = s.defaultThinkingLevel
       if (s.allowCloud !== undefined) next.allowCloud = s.allowCloud
       if (s.compactionReserveTokens !== undefined) next.compactionReserveTokens = s.compactionReserveTokens
+      if (s.defaultModel !== undefined) next.defaultModel = s.defaultModel
       if (s.maxRooms !== undefined) next.maxRooms = s.maxRooms
       next.pendingRoute = s.pendingRoute ? s.pendingRoute.proposals : null
       patch(next)

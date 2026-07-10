@@ -380,7 +380,7 @@ export function App({
         {/* Horizontal roster timeline (Dofus turn-bar style) — replaces the
             26-column sidebar, so the transcript gets the full width. Detail
             and actions live in Ctrl+R. */}
-        <RosterStrip roster={state.roster} runningId={state.runningAgentId} />
+        <RosterStrip roster={state.roster} runningId={state.runningAgentId} defaultModel={state.defaultModel} />
         <TaskSummary tasks={state.tasks} />
       </Box>
       <Box flexGrow={1} flexShrink={1} overflow="hidden">
@@ -395,13 +395,13 @@ export function App({
             // Every row the fixed "rows - 8" budget doesn't know about must be
             // declared here, or the layout exceeds the screen and Ink
             // row-diffing corrupts (the vanished "── You ──" header,
-            // 2026-07-09): the roster strip (1, or 2 with its model row),
-            // the task line (1 when the board is non-empty), and the QCM
-            // picker while a paused question carries options — reserved even
-            // while the picker is hidden by typing (stable layout beats a
-            // jumping one).
+            // 2026-07-09): the roster strip (1–3: cells + model row + usage
+            // row), the task line (1 when the board is non-empty), and the
+            // QCM picker while a paused question carries options — reserved
+            // even while the picker is hidden by typing (stable layout beats
+            // a jumping one).
             reservedRows={
-              stripRowCount(state.roster, columns) +
+              stripRowCount(state.roster, columns, state.defaultModel) +
               (state.tasks.length > 0 ? 1 : 0) +
               (state.paused && state.pausedOptions?.length ? pickerRows(state.pausedOptions.length) : 0)
             }

@@ -401,6 +401,13 @@ export class Room {
     void this.saveCurrent()
   }
 
+  /** "provider/id" the room's default-model agents actually run on — resolved
+   *  once at startup, surfaced so clients can label "default" concretely. */
+  getDefaultModel(): string | null {
+    // Optional call: test doubles stand in for the Registry without it.
+    return this.registry.defaultModelRef?.() ?? null
+  }
+
   // ── Allow cloud toggle ─────────────────────────────────────────────────────
 
   getAllowCloud(): boolean {
@@ -440,6 +447,7 @@ export class Room {
       defaultThinkingLevel: this.defaultThinkingLevel,
       allowCloud: this.allowCloud,
       compactionReserveTokens: this.compactionReserveTokens,
+      defaultModel: this.getDefaultModel(),
     })
   }
 

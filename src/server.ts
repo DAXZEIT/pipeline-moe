@@ -1220,6 +1220,7 @@ async function main(): Promise<void> {
     defaultThinkingLevel: r.getDefaultThinkingLevel(),
     allowCloud: r.getAllowCloud(),
     compactionReserveTokens: r.getCompactionReserveTokens(),
+    defaultModel: r.getDefaultModel(),
     maxRooms: config.maxRooms,
     pendingRoute: r.getPendingRoute(),
   })

@@ -141,6 +141,14 @@ export class Registry implements HandoffSink {
     return this.defaultThinkingLevel
   }
 
+  /** "provider/id" of the process default model — what a persona without a
+   *  pinned model actually runs on. undefined when relying on pi's own
+   *  resolution (no explicit model resolved at startup). */
+  defaultModelRef(): string | undefined {
+    const m = this.resolved.model
+    return m ? `${m.provider}/${m.id}` : undefined
+  }
+
   /** Whether cloud models are allowed in this room. Mutable — the Room can
    *  change it at runtime; only new participants pick up the change. */
   private allowCloud: boolean = config.allowCloud

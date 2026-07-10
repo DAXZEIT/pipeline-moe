@@ -168,6 +168,9 @@ export interface RoomSettings {
   defaultThinkingLevel: "off" | "minimal" | "low" | "medium" | "high" | "xhigh"
   allowCloud: boolean
   compactionReserveTokens: number
+  /** "provider/id" agents without a pinned model run on (null: pi resolution;
+   *  absent: older server). */
+  defaultModel?: string | null
   maxRooms: number
   pendingRoute: { proposals: RouteProposal[] } | null
 }

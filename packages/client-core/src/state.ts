@@ -63,6 +63,9 @@ export interface RoomState {
   defaultThinkingLevel: ThinkingLevel
   allowCloud: boolean
   compactionReserveTokens: number
+  /** "provider/id" the room's default-model agents actually run on, or null
+   *  when the server relies on pi's own resolution (or predates the field). */
+  defaultModel: string | null
   pendingRoute: RouteProposal[] | null
   maxRooms: number
   conversations: ConversationMeta[]
@@ -100,6 +103,7 @@ export const initialRoomState: RoomState = {
   defaultThinkingLevel: "medium",
   allowCloud: false,
   compactionReserveTokens: 38000,
+  defaultModel: null,
   pendingRoute: null,
   maxRooms: 8,
   conversations: [],
@@ -344,6 +348,7 @@ export function reduce(state: RoomState, event: SseEvent): ReduceResult {
         defaultThinkingLevel?: ThinkingLevel
         allowCloud?: boolean
         compactionReserveTokens?: number
+        defaultModel?: string | null
       }
       const next: RoomState = { ...state, chaining: d.chaining }
       if (d.routingMode !== undefined) next.routingMode = d.routingMode
@@ -353,6 +358,7 @@ export function reduce(state: RoomState, event: SseEvent): ReduceResult {
       if (d.defaultThinkingLevel !== undefined) next.defaultThinkingLevel = d.defaultThinkingLevel
       if (d.allowCloud !== undefined) next.allowCloud = d.allowCloud
       if (d.compactionReserveTokens !== undefined) next.compactionReserveTokens = d.compactionReserveTokens
+      if (d.defaultModel !== undefined) next.defaultModel = d.defaultModel
       return noEffects(next)
     }
 
