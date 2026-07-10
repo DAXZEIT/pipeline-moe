@@ -1,5 +1,56 @@
 # Changelog
 
+## [Unreleased] — 2026-07-11
+
+### Added
+
+- **Supervised routing (phase 1)** — new `routingMode: "supervised"` (additive; auto/
+  semi/manual untouched): every handoff proposal is decided by the `supervisorAgent`
+  (room setting, default `planner`) instead of dispatching freely or waiting on the
+  human. The decision runs STATELESS in a disposable session on the supervisor's
+  model (micro-context: proposals, proposer-turn summary, plan/board state) through a
+  schema-constrained `route_decision({verdict: accept|refuse|transfer, targetIds?,
+  reason})` — one decision per proposal SET (parallel waves propose several handoffs).
+  Invariants wired: accept/transfer dispatch; refuse returns the turn to the proposer
+  with the reason injected, bounded by an anti-ping-pong cap (same proposer→target
+  after a refuse falls to the fallback); the supervisor's own proposals auto-accept;
+  plan-owner routing is NOT supervised (the plan is the supervisor's own artifact);
+  any non-decision outcome (error, interruption, no `route_decision` call, abort)
+  degrades that hop to auto — a dead supervisor never blocks the room. Transcript
+  traces `✓ / ↪ / ✗` + `routing` SSE events; clients (TUI ⇧⇥ cycle + `/route`, web
+  buttons) learn the mode. Live-smoked on an isolated instance: first real decision
+  ever was a motivated refuse, return-to-sender complied, abort mid-flow left no
+  orphan `pendingRoute`. Design + retro: `docs/supervised-routing.md`.
+
+### Fixed
+
+- **One-handoff-per-turn guard was a TOCTOU race** — pi's agent loop executes a
+  batch's tool calls in PARALLEL unless a tool declares `executionMode: "sequential"`;
+  two `handoff` calls in one reply both passed the `peekHandoff` guard (both peek
+  before either registers) and the second silently won. Observed live (session
+  mrff3qwe entry 6: `handoff(tester)` + `handoff(auditor)`, both "ok", auditor got the
+  turn while the builder's prose said "à toi @tester"). All four turn-control tools —
+  `handoff`, `route_decision`, `ask_user`, `ask_orchestrator` — now declare
+  `executionMode: "sequential"`; contract test pins the flag so the race can't return
+  silently.
+
+- **Fallback/plan-routing notice now states the dispatch order** — "No handoff
+  detected — routing to @planner" fired while an earlier wave still had agents queued
+  ahead, so the NEXT visible turn (e.g. @tester from a multi-mention user message)
+  looked like it came out of nowhere. The notice now appends `(queued after @…)`
+  when the routed agent lands behind existing queue entries.
+
+### Known issue (decision pending)
+
+- **User-message mention parsing routes on quoted/pasted content** — pasting a
+  transcript or report containing `@builder`-style strings into a user message
+  targets those agents (this is what queued the surprise @tester turn in session
+  mrff3qwe: the pasted smoke report contained `✗ @builder → @tester refused`). The
+  agent-side twin of this bug (F5) was fixed by the enum handoff tool; the
+  user-side fix is a product decision — candidates: a routing-preview chip in the
+  composer before send, a paste-safe mode, or restricting mention scanning to the
+  message's first line.
+
 ## [Unreleased] — 2026-07-10
 
 ### Added

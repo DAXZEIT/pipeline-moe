@@ -89,6 +89,10 @@ export function createRouteDecisionToolDefinition(
   return {
     name: "route_decision",
     label: "Route decision",
+    // Same rationale as handoff's executionMode: batch tool calls run in
+    // parallel by default; a double route_decision in one reply must
+    // serialize so the first-decision-stands guard is not a TOCTOU race.
+    executionMode: "sequential",
     description:
       "Decide the fate of the pending handoff proposal set. Call exactly once: " +
       "accept (dispatch as proposed), refuse (return to the proposer with your reason), " +

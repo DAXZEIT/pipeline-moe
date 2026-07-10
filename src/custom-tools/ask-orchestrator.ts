@@ -27,6 +27,9 @@ export function createAskOrchestratorToolDefinition(
   return {
     name: "ask_orchestrator",
     label: "Ask Orchestrator",
+    // Turn-control tool: serialize within a batch (see handoff.ts — pi runs
+    // batch tool calls in parallel unless one declares itself sequential).
+    executionMode: "sequential",
     description:
       "Escalate a question to the orchestrator that spawned this room (in its parent room) and " +
       "PAUSE this room until the answer arrives. Use it when you are blocked on a decision that " +

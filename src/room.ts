@@ -1904,10 +1904,18 @@ export class Room {
 
       if (routedTo) {
         this.chainBudget += 1
+        // The notice must describe the DISPATCH ORDER, not just the append:
+        // when a wave is still queued (e.g. a user message targeted several
+        // agents), the routed agent runs after them — a bare "routing to @x"
+        // reads as "x is next" and made the next wave turn look like it came
+        // out of nowhere (observed live 2026-07-11, session mrff3qwe: notice
+        // named @planner, the queued @tester ran next).
+        const ahead = target.map((t) => t.persona.id)
+        const queuedNote = ahead.length > 0 ? ` (queued after @${ahead.join(", @")})` : ""
         target.push(routedTo)
         this.emit("turn", { phase: "chain", from: fromId, targets: [routedTo.persona.id] })
         if (viaPlan) {
-          this.notice(`Plan step routing — no handoff detected, next step owned by @${routedTo.persona.id}`, "info")
+          this.notice(`Plan step routing — no handoff detected, next step owned by @${routedTo.persona.id}${queuedNote}`, "info")
           // Inject routing context so the owner knows why it's being called.
           await routedTo.sendCustomMessage(
             {
@@ -1918,7 +1926,7 @@ export class Room {
             { deliverAs: "nextTurn" },
           )
         } else {
-          this.notice(`No handoff detected — routing to @${routedTo.persona.id}`, "info")
+          this.notice(`No handoff detected — routing to @${routedTo.persona.id}${queuedNote}`, "info")
           // Inject routing context so the fallback agent knows why it's being called.
           await routedTo.sendCustomMessage(
             {

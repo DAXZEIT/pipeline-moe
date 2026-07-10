@@ -45,6 +45,15 @@ export function createHandoffToolDefinition(sink: HandoffSink, personaId: string
   return {
     name: "handoff",
     label: "Handoff",
+    // Load-bearing: pi executes a batch's tool calls in PARALLEL unless a
+    // tool in the batch declares itself sequential (agent-loop.js picks the
+    // strategy per batch). Without this, two handoff calls in one reply run
+    // concurrently and BOTH pass the peekHandoff guard below (TOCTOU: both
+    // peek before either registers) — observed live 2026-07-10 23:48, entry 6
+    // of session mrff3qwe: handoff(tester) then handoff(auditor), both "ok",
+    // auditor silently won. Sequential execution is what makes the
+    // one-handoff-per-turn guard sound.
+    executionMode: "sequential",
     description:
       "Pass your turn to another agent in this room. Pick exactly one active agent id — " +
       "writing '@name' in your reply does NOT hand off anything anymore, only this tool call " +

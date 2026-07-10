@@ -51,6 +51,9 @@ export function createAskUserToolDefinition(): ToolDefinition<typeof askUserSche
   return {
     name: "ask_user",
     label: "Ask User",
+    // Turn-control tool: serialize within a batch (see handoff.ts — pi runs
+    // batch tool calls in parallel unless one declares itself sequential).
+    executionMode: "sequential",
     description:
       "Pause the pipeline and ask the user a clarifying question. " +
       "Use this when you need information only the user can provide — " +
