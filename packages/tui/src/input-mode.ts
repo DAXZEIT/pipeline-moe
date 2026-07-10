@@ -17,11 +17,12 @@ export function inputMode(value: string): InputMode {
 
 /** Routing colors double as the plain-text border: cyan = auto (the room
  *  decides), blue = semi (proposals need your ⏎), gray = manual (nothing moves
- *  without an @mention). */
+ *  without an @mention), magenta = supervised (the supervisor agent decides). */
 export const ROUTING_COLOR: Record<RoutingMode, string> = {
   auto: "cyan",
   semi: "blue",
   manual: "gray",
+  supervised: "magenta",
 }
 
 /** Border color for the input box. `live` = focused AND connected — a dead or

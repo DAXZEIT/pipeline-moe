@@ -46,7 +46,7 @@ export function CommandLine({
   onRoomNav?: (dir: -1 | 1) => void
   /** ⏎ on an empty line — used by the tab bar's "+ room" tab. */
   onEmptyEnter?: () => void
-  /** ⇧⇥ cycles the routing mode (auto → semi → manual). */
+  /** ⇧⇥ cycles the routing mode (auto → semi → manual → supervised). */
   onRoutingCycle?: () => void
   /** "!" shell mode: run a command in the room's workspace (shared context). */
   onShell?: (command: string) => void

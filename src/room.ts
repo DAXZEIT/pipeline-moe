@@ -15,6 +15,7 @@ import type { SseHub, SseEventName } from "./sse.js"
 import type { LocalModelLock } from "./local-model-lock.js"
 import { goalEvalPrompt } from "./personas.js"
 import { findPlanById, nextStepOwner, planAdoptionId } from "./plan-routing.js"
+import { runSupervisorDecision, type SupervisorOutcome } from "./route-supervisor.js"
 import { TaskBoard } from "./task-board.js"
 import type {
   Conversation,
@@ -133,9 +134,10 @@ export class Room {
   private aborted = false
   /** Routing mode. 'auto' chains @mentions directly (today's default); 'semi'
    *  pauses each proposed handoff for human approval; 'manual' honors no
-   *  agent→agent chaining. The legacy `chaining` boolean is derived from this
-   *  (auto/semi → on, manual → off) so existing settings, persistence, and tests
-   *  keep working unchanged. */
+   *  agent→agent chaining; 'supervised' submits each proposed handoff to the
+   *  supervisor agent for decision. The legacy `chaining` boolean is derived
+   *  from this (auto/semi/supervised → on, manual → off) so existing settings,
+   *  persistence, and tests keep working unchanged. */
   private routingMode: RoutingMode = "auto"
   private get chaining(): boolean { return this.routingMode !== "manual" }
   private set chaining(value: boolean) { this.routingMode = value ? "auto" : "manual" }
@@ -144,12 +146,30 @@ export class Room {
   private chainBudget = 0
   /** Set when an agent called ask_user — pipeline is paused until user responds. */
   private pendingQuestion: PendingQuestion | null = null
-  /** Set in semi/manual mode when proposed handoffs await human approval. */
+  /** Set in semi/manual mode when proposed handoffs await human approval.
+   *  Reused in supervised mode with the supervisor agent as approver. */
   private pendingRoute: PendingRoute | null = null
+  /** Cancel handle for an in-flight supervised decision (the ephemeral
+   *  route-supervisor session). Pulled by abortCurrent(): the session is not
+   *  a Participant, so the running-set abort sweep never reaches it. */
+  private supervisorAbort: (() => void) | null = null
+  /** Anti-ping-pong cap memory: "from→target" pairs the supervisor refused
+   *  this turn. A re-proposition of a refused pair escapes to the fallback
+   *  agent (or drops) instead of another review round. Cleared at turn start
+   *  and endTurn — refusals only bind within the turn they happened in. */
+  private refusedRoutes = new Set<string>()
+  /** Injectable seam for tests: the stateless supervisor decision runner.
+   *  Production always uses runSupervisorDecision; tests stub it to script
+   *  verdicts without a live model. */
+  private supervisorRunner: typeof runSupervisorDecision = runSupervisorDecision
   /** Agent that handles messages with no @mention. null = first active. */
   private defaultAgentId: string | null = null
   /** Agent that receives routing fallback when no agent is @-mentioned in a reply. null = disabled. */
   private fallbackAgentId: string | null = "planner"
+  /** Agent that decides handoff proposals in `supervised` mode (accept /
+   *  refuse / transfer). null = no supervisor → supervised hops degrade to
+   *  auto. Default "planner" — same rationale as fallbackAgentId. */
+  private supervisorAgentId: string | null = "planner"
   /** When true, no-mention routing consults the active plan (`.pi/plans/`) first:
    *  if the next incomplete step has an `[agent]` owner prefix, route there
    *  instead of the generic fallback agent. Falls through to fallbackAgentId
@@ -374,6 +394,20 @@ export class Room {
     void this.saveCurrent()
   }
 
+  getSupervisorAgent(): string | null {
+    return this.supervisorAgentId
+  }
+
+  /** Set the agent that decides supervised handoffs. null = no supervisor
+   *  (supervised hops degrade to auto). Like fallbackAgent, the id must name
+   *  a current roster member when non-null. */
+  setSupervisorAgent(id: string | null): void {
+    if (id !== null && !this.registry.has(id)) throw new Error(`unknown participant "${id}"`)
+    this.supervisorAgentId = id
+    this.broadcastSettings()
+    void this.saveCurrent()
+  }
+
   getPlanAwareRouting(): boolean {
     return this.planAwareRoutingEnabled
   }
@@ -463,6 +497,7 @@ export class Room {
       routingMode: this.routingMode,
       defaultAgent: this.defaultAgentId,
       fallbackAgent: this.fallbackAgentId,
+      supervisorAgent: this.supervisorAgentId,
       planAwareRouting: this.planAwareRoutingEnabled,
       maxChainHops: this.maxChainHops,
       defaultThinkingLevel: this.defaultThinkingLevel,
@@ -502,6 +537,7 @@ export class Room {
       routingMode: this.routingMode,
       defaultAgent: this.defaultAgentId,
       fallbackAgent: this.fallbackAgentId,
+      supervisorAgent: this.supervisorAgentId,
       planAwareRouting: this.planAwareRoutingEnabled,
       defaultThinkingLevel: this.defaultThinkingLevel,
       allowCloud: this.allowCloud,
@@ -612,6 +648,8 @@ export class Room {
     this.routingMode = conv.routingMode ?? (conv.chaining ? "auto" : "manual")
     this.defaultAgentId = conv.defaultAgent ?? null
     this.fallbackAgentId = conv.fallbackAgent ?? "planner"
+    // Back-compat: older saves don't have supervisorAgent — default "planner".
+    this.supervisorAgentId = conv.supervisorAgent ?? "planner"
     this.planAwareRoutingEnabled = conv.planAwareRouting ?? true
     this.handoffGates = conv.handoffGates ?? []
     this.registry.setHandoffGates?.(this.handoffGates)
@@ -779,6 +817,9 @@ export class Room {
   /** End the current turn — clears runningAgentId and broadcasts turn end. */
   private async endTurn(): Promise<void> {
     this.runningAgentId = null
+    // Refusal cap memory is per-turn — a refuse must survive the proposer's
+    // re-run (which happens within the turn) but not leak into the next one.
+    this.refusedRoutes.clear()
     // Natural turn completion: if a goal was running, resolve it.
     if (this.goalText !== null && this.goalStatus === "running") {
       if (this.goalMode === "eval") {
@@ -1171,6 +1212,9 @@ export class Room {
   private async process(text: string, images?: string[]): Promise<void> {
     const trimmed = text.trim()
     this.chainBudget = 0 // reset chain budget for this turn
+    // Defensive: an aborted turn never reaches endTurn, so stale refusals
+    // could otherwise cap a legitimate proposal in the NEXT turn.
+    this.refusedRoutes.clear()
 
     // Handle /cancel while paused — cancel the question and drain the held queue.
     if (this.pendingQuestion && trimmed === "/cancel") {
@@ -1274,15 +1318,24 @@ export class Room {
         if (this.chaining && !interrupted) {
           const proposed = await this.proposeChain(asker.persona.id, pq.heldQueue, { prepend: true })
           if (proposed.length > 0) {
-            // semi/manual: pause for approval instead of continuing the drain.
-            this.pendingRoute = {
-              proposals: proposed.map((t) => ({ fromId: asker.persona.id, target: t })),
-              heldQueue: pq.heldQueue,
+            const proposals = proposed.map((t) => ({ fromId: asker.persona.id, target: t }))
+            if (this.routingMode === "supervised") {
+              // supervised: same shared path as the drain tail. Paused → the
+              // decision is now part of the held work; synchronous resolution
+              // → fall through and resume the held queue below.
+              if (this.superviseProposals(proposals, pq.heldQueue, { prepend: true })) {
+                await this.emitWorkspace()
+                await this.saveCurrent()
+                return
+              }
+            } else {
+              // semi/manual: pause for approval instead of continuing the drain.
+              this.pendingRoute = { proposals, heldQueue: pq.heldQueue }
+              this.emitRoutingProposed()
+              await this.emitWorkspace()
+              await this.saveCurrent()
+              return
             }
-            this.emitRoutingProposed()
-            await this.emitWorkspace()
-            await this.saveCurrent()
-            return
           }
         }
       }
@@ -1962,7 +2015,12 @@ export class Room {
     if (decision.action === "approve") {
       toRun = pr.proposals.map((p) => p.target)
     } else if (decision.action === "redirect") {
-      toRun = (decision.targetIds ?? [])
+      // De-dupe ids (F1, audit 2026-07-10): a model-produced targetIds can
+      // repeat an id far more readily than a human click — without the Set,
+      // the same Participant is enqueued twice (double turn, double budget),
+      // and a parallel cloud agent would even run its ONE session concurrently
+      // in the same wave. Covers the human redirect path too.
+      toRun = [...new Set(decision.targetIds ?? [])]
         .map((id) => this.registry.get(id))
         .filter((p): p is Participant => !!p && p.active)
     }
@@ -1986,6 +2044,253 @@ export class Room {
     this.queue = []
     await this.endTurn()
     await this.saveCurrent()
+  }
+
+  // ── Supervised routing (phase 1 — docs/supervised-routing.md) ──────────
+
+  /** Supervised mode: process a freshly formed proposal set (wave tail or
+   *  ask_user resume). Applies the anti-ping-pong cap, auto-accepts the
+   *  supervisor's own proposals, degrades to auto when no supervisor is
+   *  available, and otherwise opens a pendingRoute and starts the stateless
+   *  decision. Shared by both call sites on purpose — duplicated drain-branch
+   *  logic is a known divergence-bug class in this file.
+   *  Mutates `held` in place on the synchronous paths. Returns true when the
+   *  room paused on a pendingRoute (caller stops draining); false when the
+   *  set resolved synchronously and the caller should continue with `held`. */
+  private superviseProposals(proposals: RouteProposal[], held: Participant[], opts?: { prepend?: boolean }): boolean {
+    const enqueue = (targets: Participant[], from: string | null) => {
+      const fresh = targets.filter((t) => !held.includes(t))
+      if (fresh.length === 0) return
+      if (this.chainBudget >= this.maxChainHops) {
+        this.notice(`Chain budget exhausted (${this.maxChainHops} hops) — stopping.`, "info")
+        return
+      }
+      this.chainBudget += fresh.length
+      if (opts?.prepend) held.unshift(...fresh)
+      else held.push(...fresh)
+      this.emit("turn", { phase: "chain", from, targets: fresh.map((t) => t.persona.id) })
+    }
+
+    // Anti-ping-pong cap: a pair the supervisor refused this turn never
+    // re-enters review — it escapes to the fallback agent, or drops. The
+    // escape is deliberately NOT supervised: it is the loop's exit hatch,
+    // reviewing it would re-open the loop.
+    const fresh: RouteProposal[] = []
+    for (const p of proposals) {
+      if (!this.refusedRoutes.has(`${p.fromId}→${p.target.persona.id}`)) {
+        fresh.push(p)
+        continue
+      }
+      const fb = this.fallbackAgentId && this.fallbackAgentId !== p.fromId ? this.registry.get(this.fallbackAgentId) : undefined
+      if (fb && fb.active) {
+        this.notice(`⛔ @${p.fromId} re-proposed @${p.target.persona.id} after a refusal — falling to fallback @${fb.persona.id}`, "info")
+        enqueue([fb], null)
+      } else {
+        this.notice(`⛔ @${p.fromId} re-proposed @${p.target.persona.id} after a refusal — dropped`, "info")
+      }
+    }
+    if (fresh.length === 0) return false
+
+    // No one supervises the supervisor: a set proposed entirely by the
+    // supervisor auto-accepts — visible via the chain event, no runner.
+    // (Mixed sets cannot be split without complicating resolveRoute; the
+    // supervisor judging a set containing its own proposal is acceptable.)
+    const supId = this.supervisorAgentId
+    if (supId && fresh.every((p) => p.fromId === supId)) {
+      enqueue(fresh.map((p) => p.target), supId)
+      return false
+    }
+
+    // Dead-supervisor invariant: no active supervisor → degrade the hop to
+    // auto. Degradation = dispatch as proposed, never a stall or a drop.
+    const supervisor = supId ? this.registry.get(supId) : undefined
+    if (!supervisor || !supervisor.active) {
+      this.notice("supervised routing: no active supervisor — hop degraded to auto", "info")
+      enqueue(fresh.map((p) => p.target), null)
+      return false
+    }
+
+    this.pendingRoute = { proposals: fresh, heldQueue: [...held] }
+    this.emitRoutingProposed()
+    this.startSupervisorDecision(supervisor)
+    return true
+  }
+
+  /** Fire-and-forget: run the stateless supervisor decision for the current
+   *  pendingRoute, then apply the verdict through the serialized turn chain.
+   *  The inertness guard (pendingRoute identity) lives INSIDE the chained
+   *  section: if the user aborted, or a human raced the supervisor via the
+   *  approval card, the outcome is a no-op. */
+  private startSupervisorDecision(supervisor: Participant): void {
+    const pr = this.pendingRoute
+    if (!pr) return
+    void (async () => {
+      let outcome: SupervisorOutcome
+      try {
+        const proposers = new Set(pr.proposals.map((p) => p.fromId))
+        outcome = await this.supervisorRunner({
+          workspaceDir: this.workspaceDir,
+          resolved: this.registry.resolvedModel,
+          allowCloud: this.allowCloud,
+          personaModel: supervisor.persona.model,
+          // Transfer targets: anyone active except the proposers themselves —
+          // "transfer back to sender" without a reason is what refuse is for.
+          validTargetIds: this.registry.activeIds().filter((id) => !proposers.has(id)),
+          prompt: await this.buildSupervisorPrompt(pr, supervisor.persona.id),
+          registerAbort: (abort) => { this.supervisorAbort = abort },
+        })
+      } catch (err) {
+        // The real runner never throws, but the seam is injectable and the
+        // prompt build touches the plan dir. Same rule: non-decision = degrade.
+        outcome = { decision: null, degraded: err instanceof Error ? err.message : String(err) }
+      } finally {
+        this.supervisorAbort = null
+      }
+      this.chain = this.chain.then(async () => {
+        if (this.pendingRoute !== pr) return // aborted / superseded / human raced us — inert
+        await this.applySupervisorOutcome(pr, outcome, supervisor)
+      }).catch((err) => {
+        this.notice(`Room error: ${err instanceof Error ? err.message : String(err)}`, "error")
+      })
+    })()
+  }
+
+  /** Apply a supervisor outcome to the pending set. accept/transfer reuse
+   *  processRouteDecision verbatim (approve/redirect); refuse is the new
+   *  return-to-sender branch; a non-decision degrades to approve — dispatch,
+   *  never stall. Every decision leaves a transcript trace authored by the
+   *  supervisor (observability-before-behavior invariant). */
+  private async applySupervisorOutcome(pr: PendingRoute, outcome: SupervisorOutcome, supervisor: Participant): Promise<void> {
+    const supId = supervisor.persona.id
+    const setLabel = pr.proposals.map((p) => `@${p.fromId} → @${p.target.persona.id}`).join(", ")
+    const d = outcome.decision
+    if (!d) {
+      this.notice(`supervised routing degraded to auto (${outcome.degraded ?? "no decision"}) — dispatching as proposed`, "info")
+      await this.processRouteDecision({ action: "approve" })
+      return
+    }
+    if (d.verdict === "accept") {
+      this.post(supId, supervisor.persona.name, `✓ ${setLabel} — ${d.reason}`)
+      await this.processRouteDecision({ action: "approve" })
+    } else if (d.verdict === "transfer") {
+      const to = (d.targetIds ?? []).map((t) => `@${t}`).join(" ")
+      this.post(supId, supervisor.persona.name, `↪ ${setLabel} redirected → ${to} — ${d.reason}`)
+      await this.processRouteDecision({ action: "redirect", targetIds: d.targetIds })
+    } else {
+      this.post(supId, supervisor.persona.name, `✗ ${setLabel} refused — ${d.reason}`)
+      await this.processRouteRefusal(d.reason, supId)
+    }
+  }
+
+  /** Refuse = return-to-sender: each proposer re-runs with the refusal reason
+   *  injected (same channel as the no-handoff menu), bounded by the cap armed
+   *  here. This is a new control path — refuse ≠ drop: drop continues the
+   *  held work only, refuse re-runs the proposer first. */
+  private async processRouteRefusal(reason: string, supervisorId: string): Promise<void> {
+    const pr = this.pendingRoute
+    if (!pr) return
+    this.pendingRoute = null
+    this.aborted = false
+
+    // Arm the cap BEFORE the re-run: an identical re-proposition this turn
+    // escapes to the fallback instead of another review round.
+    for (const p of pr.proposals) {
+      this.refusedRoutes.add(`${p.fromId}→${p.target.persona.id}`)
+    }
+
+    const rerun: Participant[] = []
+    for (const fromId of [...new Set(pr.proposals.map((p) => p.fromId))]) {
+      const proposer = this.registry.get(fromId)
+      if (!proposer || !proposer.active) continue
+      const refusedTargets = pr.proposals
+        .filter((p) => p.fromId === fromId)
+        .map((p) => `@${p.target.persona.id}`)
+        .join(", ")
+      await proposer.sendCustomMessage(
+        {
+          customType: "route_refusal",
+          content:
+            `Your handoff to ${refusedTargets} was refused by the supervisor @${supervisorId}: ${reason}\n` +
+            "Reconsider: continue the work yourself, hand off to a different agent, or end your turn " +
+            "without a handoff. Re-proposing the same target will fall to the fallback agent instead of another review.",
+          display: false,
+        },
+        { deliverAs: "nextTurn" },
+      )
+      if (!pr.heldQueue.includes(proposer)) rerun.push(proposer)
+    }
+    if (rerun.length > 0) {
+      // Same budget discipline as every other enqueue path (F2, audit): a
+      // budget-exhausted room does NOT re-run the proposer — the refusal
+      // reason is already delivered (nextTurn message above), it will reach
+      // the agent whenever it legitimately runs next.
+      if (this.chainBudget >= this.maxChainHops) {
+        this.notice(`Chain budget exhausted (${this.maxChainHops} hops) — refusal delivered, proposer not re-run.`, "info")
+        rerun.length = 0
+      } else {
+        this.chainBudget += rerun.length
+        this.emit("turn", { phase: "chain", from: null, targets: rerun.map((t) => t.persona.id) })
+      }
+    }
+    this.emit("routing", { type: "resolved", action: "refuse", targets: [] })
+
+    // Return-to-sender runs BEFORE the held work — the proposer's follow-up
+    // is the live intent; the frozen queue resumes after.
+    this.queue = [...rerun, ...pr.heldQueue]
+    const paused = await this.drainQueue()
+    if (paused) {
+      await this.emitWorkspace()
+      await this.saveCurrent()
+      return
+    }
+    this.queue = []
+    await this.endTurn()
+    await this.saveCurrent()
+  }
+
+  /** Micro-context for the stateless decision: the proposal set, each
+   *  proposer's last message, plan/board state, and the live roster. Bounded
+   *  by design — that boundedness is the whole point of the stateless
+   *  variant (a live-session decision would grow the most expensive context
+   *  in the room on every hop). */
+  private async buildSupervisorPrompt(pr: PendingRoute, supervisorId: string): Promise<string> {
+    const lines: string[] = []
+    lines.push("Routing decision needed. Proposed handoff(s) — one decision covers the whole set:")
+    for (const p of pr.proposals) {
+      lines.push(`- @${p.fromId} → @${p.target.persona.id} (${p.target.persona.name})`)
+    }
+
+    for (const fromId of [...new Set(pr.proposals.map((p) => p.fromId))]) {
+      for (let i = this.transcript.length - 1; i >= 0; i--) {
+        const entry = this.transcript[i]
+        if (entry.author !== fromId) continue
+        const text = entry.text.length > 1500 ? entry.text.slice(0, 1500) + "… (truncated)" : entry.text
+        lines.push("", `Last message from @${fromId}:`, text)
+        break
+      }
+    }
+
+    const tasks = this.taskBoard.list()
+    if (tasks.length > 0) {
+      lines.push("", "Task board:")
+      for (const t of tasks.slice(0, 25)) {
+        const mark = t.status === "completed" ? "✔" : t.status === "in_progress" ? "▶" : " "
+        lines.push(`#${t.id} [${mark}] ${t.subject}${t.owner ? ` (@${t.owner})` : ""}`)
+      }
+    }
+
+    if (this.activePlanId) {
+      const plan = await findPlanById(this.plansDir(), this.activePlanId)
+      const next = plan?.steps.find((s) => !s.done)
+      if (plan && next) {
+        lines.push("", `Active plan "${plan.title}" — next incomplete step: ${next.text}`)
+      }
+    }
+
+    const roster = this.registry.activeIds().map((id) => (id === supervisorId ? `${id} (you — the supervisor)` : id))
+    lines.push("", `Active agents: ${roster.join(", ")}`)
+    lines.push("", "Decide with route_decision: accept, refuse (your reason returns to the proposer), or transfer (targetIds).")
+    return lines.join("\n")
   }
 
   private async drainQueue(): Promise<boolean> {
@@ -2088,7 +2393,17 @@ export class Room {
 
       // semi/manual: if any handoffs were proposed this wave, pause for approval
       // before running them. The held queue resumes after the human decides.
+      // supervised: same pendingRoute machinery, but the approver is the
+      // supervisor agent — or the set resolves synchronously (cap escape /
+      // supervisor auto-accept / degradation) and the drain just continues.
       if (waveProposals.length > 0) {
+        if (this.routingMode === "supervised") {
+          if (this.superviseProposals(waveProposals, this.queue)) {
+            this.queue = []
+            return true
+          }
+          continue
+        }
         this.pendingRoute = { proposals: waveProposals, heldQueue: [...this.queue] }
         this.queue = []
         this.emitRoutingProposed()
@@ -2112,6 +2427,12 @@ export class Room {
     this.queue = []
     this.pendingQuestion = null
     this.pendingRoute = null
+    // In-flight supervised decision: the ephemeral route-supervisor session is
+    // not a Participant, so the running-set sweep below never reaches it. Its
+    // outcome is already inert (pendingRoute identity guard) — aborting just
+    // stops paying for a micro-turn that decides into the void.
+    this.supervisorAbort?.()
+    this.supervisorAbort = null
     await Promise.all([...this.running].map((p) => p.abort()))
     return had
   }

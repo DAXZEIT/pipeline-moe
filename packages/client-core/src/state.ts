@@ -69,6 +69,8 @@ export interface RoomState {
   routingMode: RoutingMode
   defaultAgent: string | null
   fallbackAgent: string | null
+  /** Agent deciding handoffs in `supervised` routing mode. */
+  supervisorAgent: string | null
   maxChainHops: number
   defaultThinkingLevel: ThinkingLevel
   allowCloud: boolean
@@ -113,6 +115,7 @@ export const initialRoomState: RoomState = {
   routingMode: "auto",
   defaultAgent: null,
   fallbackAgent: null,
+  supervisorAgent: null,
   maxChainHops: 30,
   defaultThinkingLevel: "medium",
   allowCloud: false,
@@ -382,6 +385,7 @@ export function reduce(state: RoomState, event: SseEvent): ReduceResult {
         routingMode?: RoutingMode
         defaultAgent?: string | null
         fallbackAgent?: string | null
+        supervisorAgent?: string | null
         maxChainHops?: number
         defaultThinkingLevel?: ThinkingLevel
         allowCloud?: boolean
@@ -393,6 +397,7 @@ export function reduce(state: RoomState, event: SseEvent): ReduceResult {
       if (d.routingMode !== undefined) next.routingMode = d.routingMode
       if (d.defaultAgent !== undefined) next.defaultAgent = d.defaultAgent
       if (d.fallbackAgent !== undefined) next.fallbackAgent = d.fallbackAgent
+      if (d.supervisorAgent !== undefined) next.supervisorAgent = d.supervisorAgent
       if (d.maxChainHops !== undefined) next.maxChainHops = d.maxChainHops
       if (d.defaultThinkingLevel !== undefined) next.defaultThinkingLevel = d.defaultThinkingLevel
       if (d.allowCloud !== undefined) next.allowCloud = d.allowCloud

@@ -150,8 +150,9 @@ export interface PresetFile {
   personas: PresetPersona[]
 }
 
-/** How agent→agent handoffs are routed within a room. */
-export type RoutingMode = "auto" | "semi" | "manual"
+/** How agent→agent handoffs are routed within a room. `supervised` routes
+ *  each proposal through the supervisor agent instead of a human. */
+export type RoutingMode = "auto" | "semi" | "manual" | "supervised"
 
 /** A proposed handoff awaiting human approval (semi/manual routing). */
 export interface RouteProposal {
@@ -181,6 +182,8 @@ export interface RoomSettings {
   routingMode: RoutingMode
   defaultAgent: string | null
   fallbackAgent?: string | null
+  /** Agent deciding handoffs in `supervised` mode. Absent on older servers. */
+  supervisorAgent?: string | null
   maxChainHops: number
   defaultThinkingLevel: "off" | "minimal" | "low" | "medium" | "high" | "xhigh"
   allowCloud: boolean

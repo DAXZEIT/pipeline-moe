@@ -148,6 +148,7 @@ export function createRoomStore(opts: RoomStoreOptions) {
         defaultAgent: s.defaultAgent,
       }
       if (s.fallbackAgent !== undefined) next.fallbackAgent = s.fallbackAgent
+      if (s.supervisorAgent !== undefined) next.supervisorAgent = s.supervisorAgent
       if (s.maxChainHops !== undefined) next.maxChainHops = s.maxChainHops
       if (s.defaultThinkingLevel !== undefined) next.defaultThinkingLevel = s.defaultThinkingLevel
       if (s.allowCloud !== undefined) next.allowCloud = s.allowCloud
@@ -342,6 +343,10 @@ export function createRoomStore(opts: RoomStoreOptions) {
 
     setFallbackAgent: (id: string | null) => {
       rApi.setFallbackAgent(id).then((s) => patch({ fallbackAgent: s.fallbackAgent ?? null })).catch(fail)
+    },
+
+    setSupervisorAgent: (id: string | null) => {
+      rApi.setSupervisorAgent(id).then((s) => patch({ supervisorAgent: s.supervisorAgent ?? null })).catch(fail)
     },
 
     setMaxChainHops: (n: number) => {

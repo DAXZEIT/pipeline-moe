@@ -1193,6 +1193,7 @@ async function main(): Promise<void> {
     routingMode: r.getRoutingMode(),
     defaultAgent: r.getDefaultAgent(),
     fallbackAgent: r.getFallbackAgent(),
+    supervisorAgent: r.getSupervisorAgent(),
     planAwareRouting: r.getPlanAwareRouting(),
     maxChainHops: r.getMaxChainHops(),
     defaultThinkingLevel: r.getDefaultThinkingLevel(),
@@ -1273,6 +1274,19 @@ async function main(): Promise<void> {
         return
       }
     }
+    if ("supervisorAgent" in body) {
+      const sa = body.supervisorAgent
+      if (sa !== null && typeof sa !== "string") {
+        res.status(400).json({ error: "`supervisorAgent` must be a string id or null" })
+        return
+      }
+      try {
+        room.setSupervisorAgent(sa)
+      } catch (err) {
+        res.status(404).json({ error: err instanceof Error ? err.message : String(err) })
+        return
+      }
+    }
     if ("planAwareRouting" in body) {
       if (typeof body.planAwareRouting !== "boolean") {
         res.status(400).json({ error: "`planAwareRouting` must be a boolean" })
@@ -1290,8 +1304,8 @@ async function main(): Promise<void> {
     }
     if ("routingMode" in body) {
       const m = body.routingMode
-      if (m !== "auto" && m !== "semi" && m !== "manual") {
-        res.status(400).json({ error: "`routingMode` must be 'auto', 'semi', or 'manual'" })
+      if (m !== "auto" && m !== "semi" && m !== "manual" && m !== "supervised") {
+        res.status(400).json({ error: "`routingMode` must be 'auto', 'semi', 'manual', or 'supervised'" })
         return
       }
       room.setRoutingMode(m)
@@ -1885,6 +1899,17 @@ async function main(): Promise<void> {
         return
       }
     }
+    if ("supervisorAgent" in body) {
+      const sa = body.supervisorAgent
+      if (sa !== null && typeof sa !== "string") {
+        res.status(400).json({ error: "`supervisorAgent` must be a string id or null" })
+        return
+      }
+      try { r.setSupervisorAgent(sa) } catch (err) {
+        res.status(404).json({ error: err instanceof Error ? err.message : String(err) })
+        return
+      }
+    }
     if ("planAwareRouting" in body) {
       if (typeof body.planAwareRouting !== "boolean") {
         res.status(400).json({ error: "`planAwareRouting` must be a boolean" })
@@ -1902,8 +1927,8 @@ async function main(): Promise<void> {
     }
     if ("routingMode" in body) {
       const m = body.routingMode
-      if (m !== "auto" && m !== "semi" && m !== "manual") {
-        res.status(400).json({ error: "`routingMode` must be 'auto', 'semi', or 'manual'" })
+      if (m !== "auto" && m !== "semi" && m !== "manual" && m !== "supervised") {
+        res.status(400).json({ error: "`routingMode` must be 'auto', 'semi', 'manual', or 'supervised'" })
         return
       }
       r.setRoutingMode(m)

@@ -2,7 +2,7 @@
 
 > Maintenu par le planner. Backlog priorisé + registre de dette technique.
 > Chaque clôture de plan verse ses follow-ups ici au lieu de les perdre dans le chat.
-> Dernière mise à jour : 2026-07-10
+> Dernière mise à jour : 2026-07-10 (supervised routing phase 1 clos)
 
 ---
 
@@ -20,15 +20,19 @@
 4. **Plan-lint** (suggestion auditor, 2026-07-08) : avertir quand l'owner d'un step claimed poste N fois sans le compléter — mitigation ciblée de l'oscillation owner↔fallback (voir décision ci-dessous) si elle devient fréquente en pratique. Pas de détection runtime : un lint, pas un breaker.
 5. **Hygiène des statuts de plans** : ~24 plans historiques non-complétés dont le statut oscille draft/active sans signification (constat empirique PLAN-c1874a35). Passe de nettoyage : marquer completed/archived les plans manifestement livrés ou abandonnés — réduit le bruit pour la sélection mtime du plan-aware routing.
 6. **Mécanisme `promptFrom`/template-alias pour personas non-seed** — `cloud-sprint` builder2 porte un systemPrompt figé qui *enseigne activement* le routage `@name` obsolète (seul le tool handoff route depuis 0.1.2x). Non-réhydratable (id non-seed) : le stripper = prompt vide, le refiger = perpétuer le drift. Fix : champ `promptFrom: "builder"` résolu à l'hydratation. **Élargissement : `systemPrompt` est éditable par agent** (PATCH `server.ts:1043/1719`) — le strip inconditionnel perd un prompt seed customisé au reload. Passer à strip-si-identique serait un choix de sémantique produit (snapshot vs référence). À trancher avec dax : les presets doivent-ils snapshotter les prompts (isolation volontaire) ou référencer les built-ins (anti-drift) ?
-7. **Flakes de teardown des tests** — `room-goals.test.ts` (`ENOTEMPTY` sur `rmSync` en exécution parallèle) et `local-model-lock.test.ts` (intermittent). Tous deux 100% verts en isolation. Fix probable : `rmSync(..., { maxRetries })` ou teardown séquentialisé. Pré-existants, documentés le 2026-07-10.
+7. **Supervised routing — phase 2** (docs/supervised-routing.md) : (a) variante décision session-live — seulement si la qualité de décision stateless est *mesurée* insuffisante ; (b) F4 UX : la carte d'approbation devrait dire « superviseur en train de décider » (champ `decidedBy` sur l'event routing) ; (c) rename `semi`→`manual` + shim de compat au load — optionnel, cosmétique, découplé exprès.
+8. **Flakes de teardown des tests** — `room-goals.test.ts` (`ENOTEMPTY` sur `rmSync` en exécution parallèle) et `local-model-lock.test.ts` (intermittent). Tous deux 100% verts en isolation. Fix probable : `rmSync(..., { maxRetries })` ou teardown séquentialisé. Pré-existants, documentés le 2026-07-10.
 
 ## Dette technique / nettoyages opportunistes
 
 - **Branche morte `goalStatus: "failed"`** dans le chemin d'abort de room.ts (`submit()` + `runGoalEval()`). Prouvée inatteignable par l'auditor (2026-07-08, PLAN-6aa1e63a) : l'unique `this.aborted = true` (dans `abortCurrent()`) pose toujours `goalCancelled = true` sous la même condition. Défensive, inoffensive. À nettoyer ou commenter au prochain passage sur room.ts.
 - **`web/dist` et `packages/*/dist`** — artefacts rebuildés localement, gitignorés. RAS, noté pour mémoire.
+- **Supervised routing — dette de vérification** (2026-07-10) : (1) chemin session-vivante du runner jamais exécuté (stub-only) — smoke manuel requis : room en `supervised`, un handoff, vérifier la trace ✓/↪/✗ dans le transcript ; (2) interplay ask_user+supervised câblé (chemin partagé `superviseProposals`) mais sans test dédié — demande un mock plus profond du run pipeline ; (3) fenêtre F3 (Stop pendant décision en vol) durcie mais testable uniquement en live. La feature est livrée, pas encore *vérifiée en conditions réelles*.
 - **Work receipts : écritures `agent_memory/` omises de l'affichage** — observé 3× le 2026-07-10 (receipts du scribe ne listant que les fichiers racine, contenu vérifié présent sur disque à chaque fois). Vérifier si le scope du receipt exclut `agent_memory/` par design ou par bug ; si design, le rendre explicite.
 
 ## Décisions actées (ne pas rouvrir sans nouveau contexte)
+
+- **Supervised routing phase 1 livré** (2026-07-10, board 7/7, 1140/1140, audit clos). Le planner devient superviseur du dispatch au lieu de hop dans la chaîne : mode `supervised` additif (zéro rename, zéro migration), `supervisorAgent` (défaut planner), décision stateless en session éphémère (modèle du persona superviseur, tool unique `route_decision`, thinking low). Sémantiques actées : **refuse = return-to-sender** avec cap anti-ping-pong (re-proposition identique → fallback/drop, non supervisée — trappe de sortie) ; **dégradation = dispatch** (tout résultat non-décision → accept + notice, jamais stall ni drop) ; **plan-owner routing non supervisé** (le superviseur ne juge pas son propre plan) ; **auto-accept** des sets entièrement proposés par le superviseur, set mixte jugé entier ; **double `route_decision` = terminate** (écart délibéré vs handoff : une décision capturée n'a rien à réessayer). Design doc + retro : docs/supervised-routing.md.
 
 - **Boucle d'orchestration fermée** (commit `cbffaa2`, release 0.1.22, 2026-07-09). spawn_room n'est plus fire-and-forget : rapport automatique dans la room parente à la résolution du goal (tour du spawner déclenché, passif si pause), `ask_orchestrator` dans toute sub-room spawnée (pause type ask_user, marche dans les boucles goal-eval), `answer_room` pour répondre/reprendre. Au passage, fix réel : runGoalEval écrasait une pause ask_user (queue orpheline). Limite connue : le ParentLink est en mémoire — après restart serveur, une sub-room restaurée ne rapporte plus (check_room reste).
 

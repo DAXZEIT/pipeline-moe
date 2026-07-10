@@ -234,6 +234,13 @@ export function createApi(API_BASE: string) {
           body: JSON.stringify({ fallbackAgent }),
         }).then((r) => json<RoomSettings>(r)),
 
+      setSupervisorAgent: (supervisorAgent: string | null) =>
+        fetch(`${base}/settings`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ supervisorAgent }),
+        }).then((r) => json<RoomSettings>(r)),
+
       setMaxChainHops: (maxChainHops: number) =>
         fetch(`${base}/settings`, {
           method: "PATCH",

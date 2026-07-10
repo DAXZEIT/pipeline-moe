@@ -127,8 +127,11 @@ export interface PersonaState extends Persona {
 /** How agent→agent handoffs are routed within a room.
  *  - `auto`   — handoffs chain directly (default).
  *  - `semi`   — each proposed handoff pauses for human approval before dispatch.
- *  - `manual` — no agent→agent chaining; the human routes every step. */
-export type RoutingMode = "auto" | "semi" | "manual"
+ *  - `manual` — no agent→agent chaining; the human routes every step.
+ *  - `supervised` — each proposed handoff is decided by the supervisor agent
+ *    (accept / refuse / transfer) instead of a human. Degrades to `auto` for a
+ *    hop when the supervisor can't decide. */
+export type RoutingMode = "auto" | "semi" | "manual" | "supervised"
 
 /** Capability surface for the `handoff` tool: lets an agent pass its turn to
  *  another active agent via a single tool call instead of a free-text
@@ -202,6 +205,10 @@ export interface Conversation {
   defaultAgent: string | null
   /** Agent that receives routing fallback when no @mention is found in an agent's reply. null = disabled. */
   fallbackAgent?: string | null
+  /** Agent that decides handoff proposals in `supervised` routing mode.
+   *  Absent in older saves → "planner". null = no supervisor (supervised
+   *  hops degrade to auto). */
+  supervisorAgent?: string | null
   /** Whether the active plan's next incomplete step owner (`[agent]` prefix)
    *  is consulted before the generic fallback agent. Defaults to true when absent. */
   planAwareRouting?: boolean

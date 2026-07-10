@@ -293,7 +293,7 @@ export function App({
   // ⇧⇥ cycles the routing mode without typing /route. The status bar reflects
   // the change as soon as the server broadcasts the settings.
   const cycleRouting = () => {
-    const order = ["auto", "semi", "manual"] as const
+    const order = ["auto", "semi", "manual", "supervised"] as const
     const next = order[(order.indexOf(state.routingMode as (typeof order)[number]) + 1) % order.length]
     store.actions.setRoutingMode(next)
     store.pushNotice(`Routing mode → ${next}.`)

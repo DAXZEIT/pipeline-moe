@@ -319,11 +319,11 @@ export const COMMANDS: Command[] = [
   {
     name: "route",
     summary: "Set the handoff routing mode",
-    usage: "<auto|semi|manual>",
+    usage: "<auto|semi|manual|supervised>",
     run: (ctx, args) => {
       const mode = args.trim().toLowerCase() as RoutingMode
-      if (!["auto", "semi", "manual"].includes(mode)) {
-        return ctx.notify("Usage: /route <auto|semi|manual>", "error")
+      if (!["auto", "semi", "manual", "supervised"].includes(mode)) {
+        return ctx.notify("Usage: /route <auto|semi|manual|supervised>", "error")
       }
       ctx.store.actions.setRoutingMode(mode)
       ctx.notify(`Routing mode → ${mode}.`)

@@ -229,6 +229,13 @@ export class Registry implements HandoffSink {
     return this.participants.get(id)
   }
 
+  /** The startup-resolved model bundle (registry + auth). Exposed for the
+   *  supervised-routing decision runner, which builds its own ephemeral
+   *  session outside any Participant. */
+  get resolvedModel(): ResolvedModel {
+    return this.resolved
+  }
+
   has(id: string): boolean {
     return this.participants.has(id)
   }

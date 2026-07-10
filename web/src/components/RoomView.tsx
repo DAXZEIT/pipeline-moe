@@ -116,9 +116,9 @@ export function RoomView({
           <div className="topbar-routing">
           <div
             className="mode-select"
-            title="Routing: auto chains @mentions directly · semi asks before each wave's handoffs · manual asks per handoff"
+            title="Routing: auto chains @mentions directly · semi asks before each wave's handoffs · manual asks per handoff · supervised lets the supervisor agent decide each handoff"
           >
-            {(["auto", "semi", "manual"] as RoutingMode[]).map((m) => (
+            {(["auto", "semi", "manual", "supervised"] as RoutingMode[]).map((m) => (
               <button
                 key={m}
                 className={`mode-opt ${room.routingMode === m ? "on" : ""}`}
