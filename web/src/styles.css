@@ -888,6 +888,12 @@ body {
   font-size: 12px;
   margin-bottom: 5px;
 }
+/* Turn duration next to the agent name — quiet metadata, not part of the name. */
+.agent-duration {
+  font-weight: 400;
+  font-size: 11px;
+  opacity: 0.55;
+}
 .bubble {
   border-radius: 10px;
   padding: 11px 14px;

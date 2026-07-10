@@ -4,7 +4,7 @@ import { useRef, useState } from "react"
 import type { Message, Receipt, RosterItem, ToolActivity } from "@pipeline-moe/client-core"
 import { renderMarkdownLines, renderStreamingMarkdownLines } from "../markdown"
 import { summarizeArgs, TOOL_ICON, statusBadge } from "../activity"
-import { headerRule, receiptLines } from "../transcript-format"
+import { fmtDuration, headerRule, receiptLines } from "../transcript-format"
 
 /**
  * The conversation view with line-accurate scrollback. Messages have wildly
@@ -151,7 +151,11 @@ export function Transcript({
   for (const m of messages) {
     // Full-width rule in the author's color — the TUI counterpart of the
     // WebUI's per-reply card border; replaces the bare name line (no extra row).
-    lines.push({ text: headerRule(nameOf(m.author, m.authorName), iconOf(m.author), width), bold: true, color: colorOf(m.author) })
+    lines.push({
+      text: headerRule(nameOf(m.author, m.authorName), iconOf(m.author), width, m.durationMs != null ? fmtDuration(m.durationMs) : undefined),
+      bold: true,
+      color: colorOf(m.author),
+    })
     if (m.reasoning) pushThought(m.reasoning, false)
     if (m.activity?.length) pushActivity(m.activity, false)
     if (m.images?.length) lines.push({ text: `📎 ${m.images.length} image${m.images.length === 1 ? "" : "s"}`, dim: true })

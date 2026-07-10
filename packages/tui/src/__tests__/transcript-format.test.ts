@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest"
 import type { Receipt } from "@pipeline-moe/client-core"
-import { headerRule, receiptLines } from "../transcript-format"
+import { fmtDuration, headerRule, receiptLines } from "../transcript-format"
 
 describe("headerRule", () => {
   test("embeds icon + name and pads with dashes to the full width", () => {
@@ -20,6 +20,22 @@ describe("headerRule", () => {
   test("never pads negatively when the name exceeds the width", () => {
     const rule = headerRule("A very long agent name indeed", "🧭", 10)
     expect(rule).toBe("── 🧭 A very long agent name indeed ")
+  })
+
+  test("extra metadata (turn duration) joins the name with a dot", () => {
+    const rule = headerRule("Scout", "🔍", 40, "8.2s")
+    expect(rule.startsWith("── 🔍 Scout · 8.2s ")).toBe(true)
+    expect(rule.length).toBe(40)
+  })
+})
+
+describe("fmtDuration", () => {
+  test("sub-10s keeps one decimal, then whole seconds, then m+s", () => {
+    expect(fmtDuration(800)).toBe("0.8s")
+    expect(fmtDuration(8240)).toBe("8.2s")
+    expect(fmtDuration(42_000)).toBe("42s")
+    expect(fmtDuration(74_000)).toBe("1m14s")
+    expect(fmtDuration(119_600)).toBe("2m00s")
   })
 })
 

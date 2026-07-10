@@ -64,6 +64,10 @@ export interface TranscriptEntry {
   /** Closed answer choices offered with the question — display metadata only,
    *  the answer always travels back as an ordinary text message. */
   questionOptions?: string[]
+  /** Wall-clock milliseconds the agent was active producing this message
+   *  (model streaming + tool execution; excludes waiting on the local-model
+   *  lock). pi's SessionStats has no timing — the room measures the turn. */
+  durationMs?: number
 }
 
 /** A file-change receipt produced by diffing the workspace around an agent turn. */

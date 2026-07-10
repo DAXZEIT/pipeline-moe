@@ -77,6 +77,8 @@ interface RunOutput {
    *  otherwise get (see knownissues.md F7). */
   stopReason?: "aborted" | "error"
   errorMessage?: string
+  /** Wall-clock ms the agent was active (excludes local-lock wait). */
+  durationMs: number
 }
 
 function newConvId(): string {
@@ -724,6 +726,7 @@ export class Room {
     images?: string[],
     question?: string,
     questionOptions?: string[],
+    durationMs?: number,
   ): TranscriptEntry {
     const entry: TranscriptEntry = {
       index: this.transcript.length,
@@ -736,6 +739,7 @@ export class Room {
       ...(images && images.length > 0 ? { images } : {}),
       ...(question ? { question } : {}),
       ...(question && questionOptions && questionOptions.length > 0 ? { questionOptions } : {}),
+      ...(durationMs != null ? { durationMs } : {}),
     }
     this.transcript.push(entry)
 
@@ -1381,9 +1385,13 @@ export class Room {
         await this.localLock.acquire()
         lockAcquired = true
       }
+      // Turn timing starts after the lock: "how long was the agent active",
+      // not "how long did it wait for the local model to free up".
+      const startedAt = Date.now()
       const result = mode === "prompt"
         ? await target.run(context.text, context.images)
         : await target.followUp(context.text, context.images)
+      const durationMs = Date.now() - startedAt
       // F7 (knownissues.md): previously `if (this.aborted) return null` here
       // discarded a real, populated TurnResult purely because the room's
       // abort flag was set — losing the model's partial reply even though
@@ -1421,6 +1429,7 @@ export class Room {
         questionOptions: stopReason ? undefined : result.questionOptions,
         stopReason,
         errorMessage: result.errorMessage,
+        durationMs,
         receipt: before && after
           ? diffSnapshots(before, after, target.persona.id)
           : receiptFromActivity(result.activity, target.persona.id),
@@ -1990,7 +1999,7 @@ export class Room {
           : out.stopReason === "error"
             ? ` _(failed — partial${out.errorMessage ? `: ${out.errorMessage}` : ""})_`
             : ""
-        this.post(out.target.persona.id, out.target.persona.name, turnBody(out.reply, out.question, out.activity) + marker, out.activity, out.reasoning, undefined, out.question, out.questionOptions)
+        this.post(out.target.persona.id, out.target.persona.name, turnBody(out.reply, out.question, out.activity) + marker, out.activity, out.reasoning, undefined, out.question, out.questionOptions, out.durationMs)
         if (receiptHasChanges(out.receipt)) this.emit("receipt", out.receipt)
         out.target.cursor = this.transcript.length
 

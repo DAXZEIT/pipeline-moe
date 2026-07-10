@@ -13,6 +13,16 @@ interface Props {
   active: boolean
 }
 
+/** Compact turn duration: 8240 → "8.2s", 74s → "1m14s" (same as the TUI). */
+function fmtDuration(ms: number): string {
+  if (ms < 60_000) {
+    const s = ms / 1000
+    return `${s.toFixed(s < 10 ? 1 : 0)}s`
+  }
+  const total = Math.round(ms / 1000)
+  return `${Math.floor(total / 60)}m${String(total % 60).padStart(2, "0")}s`
+}
+
 function ReceiptView({ r }: { r: Receipt }) {
   const chips = [
     ...r.created.map((p) => ({ p, kind: "+" })),
@@ -127,6 +137,7 @@ export function Transcript({
             <div className="agent-head" style={{ color }}>
               <span>{r?.icon}</span>
               <span className="agent-name">{m.authorName}</span>
+              {m.durationMs != null && <span className="agent-duration">{fmtDuration(m.durationMs)}</span>}
             </div>
             {m.activity && m.activity.length > 0 && <ActivityView activity={m.activity} />}
             {m.reasoning && (

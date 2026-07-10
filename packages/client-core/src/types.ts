@@ -76,6 +76,10 @@ export interface Message {
   /** Closed answer choices offered with the question — clients render a
    *  picker, but the answer is always sent back as ordinary message text. */
   questionOptions?: string[]
+  /** Wall-clock ms the agent was active producing this message (streaming +
+   *  tools; excludes local-model lock wait). Absent on user/shell messages
+   *  and turns recorded before the server measured it. */
+  durationMs?: number
 }
 
 /** Full persona, as returned by GET /api/participants/:id (for the edit form). */
