@@ -50,6 +50,15 @@ export interface RoomState {
   connected: boolean
   turnActive: boolean
   runningAgentId: string | null
+  /** Epoch ms when the current agent started running (client-side clock, set
+   *  per agent across a chained drain) — drives live elapsed counters. Null
+   *  when nothing runs; the authoritative per-turn duration is the message's
+   *  durationMs. */
+  runningSince: number | null
+  /** True while the agent's most recent delta was reasoning — i.e. it is
+   *  thinking RIGHT NOW, not merely has a reasoning trace this turn. Lets
+   *  clients re-show "thinking…" on a second burst after text/tools. */
+  reasoningActive: Record<string, boolean>
   paused: boolean
   pausedQuestion: string | null
   pausedAskerId: string | null
@@ -91,6 +100,8 @@ export const initialRoomState: RoomState = {
   connected: false,
   turnActive: false,
   runningAgentId: null,
+  runningSince: null,
+  reasoningActive: {},
   paused: false,
   pausedQuestion: null,
   pausedAskerId: null,
@@ -125,6 +136,7 @@ export function resetTransient(state: RoomState): RoomState {
     ...state,
     turnActive: false,
     runningAgentId: null,
+    runningSince: null,
     paused: false,
     pausedQuestion: null,
     pausedAskerId: null,
@@ -133,6 +145,7 @@ export function resetTransient(state: RoomState): RoomState {
     streaming: {},
     liveActivity: {},
     liveReasoning: {},
+    reasoningActive: {},
     receipts: {},
   }
 }
@@ -218,7 +231,12 @@ export function reduce(state: RoomState, event: SseEvent): ReduceResult {
 
     case "token": {
       const { id, delta } = event.data as { id: string; delta: string }
-      return noEffects({ ...state, streaming: { ...state.streaming, [id]: (state.streaming[id] ?? "") + delta } })
+      return noEffects({
+        ...state,
+        streaming: { ...state.streaming, [id]: (state.streaming[id] ?? "") + delta },
+        // A text delta means the thinking burst (if any) just ended.
+        ...(state.reasoningActive[id] ? { reasoningActive: { ...state.reasoningActive, [id]: false } } : {}),
+      })
     }
 
     case "activity": {
@@ -226,12 +244,21 @@ export function reduce(state: RoomState, event: SseEvent): ReduceResult {
       const list = state.liveActivity[id] ?? []
       const idx = list.findIndex((x) => x.toolCallId === item.toolCallId)
       const next = idx >= 0 ? list.map((x, i) => (i === idx ? item : x)) : [...list, item]
-      return noEffects({ ...state, liveActivity: { ...state.liveActivity, [id]: next } })
+      return noEffects({
+        ...state,
+        liveActivity: { ...state.liveActivity, [id]: next },
+        // Executing a tool means the agent stopped thinking for now.
+        ...(state.reasoningActive[id] ? { reasoningActive: { ...state.reasoningActive, [id]: false } } : {}),
+      })
     }
 
     case "reasoning": {
       const { id, delta } = event.data as { id: string; delta: string }
-      return noEffects({ ...state, liveReasoning: { ...state.liveReasoning, [id]: (state.liveReasoning[id] ?? "") + delta } })
+      return noEffects({
+        ...state,
+        liveReasoning: { ...state.liveReasoning, [id]: (state.liveReasoning[id] ?? "") + delta },
+        ...(state.reasoningActive[id] ? {} : { reasoningActive: { ...state.reasoningActive, [id]: true } }),
+      })
     }
 
     case "message": {
@@ -245,6 +272,7 @@ export function reduce(state: RoomState, event: SseEvent): ReduceResult {
         streaming: omit(state.streaming, msg.author),
         liveActivity: omit(state.liveActivity, msg.author),
         liveReasoning: omit(state.liveReasoning, msg.author),
+        reasoningActive: omit(state.reasoningActive, msg.author),
       })
     }
 
@@ -278,16 +306,20 @@ export function reduce(state: RoomState, event: SseEvent): ReduceResult {
       // keeps runningAgentId truthful across a chained drain (turn start only
       // carries the FIRST agent of the turn).
       if (data.phase === "agent") {
-        return noEffects({ ...state, turnActive: true, runningAgentId: data.agentId ?? null })
+        // Each agent of a chained drain restarts the clock — the elapsed
+        // counter reads per-agent, matching the per-message durationMs.
+        return noEffects({ ...state, turnActive: true, runningAgentId: data.agentId ?? null, runningSince: Date.now() })
       }
       if (data.phase === "start") {
         return noEffects({
           ...state,
           turnActive: true,
           runningAgentId: data.agentId ?? null,
+          runningSince: Date.now(),
           streaming: {},
           liveActivity: {},
           liveReasoning: {},
+          reasoningActive: {},
         })
       }
       if (data.phase === "end") {
@@ -295,6 +327,7 @@ export function reduce(state: RoomState, event: SseEvent): ReduceResult {
           ...state,
           turnActive: false,
           runningAgentId: null,
+          runningSince: null,
           paused: false,
           pausedQuestion: null,
           pausedAskerId: null,
@@ -307,6 +340,7 @@ export function reduce(state: RoomState, event: SseEvent): ReduceResult {
           state: {
             ...state,
             turnActive: false,
+            runningSince: null,
             paused: true,
             pausedQuestion: data.question ?? null,
             pausedAskerId: data.askerId ?? null,

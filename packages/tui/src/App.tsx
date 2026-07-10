@@ -390,6 +390,7 @@ export function App({
             roster={state.roster}
             streaming={state.streaming}
             liveReasoning={state.liveReasoning}
+            reasoningActive={state.reasoningActive}
             liveActivity={state.liveActivity}
             receipts={state.receipts}
             // Every row the fixed "rows - 8" budget doesn't know about must be
@@ -495,6 +496,7 @@ export function App({
         connection={connection}
         turnActive={state.turnActive}
         runningAgent={runningAgent}
+        runningSince={state.runningSince}
         paused={state.paused}
         pausedAskerId={state.pausedAskerId}
         routingMode={state.routingMode}

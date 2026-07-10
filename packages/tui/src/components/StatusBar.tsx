@@ -1,6 +1,22 @@
+import { useEffect, useState } from "react"
 import { Box, Text } from "ink"
 import type { RosterItem, RoutingMode } from "@pipeline-moe/client-core"
 import { ROUTING_COLOR } from "../input-mode"
+import { fmtDuration } from "../transcript-format"
+
+/** Re-render once a second while a start time is set, and return the elapsed
+ *  label. The tick lives here so the whole app doesn't re-render per second —
+ *  only the status bar does. */
+function useElapsed(since: number | null): string | null {
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    if (since == null) return
+    setNow(Date.now())
+    const t = setInterval(() => setNow(Date.now()), 1000)
+    return () => clearInterval(t)
+  }, [since])
+  return since == null ? null : fmtDuration(Math.max(0, now - since))
+}
 
 /** One-line room status. `connection` distinguishes the EventSource retrying
  *  after a drop (reconnecting) from the initial connect, since the store only
@@ -9,6 +25,7 @@ export function StatusBar({
   connection,
   turnActive,
   runningAgent,
+  runningSince,
   paused,
   pausedAskerId,
   routingMode,
@@ -18,12 +35,15 @@ export function StatusBar({
   connection: "connecting" | "connected" | "reconnecting"
   turnActive: boolean
   runningAgent: RosterItem | null
+  /** Epoch ms the running agent started — drives the live elapsed counter. */
+  runningSince: number | null
   paused: boolean
   pausedAskerId: string | null
   routingMode: RoutingMode
   roomId: string
   messageCount: number
 }) {
+  const elapsed = useElapsed(turnActive ? runningSince : null)
   const conn =
     connection === "connected"
       ? { color: "green", label: "● connected" }
@@ -50,6 +70,7 @@ export function StatusBar({
               {runningAgent.icon} {runningAgent.name}
             </Text>
           ) : null}
+          {elapsed ? <Text> · {elapsed}</Text> : null}
           <Text dimColor> — Esc to stop</Text>
         </Text>
       ) : (

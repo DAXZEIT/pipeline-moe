@@ -58,6 +58,7 @@ export function Transcript({
   streaming,
   liveReasoning,
   liveActivity,
+  reasoningActive,
   receipts,
   reservedRows,
   isActive,
@@ -68,6 +69,10 @@ export function Transcript({
   streaming: Record<string, string>
   liveReasoning: Record<string, string>
   liveActivity: Record<string, ToolActivity[]>
+  /** True while the agent's most recent delta was reasoning — a second
+   *  thinking burst after text/tools re-shows "💭 thinking…" instead of
+   *  silently growing the collapsed thought block. */
+  reasoningActive: Record<string, boolean>
   /** Filesystem-verified work receipts, keyed by owning message index. */
   receipts: Record<number, Receipt>
   /** Extra terminal rows currently claimed below the transcript (e.g. the QCM
@@ -192,7 +197,10 @@ export function Transcript({
     // width - 2 leaves room for the appended streaming cursor (" ▌") — a
     // full-width rule would push it past the truncate-end boundary.
     lines.push({ text: headerRule(nameOf(id, id), iconOf(id), width - 2), bold: true, color: colorOf(id), cursor: true })
-    if (reasoning) pushThought(reasoning, !text)
+    // Live = the agent is thinking RIGHT NOW (last delta was reasoning) — not
+    // "no text yet": a second burst after text/tools re-opens "thinking…"
+    // instead of silently growing the collapsed thought block.
+    if (reasoning) pushThought(reasoning, reasoningActive[id] ?? !text)
     if (acts.length) pushActivity(acts, true)
     if (text) for (const l of renderStreamingMarkdownLines(text, width) ?? wrap(text, width)) lines.push({ text: l })
     lines.push({ text: "" })

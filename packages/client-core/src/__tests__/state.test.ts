@@ -126,6 +126,19 @@ describe("reduce — streaming buffers", () => {
     state = apply(state, "reasoning", { id: "a", delta: "ing" }).state
     expect(state.liveReasoning.a).toBe("thinking")
   })
+
+  it("reasoningActive follows the burst: on with reasoning, off with text/tools, on again", () => {
+    let state = baseState()
+    state = apply(state, "reasoning", { id: "a", delta: "hmm" }).state
+    expect(state.reasoningActive.a).toBe(true)
+    state = apply(state, "token", { id: "a", delta: "Reply" }).state
+    expect(state.reasoningActive.a).toBe(false)
+    // second burst after text — the "thinking…" indicator must re-arm
+    state = apply(state, "reasoning", { id: "a", delta: "wait" }).state
+    expect(state.reasoningActive.a).toBe(true)
+    state = apply(state, "activity", { id: "a", item: activity({ toolCallId: "t1" }) }).state
+    expect(state.reasoningActive.a).toBe(false)
+  })
 })
 
 // ── message / receipt ────────────────────────────────────────────────────────
@@ -216,6 +229,17 @@ describe("reduce — turn lifecycle", () => {
     const result = apply(state, "turn", { phase: "resume", askerId: "a" })
     expect(result.state).toMatchObject({ paused: false, pausedQuestion: null, turnActive: true })
     expect(result.effects[0].msg).toBe("Resuming — answering a")
+  })
+
+  it("agent/start arm runningSince; end and pause clear it", () => {
+    const before = Date.now()
+    const started = apply(baseState(), "turn", { phase: "agent", agentId: "a" }).state
+    expect(started.runningSince).toBeGreaterThanOrEqual(before)
+    // each agent of a chained drain restarts the clock
+    const chained = apply({ ...started, runningSince: 1 }, "turn", { phase: "agent", agentId: "b" }).state
+    expect(chained.runningSince).toBeGreaterThanOrEqual(before)
+    expect(apply(started, "turn", { phase: "end" }).state.runningSince).toBeNull()
+    expect(apply(started, "turn", { phase: "pause", question: "Q", askerId: "a" }).state.runningSince).toBeNull()
   })
 
   it("chain emits a routing notice and leaves state untouched", () => {
