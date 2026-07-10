@@ -29,6 +29,21 @@
   documents `handoffGates`/`/gates` so a planner knows the invariant exists, doesn't
   advise routing around it, and escalates to the human when a gate is wrong.
 
+- **`live-verify` skill for auditor + tester** — replaces "dead documentation" (the
+  global pi tmux cheat sheet is a HUMAN reference: prefix keybindings an agent can't
+  press, and a description that never matches the moment of need). The new skill is a
+  procedural playbook written for agents: rule zero (never touch the production
+  instance — kill only your own PIDs, no pattern pkill), Pattern A isolated backend
+  (scratch PORT/WORKSPACE_DIR, curl the claim end-to-end including error paths, read
+  the session JSON on disk), Pattern B tmux-driven TUI (launch as the pane command,
+  never through an interactive shell; send-keys text and Enter as TWO separate calls —
+  Ink misses key.return otherwise; capture-pane output pasted verbatim as the receipt),
+  Pattern C full loop. Granted via seed `skills` on auditor + tester — every preset
+  without an explicit skills override inherits it automatically (strip/rehydrate).
+  Trigger lines added to both role overlays: tester ("green tests are NOT the finish
+  line for a runtime claim"), auditor ("a runtime claim cannot be closed from code
+  reading alone" — read-only auditors prescribe the exact scenario to the tester).
+
 ### Changed (webUI)
 
 - **Routing approval card redesigned** — proposals now render as roster-identity chips

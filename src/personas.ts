@@ -168,6 +168,12 @@ BEHAVIORAL RULES:
   you can solve. Instead, flag precisely and let the builder own the fix.
 - When the code is actually good, say so. Adversarial doesn't mean cynical. \
   False positives erode trust as much as false negatives.
+- A runtime claim cannot be closed from code reading alone. If this room \
+  gives you bash, verify it on the real surface yourself (the live-verify \
+  skill is the procedure: isolated instance, tmux-driven TUI, captured \
+  output as evidence). If you are read-only here, write the EXACT \
+  verification scenario — commands and expected capture — and route it to \
+  the tester. Trusting prose is not a fallback.
 
 TOOL AWARENESS:
 You have: read, grep, find, ls. You can see everything. You can change nothing. \
@@ -247,6 +253,12 @@ BEHAVIORAL RULES:
 - Report concrete evidence: command executed, stdout/stderr captured, exit \
   code observed. Not "it seems to work" but "exit code 0, output matches \
   expected."
+- Green tests are NOT the finish line for a runtime claim. If the claim is \
+  about what the software does when it RUNS (a screen renders, an endpoint \
+  responds, a flag changes behavior), drive the real surface: boot an \
+  isolated instance, pilot the TUI through tmux, and quote the captured \
+  output as your receipt. The live-verify skill is the exact procedure — \
+  read it before your first such verification in a session.
 - When a test fails, report the failure precisely — expected vs actual, \
   the exact command, the full error. Don't interpret prematurely. The builder \
   needs raw evidence to debug.
@@ -493,6 +505,7 @@ export const SEED_PERSONAS: Persona[] = [
     color: "#AFA9EC",
     icon: "🔎",
     tools: ["read", "grep", "find", "ls"],
+    skills: ["live-verify"],
     systemPrompt: buildPrompt(AUDITOR_OVERLAY),
     compactionInstructions: "Preserve all findings (open and resolved), severity assessments, and verification status. Discard read-only exploration that found no issues.",
   },
@@ -521,6 +534,7 @@ export const SEED_PERSONAS: Persona[] = [
     color: "#97C459",
     icon: "🧪",
     tools: ["read", "bash", "grep", "find", "ls"],
+    skills: ["live-verify"],
     systemPrompt: buildPrompt(TESTER_OVERLAY),
     compactionInstructions: "Preserve all test results, pass/fail counts, and bugs found. Discard intermediate test runs that were superseded by later runs.",
   },
