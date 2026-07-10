@@ -183,6 +183,12 @@ export function Transcript({
         for (const l of wrap(`   ${i + 1} ${o}`, width)) lines.push({ text: l, dim: true })
       }
     }
+    // Routing decision footer — a tool-only handoff is invisible in the reply
+    // text, and the next agent otherwise appears to take over at random
+    // (observed live: tester silently handed to scribe twice, 2026-07-10).
+    if (m.handoffTo) {
+      lines.push({ text: `↪ handoff → @${m.handoffTo}`, dim: true })
+    }
     if (receipts[m.index]) for (const l of receiptLines(receipts[m.index])) lines.push(l)
     lines.push({ text: "" })
   }

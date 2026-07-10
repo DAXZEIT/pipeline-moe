@@ -19,6 +19,7 @@ import { TaskBoard } from "./task-board.js"
 import type {
   Conversation,
   ConversationMeta,
+  HandoffGate,
   Persona,
   RoomTask,
   RouteDecision,
@@ -154,6 +155,10 @@ export class Room {
    *  instead of the generic fallback agent. Falls through to fallbackAgentId
    *  when there's no active plan, no owner prefix, or the owner is unavailable. */
   private planAwareRoutingEnabled = true
+  /** Declarative review gates on agent handoffs (e.g. builder must route src/**
+   *  work through the auditor). Mirrored into the Registry, which enforces them
+   *  live inside the handoff tool. Persisted per conversation. */
+  private handoffGates: HandoffGate[] = []
   /** Goal prompt if this room was started with a goal; null for interactive rooms. */
   private goalText: string | null = null
   /** Lifecycle status for goal-driven rooms. */
@@ -379,6 +384,20 @@ export class Room {
     void this.saveCurrent()
   }
 
+  getHandoffGates(): HandoffGate[] {
+    return this.handoffGates
+  }
+
+  /** Replace the room's handoff gates. Ids are NOT validated against the
+   *  roster on purpose: a gate naming an absent agent is dormant, not an
+   *  error — presets and rosters evolve independently. */
+  setHandoffGates(gates: HandoffGate[]): void {
+    this.handoffGates = gates
+    this.registry.setHandoffGates?.(gates)
+    this.broadcastSettings()
+    void this.saveCurrent()
+  }
+
   getMaxChainHops(): number {
     return this.maxChainHops
   }
@@ -450,6 +469,7 @@ export class Room {
       allowCloud: this.allowCloud,
       compactionReserveTokens: this.compactionReserveTokens,
       defaultModel: this.getDefaultModel(),
+      handoffGates: this.handoffGates,
     })
   }
 
@@ -486,6 +506,7 @@ export class Room {
       defaultThinkingLevel: this.defaultThinkingLevel,
       allowCloud: this.allowCloud,
       compactionReserveTokens: this.compactionReserveTokens,
+      ...(this.handoffGates.length > 0 ? { handoffGates: this.handoffGates } : {}),
       personas: this.registry.personaStates(),
       transcript: this.transcript,
       tasks: this.taskBoard.serialize(),
@@ -592,6 +613,8 @@ export class Room {
     this.defaultAgentId = conv.defaultAgent ?? null
     this.fallbackAgentId = conv.fallbackAgent ?? "planner"
     this.planAwareRoutingEnabled = conv.planAwareRouting ?? true
+    this.handoffGates = conv.handoffGates ?? []
+    this.registry.setHandoffGates?.(this.handoffGates)
     // Adoption is in-memory only: a freshly loaded conversation has adopted no
     // plan until one of its agents touches a plan again — safest default (no
     // stale plan can route on restart mid-workflow).
@@ -727,6 +750,7 @@ export class Room {
     question?: string,
     questionOptions?: string[],
     durationMs?: number,
+    handoffTo?: string,
   ): TranscriptEntry {
     const entry: TranscriptEntry = {
       index: this.transcript.length,
@@ -740,6 +764,7 @@ export class Room {
       ...(question ? { question } : {}),
       ...(question && questionOptions && questionOptions.length > 0 ? { questionOptions } : {}),
       ...(durationMs != null ? { durationMs } : {}),
+      ...(handoffTo ? { handoffTo } : {}),
     }
     this.transcript.push(entry)
 
@@ -1217,7 +1242,13 @@ export class Room {
             ? ` _(failed — partial${result.errorMessage ? `: ${result.errorMessage}` : ""})_`
             : ""
         // Post with question field if the asker asked another question.
-        this.post(asker.persona.id, asker.persona.name, turnBody(result.reply, result.question, result.activity) + marker, result.activity, result.reasoning, undefined, result.question, result.questionOptions)
+        // Same handoff stamping + stale-registration hygiene as the drain loop.
+        let resumeHandoffTo = this.registry.peekHandoff?.(asker.persona.id)
+        if (resumeHandoffTo && (interrupted || !this.chaining)) {
+          this.registry.takeHandoff(asker.persona.id)
+          resumeHandoffTo = undefined
+        }
+        this.post(asker.persona.id, asker.persona.name, turnBody(result.reply, result.question, result.activity) + marker, result.activity, result.reasoning, undefined, result.question, result.questionOptions, undefined, resumeHandoffTo)
         if (receiptHasChanges(result.receipt)) this.emit("receipt", result.receipt)
         asker.cursor = this.transcript.length
 
@@ -1999,7 +2030,19 @@ export class Room {
           : out.stopReason === "error"
             ? ` _(failed — partial${out.errorMessage ? `: ${out.errorMessage}` : ""})_`
             : ""
-        this.post(out.target.persona.id, out.target.persona.name, turnBody(out.reply, out.question, out.activity) + marker, out.activity, out.reasoning, undefined, out.question, out.questionOptions, out.durationMs)
+        // Stamp the turn's handoff decision on the entry BEFORE it's consumed
+        // below — a tool-only handoff is otherwise invisible in the transcript
+        // and the next agent reads as taking over at random. Peek, don't take:
+        // proposeChain still owns consumption. An interrupted or non-chaining
+        // turn shows no stamp AND discards the registration — a partial turn's
+        // handoff isn't a real decision, and nothing will ever consume it (it
+        // would fire, stale, on this agent's next turn otherwise).
+        let handoffTo = this.registry.peekHandoff?.(out.target.persona.id)
+        if (handoffTo && (interrupted || !this.chaining)) {
+          this.registry.takeHandoff(out.target.persona.id)
+          handoffTo = undefined
+        }
+        this.post(out.target.persona.id, out.target.persona.name, turnBody(out.reply, out.question, out.activity) + marker, out.activity, out.reasoning, undefined, out.question, out.questionOptions, out.durationMs, handoffTo)
         if (receiptHasChanges(out.receipt)) this.emit("receipt", out.receipt)
         out.target.cursor = this.transcript.length
 

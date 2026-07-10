@@ -2,6 +2,55 @@
 
 ## [Unreleased] — 2026-07-10
 
+### Added
+
+- **Handoff review gates** — new declarative room setting `handoffGates`
+  (`{from, via, when?}`): while `from` has touched files matching the `when` globs
+  during its current turn, its handoff MUST target `via`. Enforced inside the handoff
+  tool as a correctable error (no terminate), so the model re-routes itself in the
+  same turn — the review norm ("everything under `src/` passes through the auditor")
+  is now a core invariant instead of prose. A gate whose `via` is absent/inactive is
+  skipped (a 403'd reviewer must not deadlock the room). Pure logic in
+  `src/handoff-gates.ts` (own glob matcher, no new dependency); wiring: Room setting +
+  conversation persistence + `PATCH /api/settings` + preset field (save/load/apply) +
+  TUI `/gates` command (`/gates`, `/gates add <from> <via> [glob ...]`, `/gates rm <n>`,
+  `/gates clear`). All shipped presets with an auditor now carry
+  `builder→auditor when src/**` by default. Known limit: paths changed as a side
+  effect of `bash` don't arm a gate (same blind spot as activity-based receipts).
+
+- **Handoffs are now visible in the transcript** — the source message carries
+  `handoffTo` (persisted, stamped by the Room before consumption); the TUI renders
+  a dim `↪ handoff → @scribe` footer under the reply, and the webUI renders the same
+  line with the target's icon and color. Root cause of the "the turn feels random"
+  report (session mre5zpel): tester silently called `handoff(to:"scribe")` twice with
+  no prose announcement, and nothing in any client showed tool-only handoffs.
+
+- **Orchestrator playbook: review gates** — the escalation ladder's handoff entry now
+  documents `handoffGates`/`/gates` so a planner knows the invariant exists, doesn't
+  advise routing around it, and escalates to the human when a gate is wrong.
+
+### Changed (webUI)
+
+- **Routing approval card redesigned** — proposals now render as roster-identity chips
+  (icon + name in the agent's color, pill-shaped `from → target`) instead of bare
+  `@id → @id` text; header reads "Handoff awaiting approval" with a ⏸ marker; the
+  redirect picker autofocuses and no longer offers the proposer as a target (handing
+  the turn back to whoever just ended it is what Drop already does).
+
+### Fixed
+
+- **Double handoff in one turn** — a model batching two `handoff` calls in a single
+  reply had the second silently overwrite the first (observed live turn 27: two
+  `handoff(to:"tester")`, both "ok"). The tool now rejects the second call with
+  "already handed off to @x this turn — the first call stands" via the new
+  `peekHandoff` on HandoffSink.
+
+- **Stale handoff registrations** — an interrupted/failed turn, or a turn in manual
+  routing mode, left its `handoff` registration pending forever (nothing consumed it),
+  so it would silently fire on that agent's NEXT turn — and, with the double-call
+  guard, would have blocked all future handoffs. The drain loop now discards the
+  registration in both cases.
+
 ### Changed
 
 - **Orchestrator skill relaxed** — `check_room` is cheap, polling by curiosity is OK.

@@ -167,6 +167,13 @@ export class Participant {
   private buffer = ""
   /** Tool calls made during the current turn, keyed for start/end matching. */
   private activity = new Map<string, ToolActivity>()
+
+  /** Snapshot of the current turn's tool calls so far — read mid-turn by the
+   *  Registry's handoff-gate check (the handoff tool executes before the turn
+   *  ends, so the finished-turn activity in RunResult doesn't exist yet). */
+  liveActivity(): ToolActivity[] {
+    return [...this.activity.values()]
+  }
   /** Reasoning accumulated during the current turn. */
   private reasoningBuffer = ""
   private readonly emit: Emit

@@ -465,6 +465,22 @@ body {
   color: var(--text);
 }
 
+/* ---------- Handoff footer (transcript routing decision) ---------- */
+.handoff-line {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 4px;
+  font-size: 11.5px;
+  color: var(--muted);
+}
+.handoff-arrow {
+  color: var(--accent);
+}
+.handoff-target {
+  font-weight: 600;
+}
+
 /* ---------- Routing approval card (semi/manual) ---------- */
 .route-approval {
   display: flex;
@@ -489,9 +505,30 @@ body {
   gap: 4px 12px;
   color: var(--muted);
 }
-.route-hop b {
-  color: var(--accent);
+.route-hop {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 9px;
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+}
+.route-agent {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   font-weight: 600;
+}
+.route-agent-icon {
+  font-size: 13px;
+}
+.route-arrow {
+  color: var(--accent);
+  font-weight: 700;
+}
+.route-pause-icon {
+  color: var(--accent);
 }
 .route-actions {
   display: flex;

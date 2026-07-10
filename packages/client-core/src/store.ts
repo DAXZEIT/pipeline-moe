@@ -18,7 +18,7 @@ import {
   type SseEventName,
   type ThinkingLevel,
 } from "./state.js"
-import type { RouteDecision, RoutingMode } from "./types.js"
+import type { HandoffGate, RouteDecision, RoutingMode } from "./types.js"
 
 // ── SSE transport abstraction ───────────────────────────────────────────────
 // The store doesn't know how events arrive — the host injects a factory. The
@@ -154,6 +154,7 @@ export function createRoomStore(opts: RoomStoreOptions) {
       if (s.compactionReserveTokens !== undefined) next.compactionReserveTokens = s.compactionReserveTokens
       if (s.defaultModel !== undefined) next.defaultModel = s.defaultModel
       if (s.maxRooms !== undefined) next.maxRooms = s.maxRooms
+      if (s.handoffGates !== undefined) next.handoffGates = s.handoffGates
       next.pendingRoute = s.pendingRoute ? s.pendingRoute.proposals : null
       patch(next)
     }).catch(() => {})
@@ -312,6 +313,10 @@ export function createRoomStore(opts: RoomStoreOptions) {
 
     setRoutingMode: (mode: RoutingMode) => {
       rApi.setRoutingMode(mode).then((s) => patch({ routingMode: s.routingMode })).catch(fail)
+    },
+
+    setHandoffGates: (gates: HandoffGate[]) => {
+      rApi.setHandoffGates(gates).then((s) => patch({ handoffGates: s.handoffGates ?? [] })).catch(fail)
     },
 
     setDefaultThinkingLevel: (level: ThinkingLevel) => {

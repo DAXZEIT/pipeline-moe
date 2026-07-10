@@ -193,6 +193,7 @@ class MockRegistry {
   }
   activeIds(): string[] { return this.activeParticipants().map((p) => p.persona.id) }
   register(from: string, to: string): void { this.pendingHandoff.set(from, to) }
+  peekHandoff(from: string): string | undefined { return this.pendingHandoff.get(from) }
   takeHandoff(from: string): string | undefined {
     const to = this.pendingHandoff.get(from)
     this.pendingHandoff.delete(from)
@@ -282,6 +283,25 @@ describe("Room integration: handoff routing", () => {
 
     expect(messages.some((m) => m.author === "auditor")).toBe(false)
     expect(room.isBusy()).toBe(false) // turn ended, back to the human
+    await room.abortCurrent()
+  })
+
+  test("the source message is stamped with handoffTo — a tool-only handoff must be visible in the transcript", async () => {
+    // Observed live (2026-07-10): tester called handoff(to:"scribe") without
+    // announcing it in prose, twice — the TUI showed scribe taking over "at
+    // random". The entry now carries the routing decision.
+    const { room, registry, messages } = setup()
+    registry.addParticipant(new MockParticipant(makePersona("builder")).withResult({ text: "done", handoffTo: "auditor" }))
+    registry.addParticipant(new MockParticipant(makePersona("auditor")).withResult({ text: "looks good" }))
+    await room.init()
+
+    room.submit("@builder go")
+    await new Promise((r) => setTimeout(r, 300))
+
+    const builderMsg = messages.find((m) => m.author === "builder") as { handoffTo?: string } | undefined
+    expect(builderMsg?.handoffTo).toBe("auditor")
+    const auditorMsg = messages.find((m) => m.author === "auditor") as { handoffTo?: string } | undefined
+    expect(auditorMsg?.handoffTo).toBeUndefined()
     await room.abortCurrent()
   })
 

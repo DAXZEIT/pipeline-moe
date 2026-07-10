@@ -168,6 +168,21 @@ export function Transcript({
                 </div>
               </div>
             )}
+            {/* Routing decision footer — a tool-only handoff is invisible in
+                the reply text, so the next speaker otherwise reads as taking
+                over at random (mirrors the TUI's "↪ handoff → @x" line). */}
+            {m.handoffTo && (() => {
+              const t = byId(m.handoffTo!)
+              return (
+                <div className="handoff-line">
+                  <span className="handoff-arrow">↪</span>
+                  <span>handoff</span>
+                  <span className="handoff-target" style={t?.color ? { color: t.color } : undefined}>
+                    {t?.icon && <span>{t.icon} </span>}@{m.handoffTo}
+                  </span>
+                </div>
+              )
+            })()}
             {receipts[m.index] && <ReceiptView r={receipts[m.index]} />}
           </div>
         )

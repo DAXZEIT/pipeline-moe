@@ -52,6 +52,24 @@ export function createHandoffToolDefinition(sink: HandoffSink, personaId: string
       "the last thing you do in your reply.",
     parameters: schema,
     execute: async (_toolCallId: string, params: { to: string }) => {
+      // One handoff per turn. A model that batches two handoff calls in a
+      // single reply used to have the second silently overwrite the first
+      // (observed live 2026-07-10: planner registered @tester twice, both
+      // "ok"). The first registration is the decision; the second is an
+      // error the model reads next turn (the batch-terminate guard already
+      // forces this result to terminate alongside the first).
+      const already = sink.peekHandoff?.(personaId)
+      if (already) {
+        return {
+          content: [{
+            type: "text",
+            text:
+              `handoff error: you already handed off to @${already} this turn — ` +
+              "one handoff per turn, the first call stands.",
+          }],
+          details: undefined,
+        }
+      }
       // Live re-check, not the build-time snapshot: the roster may have
       // changed since this tool was constructed for this participant.
       const live = sink.activeIds().filter((id) => id !== personaId)
@@ -64,6 +82,16 @@ export function createHandoffToolDefinition(sink: HandoffSink, personaId: string
               `or yourself). Active agents you can hand off to: ${live.join(", ") || "none right now"}. ` +
               "Call handoff again with a valid id, or don't call it if the work is done.",
           }],
+          details: undefined,
+        }
+      }
+      // Review gates (room config): a blocked handoff is a correctable error —
+      // no terminate, so the model re-routes to the required reviewer in the
+      // same turn (same recovery path as an invalid target).
+      const blocked = sink.checkGate?.(personaId, params.to)
+      if (blocked) {
+        return {
+          content: [{ type: "text", text: blocked }],
           details: undefined,
         }
       }

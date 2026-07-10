@@ -12,6 +12,7 @@
 
 import type {
   ConversationMeta,
+  HandoffGate,
   Message,
   OAuthProgress,
   ProviderInfo,
@@ -75,6 +76,8 @@ export interface RoomState {
   /** "provider/id" the room's default-model agents actually run on, or null
    *  when the server relies on pi's own resolution (or predates the field). */
   defaultModel: string | null
+  /** Review gates on agent handoffs (empty when the room enforces none). */
+  handoffGates: HandoffGate[]
   pendingRoute: RouteProposal[] | null
   maxRooms: number
   conversations: ConversationMeta[]
@@ -115,6 +118,7 @@ export const initialRoomState: RoomState = {
   allowCloud: false,
   compactionReserveTokens: 38000,
   defaultModel: null,
+  handoffGates: [],
   pendingRoute: null,
   maxRooms: 8,
   conversations: [],
@@ -383,6 +387,7 @@ export function reduce(state: RoomState, event: SseEvent): ReduceResult {
         allowCloud?: boolean
         compactionReserveTokens?: number
         defaultModel?: string | null
+        handoffGates?: HandoffGate[]
       }
       const next: RoomState = { ...state, chaining: d.chaining }
       if (d.routingMode !== undefined) next.routingMode = d.routingMode
@@ -393,6 +398,7 @@ export function reduce(state: RoomState, event: SseEvent): ReduceResult {
       if (d.allowCloud !== undefined) next.allowCloud = d.allowCloud
       if (d.compactionReserveTokens !== undefined) next.compactionReserveTokens = d.compactionReserveTokens
       if (d.defaultModel !== undefined) next.defaultModel = d.defaultModel
+      if (d.handoffGates !== undefined) next.handoffGates = d.handoffGates
       return noEffects(next)
     }
 

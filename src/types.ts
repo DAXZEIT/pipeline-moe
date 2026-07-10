@@ -74,6 +74,31 @@ export interface TranscriptEntry {
    *  (model streaming + tool execution; excludes waiting on the local-model
    *  lock). pi's SessionStats has no timing — the room measures the turn. */
   durationMs?: number
+  /** Agent id this message's author handed its turn to via the `handoff`
+   *  tool. Recorded on the SOURCE message so clients can show the routing
+   *  decision in the transcript — a tool-only handoff is otherwise invisible
+   *  and reads as the next agent taking over at random (observed live,
+   *  2026-07-10: tester silently handed to scribe twice). */
+  handoffTo?: string
+}
+
+/** A declarative handoff gate: while `from` has touched files matching `when`
+ *  during its current turn, its handoff MUST target `via`. Enforced at handoff
+ *  tool execution — a blocked call returns a correctable error naming the
+ *  required target, so the model re-routes itself in the same turn (same
+ *  recovery principle as the invalid-target rejection). The gate is skipped
+ *  when `via` is not an active participant: an absent reviewer must not
+ *  deadlock the room. Path detection reads the turn's executed write/edit tool
+ *  calls (like receiptFromActivity), so files changed as a side effect of
+ *  `bash` don't arm it — documented limitation. */
+export interface HandoffGate {
+  /** Agent id the gate applies to. */
+  from: string
+  /** Required handoff target while the gate is armed (e.g. the auditor). */
+  via: string
+  /** Workspace-relative glob patterns (`*`, `**`, `?`) that arm the gate.
+   *  Omitted or empty → armed on every handoff `from` makes. */
+  when?: string[]
 }
 
 /** A file-change receipt produced by diffing the workspace around an agent turn. */
@@ -124,6 +149,15 @@ export interface HandoffSink {
   /** Record `from`'s chosen handoff target for the current turn. Overwrites
    *  any earlier registration for the same agent within the turn. */
   register(from: string, to: string): void
+  /** Peek `from`'s current registration WITHOUT consuming it. The tool uses
+   *  this to reject a second handoff call in the same turn (a batched double
+   *  call used to silently overwrite the first — observed live 2026-07-10).
+   *  Optional so lightweight test doubles keep compiling; absent → no check. */
+  peekHandoff?(from: string): string | undefined
+  /** Check `from` handing off to `to` against the room's handoff gates.
+   *  Returns a correctable error message when a gate blocks it, null when
+   *  allowed. Optional — absent means no gates are enforced. */
+  checkGate?(from: string, to: string): string | null
 }
 
 /** A human decision on a proposed handoff (semi/manual routing). */
@@ -179,6 +213,8 @@ export interface Conversation {
   allowCloud?: boolean
   /** Reserve tokens for auto-compaction. Defaults to 38000 when absent. */
   compactionReserveTokens?: number
+  /** Declarative handoff gates enforced in this discussion. Absent → none. */
+  handoffGates?: HandoffGate[]
   /** The roster (personas + active flags) this discussion ran with. */
   personas: PersonaState[]
   transcript: TranscriptEntry[]

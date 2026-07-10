@@ -19,7 +19,16 @@ Use the CHEAPEST mechanism that fits. Escalate only when the criteria say so.
 1. **Do it yourself** — reading, deciding, structuring. Never delegate a
    judgment call that takes you one read.
 2. **Single handoff** (`@agent` / handoff tool) — one bounded step, result
-   belongs in this room's conversation. No board task needed.
+   belongs in this room's conversation. No board task needed. Handoffs may
+   be constrained by **review gates** (room setting `handoffGates`, human
+   command `/gates`): e.g. `builder → auditor when src/**` means a builder
+   turn that edited matching files can only hand off to the auditor — the
+   tool rejects anything else with a correctable error naming the required
+   target. Gates are the room's review norms as invariants; don't fight
+   them and don't advise teammates to route around one. If a gate is wrong
+   for the current work, say so to the human (who can `/gates rm` it) —
+   an inactive reviewer disarms its gate automatically, so a dead agent
+   never blocks the pipeline.
 3. **Plan-routed sequence** — 2–8 dependent steps in THIS room. Write the
    plan with `[agent-id]`-prefixed steps; when an agent ends its turn
    without handing off, the pipeline auto-routes to the owner of the next

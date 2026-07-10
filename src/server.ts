@@ -78,7 +78,7 @@ import { RoomManager, type RoomDetails } from "./room-manager.js"
 import type { ParentLink, RoomOrchestrator } from "./orchestrator.js"
 import { SseHub } from "./sse.js"
 import { cleanupStaleMounts, isSshTarget, mountSshfs, unmountSshfs, type RoomMount } from "./sshfs.js"
-import type { Persona, PersonaState, RouteDecision } from "./types.js"
+import type { HandoffGate, Persona, PersonaState, RouteDecision } from "./types.js"
 import { parsePersona, VALID_TOOLS } from "./validation.js"
 
 /** Directory for saved user images (relative to workspace). */
@@ -121,6 +121,10 @@ async function saveIncomingImages(images: unknown): Promise<string[]> {
 interface PresetFile {
   name: string
   personas: PresetPersona[]
+  /** Review gates saved with the roster. Absent → the preset defines none,
+   *  and loading/applying it CLEARS the room's gates (a preset describes the
+   *  whole room composition, gates included). */
+  handoffGates?: HandoffGate[]
 }
 
 function presetsDir(): string {
@@ -591,7 +595,8 @@ async function main(): Promise<void> {
     }
     try {
       const personas = stripSeedFields(r.getRegistry().personaStates())
-      const preset: PresetFile = { name, personas }
+      const gates = r.getHandoffGates()
+      const preset: PresetFile = { name, personas, ...(gates.length > 0 ? { handoffGates: gates } : {}) }
       await writePreset(preset)
       res.status(201).json(preset)
     } catch (err) {
@@ -619,6 +624,7 @@ async function main(): Promise<void> {
       // default instead of blocking the whole preset — the human is told which.
       const downgraded = downgradeModels(personas)
       const meta = await r.loadPreset(personas, `${name} — ${new Date().toLocaleTimeString()}`)
+      r.setHandoffGates(preset.handoffGates ?? [])
       res.json({ ok: true, conversation: meta, downgraded })
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
@@ -644,6 +650,7 @@ async function main(): Promise<void> {
       }
       const downgraded = downgradeModels(personas)
       const meta = await r.applyPreset(personas)
+      r.setHandoffGates(preset.handoffGates ?? [])
       res.json({ ok: true, conversation: meta, downgraded })
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
@@ -1194,7 +1201,31 @@ async function main(): Promise<void> {
     defaultModel: r.getDefaultModel(),
     maxRooms: config.maxRooms,
     pendingRoute: r.getPendingRoute(),
+    handoffGates: r.getHandoffGates(),
   })
+
+  /** Validate a `handoffGates` payload: an array of {from, via, when?}.
+   *  Returns the normalized gates, or a string describing the first problem. */
+  const parseHandoffGates = (raw: unknown): HandoffGate[] | string => {
+    if (!Array.isArray(raw)) return "`handoffGates` must be an array"
+    const gates: HandoffGate[] = []
+    for (const [i, g] of raw.entries()) {
+      if (!g || typeof g !== "object") return `handoffGates[${i}] must be an object`
+      const { from, via, when } = g as Record<string, unknown>
+      if (typeof from !== "string" || !from.trim()) return `handoffGates[${i}].from must be a non-empty string`
+      if (typeof via !== "string" || !via.trim()) return `handoffGates[${i}].via must be a non-empty string`
+      if (from.trim() === via.trim()) return `handoffGates[${i}]: from and via must differ`
+      if (when !== undefined && (!Array.isArray(when) || when.some((w) => typeof w !== "string" || !w.trim()))) {
+        return `handoffGates[${i}].when must be an array of non-empty glob strings`
+      }
+      gates.push({
+        from: from.trim(),
+        via: via.trim(),
+        ...(when !== undefined && (when as string[]).length > 0 ? { when: (when as string[]).map((w) => w.trim()) } : {}),
+      })
+    }
+    return gates
+  }
 
   const parseRouteDecision = (body: Record<string, unknown>): RouteDecision | null => {
     const action = body?.action
@@ -1287,6 +1318,14 @@ async function main(): Promise<void> {
         return
       }
       room.setCompactionReserveTokens(v)
+    }
+    if ("handoffGates" in body) {
+      const gates = parseHandoffGates(body.handoffGates)
+      if (typeof gates === "string") {
+        res.status(400).json({ error: gates })
+        return
+      }
+      room.setHandoffGates(gates)
     }
     res.json(settingsPayload(room))
   })
@@ -1891,6 +1930,14 @@ async function main(): Promise<void> {
         return
       }
       r.setCompactionReserveTokens(v)
+    }
+    if ("handoffGates" in body) {
+      const gates = parseHandoffGates(body.handoffGates)
+      if (typeof gates === "string") {
+        res.status(400).json({ error: gates })
+        return
+      }
+      r.setHandoffGates(gates)
     }
     res.json(settingsPayload(r))
   })

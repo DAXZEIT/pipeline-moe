@@ -330,6 +330,44 @@ export const COMMANDS: Command[] = [
     },
   },
   {
+    name: "gates",
+    summary: "List or edit handoff review gates",
+    usage: "[add <from> <via> [glob ...] | rm <n> | clear]",
+    run: (ctx, args) => {
+      const gates = ctx.state.handoffGates
+      const parts = args.trim().split(/\s+/).filter(Boolean)
+      const fmt = (g: { from: string; via: string; when?: string[] }, i: number) =>
+        `${i + 1}. @${g.from} → @${g.via}${g.when?.length ? ` when ${g.when.join(", ")}` : " (always)"}`
+      if (parts.length === 0) {
+        if (gates.length === 0) return ctx.notify("No handoff gates. /gates add <from> <via> [glob ...]")
+        return ctx.notify(gates.map(fmt).join(" · "))
+      }
+      const [sub, ...rest] = parts
+      if (sub === "add") {
+        const [fromToken, viaToken, ...when] = rest
+        const from = fromToken ? resolveAgent(ctx.state, fromToken) : null
+        const via = viaToken ? resolveAgent(ctx.state, viaToken) : null
+        if (!from || !via) return ctx.notify("Usage: /gates add <from> <via> [glob ...] — both must be roster agents", "error")
+        if (from === via) return ctx.notify("from and via must differ.", "error")
+        ctx.store.actions.setHandoffGates([...gates, { from, via, ...(when.length > 0 ? { when } : {}) }])
+        return ctx.notify(`Gate added: @${from} → @${via}${when.length ? ` when ${when.join(", ")}` : ""}.`)
+      }
+      if (sub === "rm") {
+        const n = Number(rest[0])
+        if (!Number.isInteger(n) || n < 1 || n > gates.length) {
+          return ctx.notify(`Usage: /gates rm <1-${gates.length || 1}>`, "error")
+        }
+        ctx.store.actions.setHandoffGates(gates.filter((_, i) => i !== n - 1))
+        return ctx.notify(`Gate ${n} removed.`)
+      }
+      if (sub === "clear") {
+        ctx.store.actions.setHandoffGates([])
+        return ctx.notify("All handoff gates cleared.")
+      }
+      return ctx.notify("Usage: /gates [add <from> <via> [glob ...] | rm <n> | clear]", "error")
+    },
+  },
+  {
     name: "chain",
     summary: "Toggle agent→agent chaining",
     usage: "<on|off>",

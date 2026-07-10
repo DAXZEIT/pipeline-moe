@@ -145,5 +145,21 @@
       "active": true,
       "parallel": false
     }
+  ],
+  "handoffGates": [
+    {
+      "from": "builder",
+      "via": "auditor",
+      "when": [
+        "src/**"
+      ]
+    },
+    {
+      "from": "builder2",
+      "via": "auditor",
+      "when": [
+        "src/**"
+      ]
+    }
   ]
 }

@@ -7,20 +7,36 @@ interface Props {
   onResolve: (decision: RouteDecision) => void
 }
 
+/** An agent rendered with its roster identity (icon + name in its color) —
+ *  the card used to show bare "@id → @id" text, which read as debug output. */
+function AgentChip({ id, roster }: { id: string; roster: RosterItem[] }) {
+  const r = roster.find((x) => x.id === id)
+  return (
+    <span className="route-agent" style={r?.color ? { color: r.color } : undefined} title={`@${id}`}>
+      {r?.icon && <span className="route-agent-icon">{r.icon}</span>}
+      {r?.name ?? `@${id}`}
+    </span>
+  )
+}
+
 /** Approval card for a paused handoff (semi/manual routing). The human approves
  *  the proposed agent(s), redirects to someone else, or drops the handoff. */
 export function RoutingApproval({ proposals, roster, onResolve }: Props) {
   const [redirecting, setRedirecting] = useState(false)
   const [target, setTarget] = useState("")
 
+  // The proposer(s) make no sense as a redirect target — handing the turn
+  // back to whoever just ended it is what "drop" already does.
+  const proposers = new Set(proposals.map((p) => p.from))
+
   if (redirecting) {
     return (
       <div className="route-approval">
         <span className="route-label">↪ Redirect to</span>
-        <select className="route-select" value={target} onChange={(e) => setTarget(e.target.value)}>
+        <select className="route-select" value={target} onChange={(e) => setTarget(e.target.value)} autoFocus>
           <option value="">choose an agent…</option>
           {roster
-            .filter((r) => r.active)
+            .filter((r) => r.active && !proposers.has(r.id))
             .map((r) => (
               <option key={r.id} value={r.id}>
                 {r.icon} {r.name}
@@ -43,13 +59,16 @@ export function RoutingApproval({ proposals, roster, onResolve }: Props) {
 
   return (
     <div className="route-approval">
+      <span className="route-pause-icon">⏸</span>
       <span className="route-label">
-        Proposed handoff{proposals.length > 1 ? "s" : ""}:
+        Handoff{proposals.length > 1 ? "s" : ""} awaiting approval
       </span>
       <span className="route-hops">
         {proposals.map((p, i) => (
           <span key={i} className="route-hop">
-            @{p.from} → <b>@{p.target}</b>
+            <AgentChip id={p.from} roster={roster} />
+            <span className="route-arrow">→</span>
+            <AgentChip id={p.target} roster={roster} />
           </span>
         ))}
       </span>

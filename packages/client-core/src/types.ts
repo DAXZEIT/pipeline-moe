@@ -80,6 +80,10 @@ export interface Message {
    *  tools; excludes local-model lock wait). Absent on user/shell messages
    *  and turns recorded before the server measured it. */
   durationMs?: number
+  /** Agent id the author handed its turn to via the handoff tool. Lets the
+   *  transcript show the routing decision — a tool-only handoff is otherwise
+   *  invisible and the next speaker reads as random. */
+  handoffTo?: string
 }
 
 /** Full persona, as returned by GET /api/participants/:id (for the edit form). */
@@ -162,6 +166,15 @@ export interface RouteDecision {
   targetIds?: string[]
 }
 
+/** A declarative review gate on agent handoffs: while `from` has touched
+ *  files matching `when` during its turn, its handoff must target `via`. */
+export interface HandoffGate {
+  from: string
+  via: string
+  /** Workspace-relative globs that arm the gate. Absent → always armed. */
+  when?: string[]
+}
+
 /** Room settings payload (GET/PATCH /settings). */
 export interface RoomSettings {
   chaining: boolean
@@ -177,6 +190,8 @@ export interface RoomSettings {
   defaultModel?: string | null
   maxRooms: number
   pendingRoute: { proposals: RouteProposal[] } | null
+  /** Review gates on agent handoffs. Absent on older servers. */
+  handoffGates?: HandoffGate[]
 }
 
 /** A built-in persona template (GET /api/persona-templates) for the Add-agent picker. */

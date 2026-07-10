@@ -1,5 +1,6 @@
 import type {
   ConversationMeta,
+  HandoffGate,
   Message,
   ModelInfo,
   PersonaDetail,
@@ -245,6 +246,13 @@ export function createApi(API_BASE: string) {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ routingMode }),
+        }).then((r) => json<RoomSettings>(r)),
+
+      setHandoffGates: (handoffGates: HandoffGate[]) =>
+        fetch(`${base}/settings`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ handoffGates }),
         }).then((r) => json<RoomSettings>(r)),
 
       setDefaultThinkingLevel: (defaultThinkingLevel: "off" | "minimal" | "low" | "medium" | "high" | "xhigh") =>

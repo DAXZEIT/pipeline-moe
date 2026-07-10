@@ -4,13 +4,14 @@
 import { rmSync } from "node:fs"
 import { resolve } from "node:path"
 import { config } from "./config.js"
+import { checkHandoffGates } from "./handoff-gates.js"
 import { isAllowedModel as isAllowedModel_ } from "./model.js"
 import { Participant } from "./participant.js"
 import type { ResolvedModel } from "./model.js"
 import type { ParentLink, RoomOrchestrator } from "./orchestrator.js"
 import type { TaskBoard } from "./task-board.js"
 import type { SseHub } from "./sse.js"
-import type { HandoffSink, Persona, PersonaState } from "./types.js"
+import type { HandoffGate, HandoffSink, Persona, PersonaState } from "./types.js"
 
 export interface RosterItem {
   id: string
@@ -83,12 +84,48 @@ export class Registry implements HandoffSink {
     this.pendingHandoff.set(from, to)
   }
 
+  /** HandoffSink: peek `from`'s registration without consuming it. The tool
+   *  rejects a second handoff call in the same turn with this; the Room reads
+   *  it to stamp `handoffTo` on the transcript entry before consuming. */
+  peekHandoff(from: string): string | undefined {
+    return this.pendingHandoff.get(from)
+  }
+
   /** Consume (get-and-clear) the pending handoff target for `from`, if any.
    *  Called once per turn by Room when resolving that agent's reply. */
   takeHandoff(from: string): string | undefined {
     const to = this.pendingHandoff.get(from)
     this.pendingHandoff.delete(from)
     return to
+  }
+
+  /** Declarative handoff gates for this room — set by the Room whenever its
+   *  config changes; enforced live by checkGate() at handoff execution. */
+  private handoffGates: HandoffGate[] = []
+
+  setHandoffGates(gates: HandoffGate[]): void {
+    this.handoffGates = gates
+  }
+
+  getHandoffGates(): HandoffGate[] {
+    return this.handoffGates
+  }
+
+  /** HandoffSink: check `from` → `to` against the room's gates, using the
+   *  caller's CURRENT-turn tool activity for path arming (the handoff tool
+   *  executes mid-turn, before any receipt exists). Returns a correctable
+   *  error message when blocked, null when allowed. */
+  checkGate(from: string, to: string): string | null {
+    if (this.handoffGates.length === 0) return null
+    const activity = this.participants.get(from)?.liveActivity() ?? []
+    return checkHandoffGates(
+      this.handoffGates,
+      from,
+      to,
+      activity,
+      this.workspaceDir,
+      this.activeIds(),
+    )
   }
 
   /** Root directory for on-disk pi sessions, scoped to the current conversation
