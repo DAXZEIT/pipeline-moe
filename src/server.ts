@@ -72,6 +72,7 @@ function printBanner(): void {
 import { downgradeUnavailableModels, isAllowedModel, listModels, resolveModel, type ResolvedModel } from "./model.js"
 import { listWorkspace } from "./receipts.js"
 import { BASE_PROMPT, BUILDER_OVERLAY, PLANNER_OVERLAY, SEED_PERSONAS } from "./personas.js"
+import { type PresetPersona, stripSeedFields, rehydrateSeedFields } from "./preset-hydration.js"
 import { Room } from "./room.js"
 import { RoomManager, type RoomDetails } from "./room-manager.js"
 import type { ParentLink, RoomOrchestrator } from "./orchestrator.js"
@@ -115,12 +116,6 @@ async function saveIncomingImages(images: unknown): Promise<string[]> {
 
 
 // ── Preset I/O ──────────────────────────────────────────────────────────────
-
-/** A persona as persisted in a preset file — systemPrompt is optional since
- *  seed personas rehydrate from SEED_PERSONAS at load time. */
-interface PresetPersona extends Omit<PersonaState, "systemPrompt"> {
-  systemPrompt?: string
-}
 
 /** A saved preset: roster configuration + metadata. */
 interface PresetFile {
@@ -179,30 +174,6 @@ async function deletePreset(name: string): Promise<boolean> {
   }
 }
 
-/** Strip systemPrompt from seed persona IDs so presets don't carry stale prompts. */
-function stripSeedPrompts(personas: (PersonaState | PresetPersona)[]): PresetPersona[] {
-  const seedIds = new Set(SEED_PERSONAS.map(p => p.id))
-  return personas.map(p => {
-    if (seedIds.has(p.id)) {
-      const { systemPrompt: _, ...rest } = p
-      return rest
-    }
-    return p as PresetPersona
-  })
-}
-
-/** Rehydrate systemPrompt from current SEED_PERSONAS for matching IDs. */
-function rehydratePrompts(personas: PresetPersona[]): PersonaState[] {
-  const seedMap = new Map(SEED_PERSONAS.map(p => [p.id, p]))
-  return personas.map(p => {
-    const seed = seedMap.get(p.id)
-    if (seed && !p.systemPrompt) {
-      return { ...p, systemPrompt: seed.systemPrompt }
-    }
-    return p as PersonaState
-  })
-}
-
 /** Re-seed any missing default presets (allows user deletion, restored on restart). */
 async function seedDefaultPresets(): Promise<void> {
   const existing = await listPresets()
@@ -210,13 +181,13 @@ async function seedDefaultPresets(): Promise<void> {
 
   const localDefault: PresetFile = {
     name: "local-default",
-    personas: stripSeedPrompts(SEED_PERSONAS.map(p => ({ ...p, active: true, parallel: false }))),
+    personas: stripSeedFields(SEED_PERSONAS.map(p => ({ ...p, active: true, parallel: false }))),
   }
 
   // Cloud-sprint: builder2 (Haiku), auditor (Sonnet), planner (Opus), tester (Sonnet)
   const cloudSprint: PresetFile = {
     name: "cloud-sprint",
-    personas: stripSeedPrompts([
+    personas: stripSeedFields([
       {
         id: "builder2",
         name: "Builder2",
@@ -409,7 +380,7 @@ async function main(): Promise<void> {
       if (presetName) {
         const presetFile = await readPreset(presetName)
         if (!presetFile) throw new RoomProvisionError(404, `preset "${presetName}" not found`)
-        const personas = rehydratePrompts(presetFile.personas)
+        const personas = rehydrateSeedFields(presetFile.personas)
         if (personas.length === 0) {
           throw new RoomProvisionError(400, `preset "${presetName}" has no personas`)
         }
@@ -619,7 +590,7 @@ async function main(): Promise<void> {
       return
     }
     try {
-      const personas = stripSeedPrompts(r.getRegistry().personaStates())
+      const personas = stripSeedFields(r.getRegistry().personaStates())
       const preset: PresetFile = { name, personas }
       await writePreset(preset)
       res.status(201).json(preset)
@@ -639,7 +610,7 @@ async function main(): Promise<void> {
         res.status(404).json({ error: `preset "${name}" not found` })
         return
       }
-      const personas = rehydratePrompts(preset.personas)
+      const personas = rehydrateSeedFields(preset.personas)
       if (personas.length === 0) {
         res.status(400).json({ error: `preset "${name}" has no personas — would brick the session` })
         return
@@ -666,7 +637,7 @@ async function main(): Promise<void> {
         res.status(404).json({ error: `preset "${name}" not found` })
         return
       }
-      const personas = rehydratePrompts(preset.personas)
+      const personas = rehydrateSeedFields(preset.personas)
       if (personas.length === 0) {
         res.status(400).json({ error: `preset "${name}" has no personas — would brick the session` })
         return

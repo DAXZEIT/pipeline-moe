@@ -1,6 +1,91 @@
 # Changelog
 
-## [Unreleased] — 2026-07-09
+## [Unreleased] — 2026-07-10
+
+### Changed
+
+- **Orchestrator skill relaxed** — `check_room` is cheap, polling by curiosity is OK.
+  Only tight heartbeats remain forbidden. A restart note documents that restored sub-rooms
+  lose their report-back link (`restoreRooms()` never repasses `parentLink`; the manifest
+  serializes only roomId/name/workspaceDir/sshTarget) — `check_room` is mandatory after
+  a restart. New section on heterogeneous parallelism: real parallelism requires mixing
+  backends (local serializes behind `--parallel 1`), with a concrete recipe using
+  `spawn_room({preset: "cloud-sprint"})` for an off-GPU branch while a local room works.
+
+- **Preset personas now inherit `skills` from SEED automatically** — a new pure module
+  `src/preset-hydration.ts` extracts `stripSeedFields` + `rehydrateSeedFields` from
+  `server.ts`. Semantics mirror what already existed for `systemPrompt`: a field ABSENT
+  from the preset means "not specified" → inherit the current seed value, so a preset
+  saved before a capability existed picks it up automatically. A field PRESENT — even
+  empty (`skills: []`) — is an explicit override. `tools` are deliberately NOT inherited:
+  presets specify tools explicitly and intentionally diverge from the seed (e.g. a planner
+  granted write/edit for in-room file work), and silent inheritance could not fix a
+  present-but-incomplete list anyway. 9 new tests, including an integration test proving
+  every shipped preset loads with the planner carrying `["orchestrator"]`.
+
+- **Orchestration tools added to top-level planner personas in shipped presets** —
+  `spawn_room`, `check_room`, `stop_room`, `destroy_room`, `answer_room` added to the
+  planner in 9 presets: mainmix, cloud-main, main, 2106BUILD, CHEAPBUILD, FREEROOM,
+  local-default, Versa, relay-local. Two presets intentionally left without orchestration
+  tools: `cloud-sprint` (planner = parallel worker, coordinates in-room by handoff, does
+  not nest-spawn) and `planning-room` (single planner, already a sub-room). The drift was
+  structural: each new persona capability had to be manually propagated to every preset.
+
+- **`skills` strip is now conditional (strip-si-identique)** — auditor found that the
+  original implementation (keep `skills` on save, inherit only when absent on load)
+  self-healed a pre-feature preset once, then re-froze it: after one save cycle, the
+  `skills` field was present on disk, so a future SEED skill addition would not be
+  inherited. Fix: `stripSeedFields` (renamed from `stripSeedPrompts`) now strips
+  `skills` only when it matches the SEED's current skills — non-modified personas stay
+  absent on disk and inherit continuously (permanent anti-drift like `systemPrompt`);
+  customized personas (including opt-out `[]`) differ from SEED and are preserved.
+  Functions are injectable (`seedPersonas` parameter) for testing the exact auditor
+  scenario (v1→v2, seed gains a skill, reload picks up both). Regression guard test
+  proves the old "keep-always" behavior would miss the new skill.
+
+- **Phantom tests replaced with real imports** — `presets.test.ts` and
+  `presets-fixes.test.ts` previously re-implemented `stripSeedPrompts`/`rehydratePrompts`
+  logic inline (testing a copy, not the source). They now import and call the real
+  `stripSeedFields`/`rehydrateSeedFields` from `preset-hydration.ts`. Shape-guard
+  invariants retained with a NOTE pointing to `preset-hydration.test.ts` for behavioral
+  coverage. Net: ~166 lines removed from `presets.test.ts`.
+
+- **TUI header divider** — new `HeaderDivider` component: a dim, full-width rule
+  separating the header area (tabs + roster + tasks) from the conversation. Always-on,
+  budgeted in `reservedRows` (without this, the `rows-8` height budget overflows and
+  Ink corrupts the layout — the bug "── You ── disappeared" that comments document).
+
+- **TUI conversation title** — the current conversation title now appears on the RoomTabs
+  line (same line as room tabs, zero vertical cost): `· 💬 <titre>`. Title sourced from
+  `state.conversations` via `currentConversationId` — same data as the webUI's
+  `ConversationBar`. Title truncated to 28 chars with ellipsis to stay on one line;
+  fallback `—` when no title. `reservedRows` untouched. Note: `RoomTabs` has
+  `flexWrap="wrap"` and isn't counted in `reservedRows` — with many rooms + a long title,
+  the line can wrap (pre-existing risk, not introduced by this change).
+
+### Fixed
+
+- **Sub-room planners now have the orchestrator skill** — previously the skill was wired
+  in `personas.ts` but presets saved before the feature never received it because the
+  `skills` field was missing. The `rehydrateSeedFields` mechanism (which already handled
+  `systemPrompt`) now covers `skills` too, so this class of drift cannot recur.
+
+### Known issues
+
+- **`systemPrompt` data-loss vector** (narrow, documented) — `systemPrompt` is editable
+  by agents (PATCH `server.ts:1043/1719`), so a seed persona with a customized prompt
+  loses that customization on a save/reload cycle (the unconditional strip drops any
+  `systemPrompt`, not just seed-identical ones). Passing to strip-si-identique like
+  `skills` would be a semantic product decision (snapshot vs reference) that overlaps
+  with ROADMAP #6 (`promptFrom`/template-alias). Documented as a NOTE in
+  `preset-hydration.ts` JSDoc; deferred to ROADMAP #6.
+
+- **cloud-sprint builder2 has a stale systemPrompt** teaching the obsolete `@name` handoff
+  mechanism (today only the `handoff` tool routes). Fixing it by hardcoding a new prompt
+  would perpetuate the drift this PR fights; the proper fix is a `promptFrom`/template-alias
+  mechanism (ROADMAP debt). 2 pre-existing test flakes unrelated to these changes:
+  `room-goals.test.ts` (ENOTEMPTY teardown race under parallel execution) and
+  `local-model-lock.test.ts` (intermittent). Both pass in isolation.
 
 ### Added
 

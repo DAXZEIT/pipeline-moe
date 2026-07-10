@@ -4,6 +4,7 @@ import { join } from "node:path"
 import { afterAll, beforeAll, describe, expect, test } from "vitest"
 import { SEED_PERSONAS } from "../personas.js"
 import { downgradeUnavailableModels } from "../model.js"
+import { stripSeedFields, rehydrateSeedFields } from "../preset-hydration.js"
 import type { PersonaState } from "../types.js"
 
 // ── Types (mirror server.ts internals) ──────────────────────────────────────
@@ -42,149 +43,31 @@ function customPersona(): PersonaState {
   }
 }
 
-// ── stripSeedPrompts / rehydratePrompts ─────────────────────────────────────
+// ── SEED roster invariants ──────────────────────────────────────────────────
+// NOTE: strip/rehydrate BEHAVIOR is covered in preset-hydration.test.ts against
+// the real stripSeedFields / rehydrateSeedFields — it is NOT re-implemented
+// here. These tests only guard the SEED roster shape those functions rely on.
 
 const seedIds = new Set(SEED_PERSONAS.map(p => p.id))
 
-describe("stripSeedPrompts logic", () => {
-  test("strips systemPrompt from seed persona IDs", () => {
-    const persona = seedPersona()
-    expect(seedIds.has(persona.id)).toBe(true)
-    const { systemPrompt: _, ...rest } = persona
-    expect(rest).not.toHaveProperty("systemPrompt")
-    expect(rest.id).toBe(persona.id)
-    expect(rest.name).toBe(persona.name)
+describe("SEED roster invariants", () => {
+  test("seed IDs match the expected roster", () => {
+    const expectedIds = ["scout", "builder", "auditor", "scribe", "planner", "tester", "fetcher"]
+    for (const id of expectedIds) expect(seedIds.has(id)).toBe(true)
+    expect(seedIds.size).toBe(expectedIds.length)
   })
 
-  test("keeps systemPrompt for non-seed persona IDs", () => {
-    const persona = customPersona()
-    expect(seedIds.has(persona.id)).toBe(false)
-    expect(persona.systemPrompt).toBe("I am custom")
-  })
-
-  test("all SEED_PERSONAS are in the seed ID set", () => {
-    for (const p of SEED_PERSONAS) {
-      expect(seedIds.has(p.id)).toBe(true)
-    }
-  })
-
-  test("builder2 is NOT in seed IDs (custom persona in cloud-sprint)", () => {
+  test("builder2 is NOT a seed id (custom persona in cloud-sprint)", () => {
     expect(seedIds.has("builder2")).toBe(false)
   })
 
-  test("planner IS in seed IDs (added as seed persona)", () => {
-    expect(seedIds.has("planner")).toBe(true)
+  test("every seed persona has a non-empty systemPrompt to rehydrate", () => {
+    for (const p of SEED_PERSONAS) expect(p.systemPrompt.length).toBeGreaterThan(0)
   })
 
-  test("seed IDs match expected roster", () => {
-    const expectedIds = ["scout", "builder", "auditor", "scribe", "planner", "tester", "fetcher"]
-    for (const id of expectedIds) {
-      expect(seedIds.has(id)).toBe(true)
-    }
-    expect(seedIds.size).toBe(expectedIds.length)
-  })
-})
-
-describe("rehydratePrompts logic", () => {
-  const seedMap = new Map(SEED_PERSONAS.map(p => [p.id, p]))
-
-  test("rehydrates systemPrompt from SEED_PERSONAS for matching IDs without systemPrompt", () => {
-    const presetPersona: PresetPersona = {
-      id: "scout",
-      name: "Scout",
-      color: "#FFD166",
-      icon: "🔍",
-      tools: ["read", "grep", "find", "ls", "bash"],
-      model: undefined,
-      active: true,
-      parallel: false,
-    }
-    const seed = seedMap.get(presetPersona.id)
-    const rehydrated = seed && !presetPersona.systemPrompt
-      ? { ...presetPersona, systemPrompt: seed.systemPrompt }
-      : presetPersona
-    expect(rehydrated.systemPrompt!).toBe(seed!.systemPrompt)
-    expect(rehydrated.systemPrompt!.length).toBeGreaterThan(100)
-  })
-
-  test("keeps saved systemPrompt for custom personas", () => {
-    const presetPersona: PresetPersona = {
-      id: "my-custom",
-      name: "Custom",
-      color: "#FF0000",
-      icon: "⚙️",
-      tools: ["read"],
-      model: undefined,
-      systemPrompt: "I am custom",
-      active: true,
-      parallel: false,
-    }
-    const seed = seedMap.get(presetPersona.id)
-    expect(seed).toBeUndefined()
-    expect(presetPersona.systemPrompt).toBe("I am custom")
-  })
-
-  test("keeps saved systemPrompt for seed persona if explicitly set", () => {
-    const presetPersona: PresetPersona = {
-      id: "scout",
-      name: "Scout",
-      color: "#FFD166",
-      icon: "🔍",
-      tools: ["read"],
-      model: undefined,
-      systemPrompt: "My custom scout prompt",
-      active: true,
-      parallel: false,
-    }
-    const seed = seedMap.get("scout")
-    const rehydrated = seed && !presetPersona.systemPrompt
-      ? { ...presetPersona, systemPrompt: seed.systemPrompt }
-      : presetPersona
-    expect(rehydrated.systemPrompt).toBe("My custom scout prompt")
-  })
-
-  test("all seed personas have non-empty systemPrompts to rehydrate", () => {
-    for (const p of SEED_PERSONAS) {
-      expect(seedMap.get(p.id)).toBeDefined()
-      expect(seedMap.get(p.id)!.systemPrompt.length).toBeGreaterThan(0)
-    }
-  })
-
-  test("builder2 persona in cloud-sprint does NOT get rehydrated (not in seedMap)", () => {
-    const presetPersona: PresetPersona = {
-      id: "builder2",
-      name: "Builder2",
-      color: "#EF9F27",
-      icon: "🔨",
-      tools: ["read", "bash", "edit", "write", "grep", "find", "ls"],
-      model: "anthropic/claude-haiku-4-20250719",
-      active: true,
-      parallel: true,
-      // No systemPrompt — builder2 is not a seed persona, so no rehydration
-    }
-    const seed = seedMap.get("builder2")
-    expect(seed).toBeUndefined()
-    // rehydratePrompts would return it as-is (cast to PersonaState)
-    const result = seed && !presetPersona.systemPrompt
-      ? { ...presetPersona, systemPrompt: seed.systemPrompt }
-      : presetPersona as PersonaState
-    expect(result.systemPrompt).toBeUndefined()
-  })
-
-  test("planner persona in cloud-sprint DOES get rehydrated (it's in SEED_PERSONAS)", () => {
-    const presetPersona: PresetPersona = {
-      id: "planner",
-      name: "Planner",
-      color: "#4A90D9",
-      icon: "📋",
-      tools: ["read", "grep", "find", "ls"],
-      model: "anthropic/claude-opus-4-6-20250603",
-      active: true,
-      parallel: true,
-    }
-    const seed = seedMap.get("planner")
-    expect(seed).toBeDefined()
-    expect(seed!.systemPrompt).toContain("YOUR ROLE: PLANNER")
+  test("the planner seed carries its role marker", () => {
+    const planner = SEED_PERSONAS.find(p => p.id === "planner")!
+    expect(planner.systemPrompt).toContain("YOUR ROLE: PLANNER")
   })
 })
 
@@ -512,27 +395,24 @@ describe("preset round-trip", () => {
     const original = seedPersona()
     expect(original.systemPrompt.length).toBeGreaterThan(100)
 
-    // Step 2: Strip systemPrompt for seed IDs (simulating stripSeedPrompts)
-    const { systemPrompt: _, ...stripped } = original
-    expect(stripped).not.toHaveProperty("systemPrompt")
+    // Step 2: Strip on save — the REAL function, not a simulation.
+    const stripped = stripSeedFields([original])
+    expect(stripped[0]).not.toHaveProperty("systemPrompt")
 
     // Step 3: Write to file
-    const preset: PresetFile = { name: "roundtrip", personas: [stripped as PresetPersona] }
+    const preset: PresetFile = { name: "roundtrip", personas: stripped }
     await writeFile(join(rtDir(), "roundtrip.json"), JSON.stringify(preset, null, 2), "utf-8")
 
     // Step 4: Read from file
     const content = await readFile(join(rtDir(), "roundtrip.json"), "utf-8")
     const parsed = JSON.parse(content) as PresetFile
 
-    // Step 5: Rehydrate systemPrompt (simulating rehydratePrompts)
-    const seed = SEED_PERSONAS.find(p => p.id === parsed.personas[0].id)
-    const rehydrated = seed && !parsed.personas[0].systemPrompt
-      ? { ...parsed.personas[0], systemPrompt: seed.systemPrompt }
-      : parsed.personas[0]
+    // Step 5: Rehydrate on load — the REAL function.
+    const [rehydrated] = rehydrateSeedFields(parsed.personas)
 
     // Step 6: Verify systemPrompt is restored
-    expect(rehydrated.systemPrompt!).toBe(original.systemPrompt)
-    expect(rehydrated.systemPrompt!.length).toBeGreaterThan(100)
+    expect(rehydrated.systemPrompt).toBe(original.systemPrompt)
+    expect(rehydrated.systemPrompt.length).toBeGreaterThan(100)
 
     await rm(rtDir(), { recursive: true, force: true })
   })

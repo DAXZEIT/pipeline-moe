@@ -38,8 +38,8 @@ Use the CHEAPEST mechanism that fits. Escalate only when the criteria say so.
    GOAL_MET.
 
 Anti-patterns: a sub-room for what one handoff does; orchestrating a
-one-step task; parallelizing dependent steps; polling a sub-room that will
-wake you anyway.
+one-step task; parallelizing dependent steps; spawning three sub-rooms on a
+single-backend box and expecting speedup (see Heterogeneous parallelism).
 
 ## Writing a sub-room goal
 
@@ -68,9 +68,17 @@ escalating (default 10; 3–5 for tight fix loops).
 
 - Track each live delegation as a board task (owner: you) so the operator
   sees what is in flight; complete it when you integrate the result.
-- You are woken with a report when the goal resolves — do not poll.
-  `check_room` is for the operator asking "where is it at?", or before
-  deciding to stop a room, not a heartbeat.
+- You are woken with a report when the goal resolves, so you never NEED to
+  poll to stay correct. `check_room` is cheap, though — use it freely when
+  you or the operator want a mid-flight status, or before deciding to stop a
+  room. Just don't wire it into a tight heartbeat loop; that burns turns
+  without changing when the report arrives.
+- **Restart caveat — this one you MUST poll.** The parent→sub-room
+  report-back link lives in process memory. If the server restarts while a
+  sub-room is running, the restored room keeps working but can no longer wake
+  you — its report is orphaned and you will wait forever. After any known
+  restart, `check_room` your outstanding delegations explicitly rather than
+  waiting on a callback that will never fire.
 - Sub-room agents escalate blocking questions via ask_orchestrator; the
   sub-room pauses until your `answer_room`. Answer with a decision, not a
   question back — you are the unblock, and every exchange costs a full
@@ -94,6 +102,36 @@ escalating (default 10; 3–5 for tight fix loops).
 5. Never leave a resolved sub-room undestroyed — spawned rooms hold
    resources, and the room cap will eventually block a delegation you
    actually need.
+
+## Heterogeneous parallelism
+
+Parallelism buys you nothing if every worker queues behind the same GPU. The
+local backend (llama-server) runs `--parallel 1`: two local agents in two
+rooms still execute one-at-a-time at the model, so a "parallel wave" of local
+agents is sequential in wall-clock — you pay the coordination cost for no
+throughput.
+
+Real concurrency comes from mixing BACKENDS, not from spawning more rooms.
+Agents pinned to API models (Anthropic, OpenRouter) run on remote inference
+that does not contend with the local GPU. So the parallelism that pays is:
+
+- A LOCAL room doing one workstream while a sub-room on an ALL-API preset
+  does another — the local GPU and the API backends run genuinely at once.
+- Never two local-heavy rooms "in parallel": they serialize at llama-server
+  and you have only added coordination overhead.
+
+Recipe: keep the coordinating/analysis work local, push the parallel branch
+to an API-backed sub-room:
+
+    spawn_room({ preset: "cloud-sprint", goal: "...self-contained goal..." })
+
+`cloud-sprint` is the reference all-API roster (Haiku builder, Sonnet
+auditor/tester, Opus planner). Its agents run off-GPU, so it advances while a
+local room keeps working. The ceiling is your API rate limits and your own
+integration bandwidth, not GPU time.
+
+Rule of thumb: count backends, not rooms. N concurrent workstreams only go
+faster if they land on N non-contending backends.
 
 ## Sizing rules of thumb
 

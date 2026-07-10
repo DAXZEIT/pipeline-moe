@@ -6,7 +6,7 @@
       "name": "Planner",
       "color": "#4A90D9",
       "icon": "📋",
-      "tools": ["read", "grep", "find", "ls"],
+      "tools": ["read", "grep", "find", "ls", "spawn_room", "check_room", "stop_room", "destroy_room", "answer_room"],
       "compactionInstructions": "Preserve the goal criteria and per-iteration verification verdicts. Discard file reads done only for verification.",
       "thinkingLevel": "medium",
       "model": "local/Qwopus3.6-27B-v2-MTP-Q4_K_M.gguf",

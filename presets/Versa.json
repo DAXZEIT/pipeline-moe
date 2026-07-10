@@ -13,7 +13,12 @@
         "ls",
         "bash",
         "edit",
-        "write"
+        "write",
+        "spawn_room",
+        "check_room",
+        "stop_room",
+        "destroy_room",
+        "answer_room"
       ],
       "compactionInstructions": "Preserve all plans created, their steps and status, and architectural decisions. Discard source code reads done only for verification.",
       "thinkingLevel": "high",

@@ -18,6 +18,7 @@ import { TextInputOverlay } from "./components/overlays/TextInputOverlay"
 import { LineupOverlay } from "./components/overlays/LineupOverlay"
 import { TasksOverlay } from "./components/overlays/TasksOverlay"
 import { TaskSummary } from "./components/TaskSummary"
+import { HeaderDivider } from "./components/HeaderDivider"
 import { AgentForm } from "./components/overlays/AgentForm"
 import { RoomForm } from "./components/overlays/RoomForm"
 import { PromptOverlay } from "./components/overlays/PromptOverlay"
@@ -376,12 +377,23 @@ export function App({
   return (
     <Box flexDirection="column" height={Math.max(8, rows - 1)} overflow="hidden">
       <Box flexDirection="column" flexShrink={0}>
-        <RoomTabs rooms={rooms} current={roomId} plusSelected={plusSelected} />
+        <RoomTabs
+          rooms={rooms}
+          current={roomId}
+          plusSelected={plusSelected}
+          conversationTitle={
+            state.conversations.find((c) => c.id === state.currentConversationId)?.title
+          }
+        />
         {/* Horizontal roster timeline (Dofus turn-bar style) — replaces the
             26-column sidebar, so the transcript gets the full width. Detail
             and actions live in Ctrl+R. */}
         <RosterStrip roster={state.roster} runningId={state.runningAgentId} defaultModel={state.defaultModel} />
         <TaskSummary tasks={state.tasks} />
+        {/* Divider between the fixed header zone and the conversation — makes
+            the task line read as chrome, not the first message. Always on; its
+            row is booked in reservedRows below. */}
+        <HeaderDivider width={columns} />
       </Box>
       <Box flexGrow={1} flexShrink={1} overflow="hidden">
         <Box flexDirection="column" flexGrow={1} paddingX={1}>
@@ -404,6 +416,7 @@ export function App({
             reservedRows={
               stripRowCount(state.roster, columns, state.defaultModel) +
               (state.tasks.length > 0 ? 1 : 0) +
+              1 /* HeaderDivider: always-on rule under the header zone */ +
               (state.paused && state.pausedOptions?.length ? pickerRows(state.pausedOptions.length) : 0)
             }
             isActive={!overlay && !state.oauthProgress}

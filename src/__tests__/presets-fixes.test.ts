@@ -4,6 +4,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterAll, beforeAll, describe, expect, test } from "vitest"
 import { SEED_PERSONAS, BASE_PROMPT, BUILDER_OVERLAY, PLANNER_OVERLAY } from "../personas.js"
+import { stripSeedFields, rehydrateSeedFields } from "../preset-hydration.js"
 import type { PersonaState } from "../types.js"
 
 // ── Types ───────────────────────────────────────────────────────────────────
@@ -234,15 +235,8 @@ describe("cloud-sprint preset is now loadable (Finding 1 + Finding 3 combined)",
       },
     ]
 
-    // Simulate stripSeedPrompts (same logic as server.ts)
-    const seedIds = new Set(SEED_PERSONAS.map(p => p.id))
-    const stripped = rawPersonas.map(p => {
-      if (seedIds.has(p.id)) {
-        const { systemPrompt: _, ...rest } = p
-        return rest
-      }
-      return p
-    })
+    // Strip on save — the REAL function, not a re-implementation.
+    const stripped = stripSeedFields(rawPersonas as unknown as PersonaState[])
 
     const cloudSprint: PresetFile = {
       name: "cloud-sprint",
@@ -274,11 +268,9 @@ describe("cloud-sprint preset is now loadable (Finding 1 + Finding 3 combined)",
     // Empty-roster guard would pass (4 > 0)
     expect(parsed.personas.length > 0).toBe(true)
 
-    // Simulate rehydrate: planner would get its systemPrompt from SEED_PERSONAS
-    const seedMap = new Map(SEED_PERSONAS.map(p => [p.id, p]))
-    const plannerSeed = seedMap.get("planner")
-    expect(plannerSeed).toBeDefined()
-    expect(plannerSeed!.systemPrompt).toContain("YOUR ROLE: PLANNER")
+    // Rehydrate on load — the REAL function restores the planner's prompt.
+    const [, , plannerRehydrated] = rehydrateSeedFields(parsed.personas)
+    expect(plannerRehydrated.systemPrompt).toContain("YOUR ROLE: PLANNER")
 
     await rm(dir, { recursive: true, force: true })
   })
