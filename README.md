@@ -1,76 +1,56 @@
 # Pipeline-MoE
 
-**Think frontier, run local.** A multi-agent chat room over N stateful
-[`pi`](https://github.com/earendil-works/pi) sessions, one shared workspace, and
-your own GPU.
+**Think frontier, run local. Compose your team — models, norms and all.**
 
-Orchestrates **N stateful `pi` agent sessions** (one per persona, different
-system prompts + tool sets) over a **shared workspace**, routes `@mentions`
-through a **serial queue**, and streams everything to its clients over **SSE**.
-Plan with a frontier model, execute on a local 27B, swap any agent to cloud
-when the project demands it.
+A multi-agent chat room over N stateful [`pi`](https://github.com/earendil-works/pi)
+sessions sharing one transcript and one filesystem workspace. Each seat —
+planner, builder, auditor, tester, scribe — runs the model its cognitive
+profile deserves: frontier where judgment lives, local 27B where volume
+lives, side by side in the same room. Swap any single seat up or down
+without touching the rest.
 
-Two clients ship with it, built on a shared framework-agnostic core
-(`@pipeline-moe/client-core`):
+The provenance is part of the design. Claude Opus 4.8 wrote the core; the
+pipeline ships features to its own repository, through the same review gates
+it enforces on any work; most of the terminal client came from Claude Fable 5
+working in Claude Code, with optimization passes run by the stack itself in
+parallel. Human input is architecture and review, and every change lands with
+receipts — transcripts, workspace diffs, audit passes, 1,000+ tests. That
+history is documented live in a blog series:
+[the system builds itself](https://blog.daxzeit.eu/the-pipeline-is-building-itself.html) ·
+[grows an immune system](https://blog.daxzeit.eu/the-pipeline-grows-an-immune-system.html) ·
+[writes its own laws](https://blog.daxzeit.eu/the-pipeline-writes-its-own-laws.html) ·
+[the manifesto](https://blog.daxzeit.eu/stop-burning-tokens.html).
 
-- **TUI** (`packages/tui`) — the flagship terminal client: multi-room, slash
-  commands, live markdown-rendered streaming, line-accurate scrollback, lineup
-  management, provider OAuth.
-- **Web UI** (`web/`) — the same rooms over React + Vite.
+## The philosophy: norms, not loops
 
-Local-first by policy: cloud providers are hidden and rejected unless you
-explicitly opt in with `PIPELINE_ALLOW_CLOUD=1`.
+There is no orchestrator script, no wired graph, no supervisor process.
+Agents route themselves — and the system stays honest through a small set of
+invariants enforced where they can't be routed around:
 
-### Example Lineup — Tiered Orchestration
+- **Explicit handoffs.** The only way to pass a turn is the `handoff` tool —
+  a schema-constrained menu of active agents, not free-text `@mentions`. One
+  handoff per turn; every transition is visible in the transcript
+  (`↪ handoff → @tester`). Agents can quote and discuss each other safely.
+- **Review gates.** Room norms as one-liners, not prose:
+  `{from: "builder", via: "auditor", when: ["src/**"]}` — while the builder
+  has touched matching files this turn, its handoff must target the auditor.
+  Enforced inside the tool as a *correctable* error (the agent re-routes
+  itself, same turn, agency intact). A gate whose reviewer is inactive
+  disarms itself: a dead agent never deadlocks the room.
+- **Separation of powers as tool allowlists.** The auditor cannot write. The
+  planner cannot touch code. Not conventions — locked doors.
+- **Work receipts.** Every turn's filesystem diff is recorded, shown to the
+  operator, and injected into the next agent's context. Claims about work
+  come with evidence.
+- **Culture as files.** Persona-scoped [Agent Skills](skills/) teach
+  procedure: the planner carries an orchestration playbook, the auditor and
+  tester carry `live-verify` — *"green tests do not count as seeing the
+  feature work."* Skills inherit through presets like models do.
+- **Boring loop safety.** A chain-hop budget and fallback routing bound
+  runaway chains. (A pattern-detecting circuit breaker shipped, misfired in
+  both directions, and was deleted — the rationale is in the CHANGELOG.)
 
-| Tier | Persona | Model | Where |
-|---|---|---|---|
-| Frontier | planner | Claude Opus 4.6 | API |
-| Frontier | auditor | Claude Sonnet 5 | API |
-| Local | builder, tester, scribe, fetcher, scout | Qwopus 3.6 27B (Q5_K_M) | llama-server, RTX 3090 |
-
-The planner and auditor need calibrated reasoning and judgment — they decide
-*what* to build and *whether* it's correct. The execution agents need to follow
-instructions, use tools, and write code — a well-distilled local 27B does this
-at 50 tok/s with zero API cost.
-
-If a project exceeds the local model's capabilities, swap a single agent up to
-frontier (e.g. builder → Opus 4.8) without touching the rest of the lineup.
-
-### Presets
-
-| Preset | Builder | Planner | Auditor | Rest | Cost |
-|---|---|---|---|---|---|
-| `local-default` | Qwopus 27B | Qwopus 27B | Qwopus 27B | Qwopus 27B | $0 |
-| `cloud-sprint` | Qwopus 27B | Opus 4.6 | Sonnet 5 | Qwopus 27B | ~$$ |
-| `cloud-heavy` | Opus 4.8 | Opus 4.6 | Sonnet 5 | Qwopus 27B | ~$$$ |
-
-You pay for frontier only on the roles that need it, only when the project
-justifies it. The rest runs free on your GPU.
-
-```
-TUI (Ink)                Web UI (React + Vite)
-    ╰──────── @pipeline-moe/client-core ────────╯
-                    │  REST + SSE
-                    ▼
-Express backend  ──►  Registry of pi AgentSession instances
-  serial queue         scout / builder / auditor / scribe / tester …
-  routing @mentions          │  each = createAgentSession(persona, tools)
-  workspace diff             ▼
-                    ┌────────┴────────┐
-              llama-server        Cloud APIs
-           (any local GGUF)    (Anthropic, etc.)
-              :5000               on opt-in
-```
-
-Each participant is a real `pi` `AgentSession`: it keeps its **own conversation
-memory** (stateful) and gets **real tools** (read/bash/edit/write, gated per
-persona). The shared room transcript is threaded into each agent's prompt so they
-see each other's messages; they share the filesystem so edits are visible across
-agents. After every agent turn the workspace is diffed to produce a **work
-receipt**.
-
-## Run
+## Quick start
 
 **From npm** (no clone needed):
 ```bash
@@ -83,363 +63,112 @@ pmoe                           # connect (defaults to localhost:5300)
 ```bash
 git clone https://github.com/DAXZEIT/pipeline-moe && cd pipeline-moe
 npm install
-```
-
-**Server:**
-```bash
-npm start          # backend on :5300 (llama-server assumed running on :5000)
+npm start          # backend on :5300 (llama-server assumed on :5000)
 npm run dev        # backend + web UI dev server (:5310)
 bash start.sh      # full launch: llama-server → backend → web UI, health-gated
-                   # (set LLAMA_SCRIPT to your llama-server launch script)
-```
-
-
-**Terminal client (from source):**
-```bash
-npm -C packages/tui start                        # connect to localhost:5300
-npm -C packages/tui start -- --server http://host:5300 --room default
 ```
 
 Defaults: port `5300`, workspace = current directory, model = pi's default
-(your local provider in `~/.pi/agent/models.json`). A `.env` in the working
-directory is loaded automatically — copy `.env.example` and adjust.
+local provider (`~/.pi/agent/models.json`). A `.env` in the working directory
+is loaded automatically — copy `.env.example`.
 
-## API
+**Local-first by policy:** cloud providers are hidden and rejected unless you
+opt in with `PIPELINE_ALLOW_CLOUD=1` (and per room with the `allowCloud`
+setting). The default posture is your GPU, your data.
 
-| Method | Path | Body | Purpose |
-|---|---|---|---|
-| GET | `/api/health` | — | liveness |
-| GET | `/api/events` | — | **SSE** stream (roster, message, token, status, receipt, notice, turn, etc.) |
-| GET | `/api/participants` | — | roster snapshot |
-| POST | `/api/participants` | `{name, systemPrompt, tools?, color?, icon?, id?}` | **create** a participant |
-| PATCH | `/api/participants/:id` | `{active: boolean}` or `{parallel: boolean}` | **activate/deactivate** or **toggle parallel** |
-| DELETE | `/api/participants/:id` | — | **kick** |
-| POST | `/api/participants/:id/compact` | — | **compact** agent session (free context tokens) |
-| POST | `/api/participants/reorder` | `{order: [id, …]}` | **reorder** roster |
-| GET | `/api/transcript` | — | full transcript |
-| GET | `/api/conversations` | — | list saved conversations |
-| POST | `/api/conversations` | `{name?}` | create a new conversation |
-| POST | `/api/conversations/:id/load` | — | load a saved conversation |
-| PATCH | `/api/conversations/:id` | `{name: string}` | rename a conversation |
-| DELETE | `/api/conversations/:id` | — | delete a conversation |
-| POST | `/api/messages` | `{text, images?: string[]}` | post to the room (returns 202; results stream over SSE) |
-| POST | `/api/messages/steer` | `{text, target}` | steer a running agent mid-turn (409 if not running) |
-| GET | `/api/participants/:id/export` | — | download session as HTML (attachment) |
-| GET | `/api/participants/:id/export-jsonl` | — | download session as JSONL (attachment) |
-| POST | `/api/abort` | — | abort the currently running agent |
-| GET | `/api/media/:filename` | — | serve a saved image |
-| GET | `/api/workspace` | — | list workspace files |
-| GET | `/api/settings` | — | room settings |
-| PATCH | `/api/settings` | `{chaining?: boolean, defaultAgent?: string}` | update room settings |
+## Compose a team
 
-## SSE Events
+Every seat is independently configurable: model + provider, system prompt,
+tool allowlist, skills, thinking level, vision, compaction instructions,
+parallel flag. A **preset** serializes the whole composition — roster,
+prompts, and review gates — as one shareable JSON file. Ten reference
+compositions ship in [`presets/`](presets/), from full-local (runs entirely
+on one 24 GB GPU, $0) to all-cloud sprint rosters.
 
-| Event | Payload | Description |
+The reference mixed roster:
+
+| Seat | Why this tier | Example |
 |---|---|---|
-| `roster` | `RosterItem[]` | full roster snapshot (on connect and on any change) |
-| `message` | `{index, author, authorName, text, ts, question?, images?}` | a completed transcript line |
-| `token` | `{id, delta}` | streaming text delta from an agent |
-| `activity` | `ActivityEvent` | tool-call start/end (live process visibility) |
-| `reasoning` | `{id, delta}` | streaming thinking delta (ephemeral) |
-| `status` | `{id, status, contextUsage?, sessionStats?, retry?}` | participant status (`idle`, `active`, `thinking`, `working`, `compacting`, `retrying`). After each turn, `contextUsage` and `sessionStats` included when available. During retries, `retry` metadata is included.
-| `receipt` | `{participantId, created[], modified[], deleted[]}` | work receipt (filesystem diff) |
-| `notice` | `{msg, level}` | informational/error notice |
-| `turn` | `{phase, targets?, askerId?, question?}` | routing turn lifecycle |
-| `workspace` | `FileEntry[]` | live workspace file listing |
-| `settings` | `{chaining, defaultAgent}` | room settings change |
-| `transcript` | `TranscriptEntry[]` | full transcript replacement (on conversation switch) |
-| `conversations` | `{conversations, currentId}` | saved-conversation list + current id |
-
-**Turn phases:** `start`, `end`, `chain`, `parallel`, `pause`, `resume`
-
-## Features
-
-### `@mention` Routing
-
-`@all` or no mention → every active participant. `@scout @auditor` → those agents,
-in order. An agent can hand work to another by writing `@<id>` explicitly in its
-reply — only the `@` prefix triggers a handoff. Agents can refer to each other by
-name (e.g. "the builder") in discussion without triggering routing.
-
-**Last-paragraph parsing:** Only the last paragraph of an agent's reply is scanned
-for `@mentions`. Mid-text references like "as @builder mentioned" don't trigger
-chains — only the final paragraph is treated as a routing signal. This prevents
-accidental chaining when an agent references another agent in its reasoning.
-
-**Chain budget:** Each turn has a chain hop budget of 8 (configurable as
-`MAX_CHAIN_HOPS` in `Room`). If the budget is exhausted during chaining, further
-chains stop and a notice is emitted. This prevents infinite loops from agents
-that hallucinate `@mentions` in their replies. The budget resets at the start of
-each turn.
-
-### Parallel Agents
-
-A participant can be toggled as "parallel" — when routed alongside other agents,
-they run in the same wave instead of sequentially. Toggled via `PATCH /api/participants/:id`
-with `{parallel: true}`.
-
-### `ask_user` — Agent-Initiated Questions
-
-Any agent can call the `ask_user` tool to pause the pipeline and ask the user a
-clarifying question. The pipeline enters a "paused" state (SSE event:
-`turn: {phase: "pause", askerId, question}`) and holds the remaining queue. The
-user's response is routed back to the asking agent, and the held queue resumes.
-
-Nested questions are supported (an agent can ask again during a resumed turn).
-
-**Escape hatches:**
-- `/cancel` — cancels the pause and drains the held queue normally
-- `POST /api/abort` — aborts the current agent (also clears a pause)
-
-### Per-Agent Compaction
-
-**Manual:** `POST /api/participants/:id/compact` or `/compact @agent` slash
-command. Calls `AgentSession.compact()` and returns the token count before
-compaction. The agent's status changes to `compacting` during the operation.
-
-**Automatic:** Each agent session is configured with auto-compaction enabled.
-When an agent's context approaches its limit (90K tokens for a 128K window),
-pi automatically compacts the session. The UI receives a `status: "compacting"`
-event during the operation.
-
-**Role-aware compaction:** Each persona can define `compactionInstructions` —
-a short directive (max 500 chars) telling the compaction what to preserve vs
-discard. The 7 seed personas come with tailored instructions:
-
-| Persona | Instruction |
-|---|---|
-| scout | Preserve file paths, structural observations, anomalies. Discard dead-ends. |
-| builder | Preserve code changes, bugs, architectural decisions. Discard failed attempts. |
-| auditor | Preserve findings, severity assessments, verification status. Discard clean reads. |
-| scribe | Preserve documentation written, memory updates, knowledge distilled. Discard context reads. |
-| planner | Preserve plans, steps, architectural decisions. Discard source reads for verification. |
-| tester | Preserve test results, pass/fail counts, bugs found. Discard superseded runs. |
-| fetcher | Preserve URLs and key findings. Discard failed fetches and retry traces. |
-
-Set via the persona editor (textarea below system prompt) or `PATCH /api/participants/:id`
-with `{compactionInstructions: "..."}`. Null or empty string clears the override.
-
-**SDK limitation:** Custom instructions only apply to *manual* compaction via
-`session.compact(customInstructions)`. Auto-compaction uses default instructions —
-the SDK's `session_before_compact` event doesn't expose `customInstructions`
-(known pi SDK limitation, requires SDK update to fix).
-
-### Per-Agent Thinking Level
-
-Each agent can override the global thinking level (set by `PIPELINE_THINKING` env
-var, defaults to `"medium"`). Set via the persona editor or `PATCH /api/participants/:id`
-with `{thinkingLevel: "high"}`.
-
-**Available levels:** `off`, `minimal`, `low`, `medium`, `high`, `xhigh`
-
-**Fallback:** When a persona has no `thinkingLevel` set, it inherits the global
-config value. Setting `thinkingLevel` to `null` or `""` via PATCH resets the
-per-agent override and reverts to the global default.
-
-**Data flow:** `Persona.thinkingLevel ?? config.thinkingLevel` →
-`createAgentSession({ thinkingLevel })` → session uses it for reasoning effort.
-
-**Fast path:** If `thinkingLevel` is the *only* field in the PATCH payload, the
-backend calls `session.setThinkingLevel()` in-place — no session recreation, no
-cursor reset, no "room is busy" block. Takes effect on the next turn. Combined
-patches (e.g. thinkingLevel + name) still take the heavy dispose+recreate path.
-
-**Available levels filter:** `GET /api/participants/:id` returns
-`availableThinkingLevels` from `session.getAvailableThinkingLevels()`. The
-EditAgent selector only shows levels the model actually supports — falls back to
-all 6 if the session returns nothing.
-
-The PATCH endpoint validates values against the allowlist — invalid values return 400.
-
-### Context Usage per Agent
-
-After each agent turn, the UI shows a progress bar in the Roster with the agent's
-current context token usage (e.g. "42K / 128K"), color-coded by threshold.
-
-**Data flow:** `AgentSession.getContextUsage()` → `Participant.getContextUsage()` →
-`Room.runAgent()` broadcasts via SSE `status` event (piggyback, no new event type).
-
-**Color thresholds** (inclusive boundaries):
-- Green: < 50%
-- Yellow: 50–75%
-- Orange: 75–90%
-- Red: > 90%
-
-**Warning:** When usage exceeds 80%, the bar pulses (CSS animation `ctx-pulse`)
-to alert the operator that compaction may be needed before the loop completes.
-
-**Visibility:** Bars appear after the agent's first completed turn (SSE event
-must carry `contextUsage`). Mid-turn status events (e.g. `working`, `compacting`)
-don't include `contextUsage` — the last known value persists through the turn.
-Bars are hidden when `contextUsage` is `undefined` (fresh load before any turn).
-
-**Why piggyback on `status` and not a new event?**
-The `idle` status already fires at the end of every turn. Adding a new SSE event
-type would require a new listener in the frontend. Extending the existing `status`
-event's payload is simpler — the frontend already processes status events and
-updates roster items.
-
-### Vision — Image Support
-
-Users can send images alongside text messages. Images are saved as hashed files
-in the workspace `media/` directory and served via `GET /api/media/:filename`.
-
-- **Paste or drag-drop** images in the UI (clipboard and drag-drop handlers on
-  the Composer)
-- Images stored as `media/<md5hash>.<ext>` in the transcript
-- Clicking a thumbnail opens full-size
-- JSON body of `POST /api/messages` accepts `{text, images?: string[]}` where
-  images are base64 data URIs
-
-### Conversations
-
-Rooms can save and switch between multiple conversations. The transcript is
-persisted as a session file, and `GET /api/conversations` lists all saved ones.
-
-### Workspace Diffing (Work Receipts)
-
-After every agent turn, the workspace is diffed to produce a work receipt
-(`created[]`, `modified[]`, `deleted[]`). Receipts are broadcast via SSE and
-displayed in the UI.
-
-### Slash Commands
-
-| Command | Effect |
-|---|---|
-| `/kick @x` | Remove a participant |
-| `/activate @x` | Activate a deactivated participant |
-| `/deactivate @x` | Deactivate a participant |
-| `/compact @x` | Compact an agent's context |
-| `/cancel` | Cancel a paused question and drain the held queue |
-
-### Session Stats per Agent
-
-After each agent turn, the UI shows a compact stats line in the Roster with token
-breakdown and cache efficiency (e.g. "42Ki · 1.2Ko · cache 93% · 3 tools"). Full
-numbers in a tooltip.
-
-**Data flow:** `AgentSession.getSessionStats()` → `Participant.getSessionStats()` →
-`Room.runAgent()` / `followUpAgent()` broadcasts via SSE `status` event alongside
-`contextUsage`.
-
-**Cache percentage** is the most operationally useful number — it shows KV cache
-hit ratio. A low percentage means the agent is repaying prefill on every turn.
-
-### Mid-Turn Steering
-
-When an agent is running, the operator can send a redirection message via `steer()`
-instead of aborting. The Composer shows "↪ Steer @id" (amber button) alongside
-"■ Stop" when `turnActive` is true.
-
-**Data flow:** `POST /api/messages/steer` with `{ text, target }` →
-`Room.steer(targetId, text)` → posts `↳ steered @id: text` to the transcript →
-`Participant.steer(text)` → `session.steer(text)` queues the message.
-
-The agent sees the steer between tool calls — it doesn't interrupt current tool
-execution. A "steer sent" flash appears for 2 seconds, then clears.
-
-**Error handling:** 409 if the agent is not running (idle), 404 if not found.
-
-### Work Receipts (Context Injection)
-
-In addition to workspace diff receipts (filesystem changes broadcast via SSE),
-the room injects structured work receipts into downstream agents' context using
-`session.sendCustomMessage()`. After an agent turn produces file changes, the
-next agent in the queue receives a compact `work_receipt` custom message
-(`display: false`) summarizing what changed — e.g. "Builder created: foo.ts,
-bar.ts; modified: baz.ts".
-
-This gives downstream agents filesystem awareness without requiring them to
-re-discover changes from the transcript. The receipt is injected in `drainQueue()`
-after the result is posted.
-
-**Caveat:** `sendCustomMessage({ display: false })` messages still consume context
-tokens. In a chain of 8 agents, up to 7 receipts can accumulate per turn.
-Keep receipts compact. Receipts are invisible to the operator (not shown in the
-transcript) but occupy space in the agent's context — monitor token growth on
-downstream agents in long chains.
-
-### Session Export
-
-**HTML:** Export an agent's session as a self-contained HTML file via
-`GET /api/participants/:id/export`. The download button (⬇) in the Roster actions
-row triggers the download.
-
-**Data flow:** `session.exportToHtml()` → writes HTML file to disk → server reads
-and returns with `Content-Disposition: attachment`.
-
-Filename format: `{id}-{timestamp}.html` (colons and dots sanitized).
-
-**JSONL:** Export an agent's session as JSONL (one JSON object per line) via
-`GET /api/participants/:id/export-jsonl`. Useful for post-mortem analysis,
-dataset extraction, and replay. The Roster has a secondary export button for
-JSONL format. Returns the file as `Content-Disposition: attachment` with
-`application/x-ndjson` content type.
-
-### Retry Awareness
-
-When pi auto-retries after transient errors (e.g., rate limits on remote models),
-the UI shows a `(attempt/maxAttempts — errorMessage)` indicator in amber in the
-Roster. The agent's status changes to `retrying` during the retry delay.
-
-**Data flow:** `auto_retry_start` event → `Participant.onEvent()` emits `retrying`
-status with metadata → SSE `status` event → Roster renders retry indicator.
-
-### followUp() — Self-Chaining
-
-When an agent asks a question via `ask_user` and the user responds, the answer is
-delivered via `followUp()` instead of `prompt()`. This guarantees the answer is the
-next thing the agent processes — no Room routing, no context rebuild from transcript.
-
-**Data flow:** User answer → `Room.followUpAgent(asker, { text, images })` →
-`Participant.followUp(text, images)` → `session.followUp(text, images)` → agent
-processes the answer directly from its session memory.
-
-**Implementation note:** `runAgent()` and `followUpAgent()` are thin wrappers around
-a shared `executeAgent(target, context, mode)` method — only the call to
-`target.run()` vs `target.followUp()` differs. The common path (snapshot →
-execute → stats → receipt) lives in one place.
-
-## Custom Tools (Extension System)
-
-The `src/custom-tools/` directory is a drop-a-file registry for agent tools.
-Each tool is a `ToolDefinition` — same type used by Pi's extension system.
-Adding a new tool is: create the `.ts` file, register it in `index.ts`, add the
-name to `VALID_TOOLS` and `ALL_TOOLS`.
-
-**How it works:**
-1. `buildCustomTools(allowlist)` — checks the agent's `tools` allowlist against
-   registered tools, returns only the tools that agent is permitted to use
-2. Custom tools are merged into `customTools` in the session config alongside
-   confined tools (sandbox-tools)
-3. Opt-in via `persona.tools` allowlist — scout gets `web_search` by default,
-   other agents need it added manually
-
-**First tool: `web_search`** — SearXNG via HTTP GET to
-`$SEARXNG_URL/search?q=...&format=json` (set `SEARXNG_URL` in `.env` to your
-instance; the JSON output format must be enabled). No external dependencies,
-pure Node `fetch()`. Parameters: `query` (required), `limit` (1-20, default 5),
-`categories` (optional). Returns formatted results (title, URL, snippet —
-truncated at 200 chars). 15s timeout on fetch. Graceful error handling (network
-error, HTTP error, abort, empty results).
-
-## Tools per Persona
-
-pi built-in tool names: `read, bash, edit, write, grep, find, ls`. Gating is a
-plain allowlist passed to `createAgentSession({ tools })` — no permission shim.
-The `ask_user` tool is available to **all** agents. Custom tools are opt-in via
-the `tools` allowlist — `web_search` is available but only scout gets it by
-default.
-
-| Persona | Tools |
-|---|---|
-| scout | read, grep, find, ls, web_search, ask_user |
-| builder | read, write, edit, bash, grep, find, ls, ask_user |
-| auditor | read, grep, find, ls, ask_user |
-| scribe | read, write, edit, grep, find, ls, ask_user |
-| planner | read, grep, find, ls, ask_user |
-| tester | read, bash, grep, find, ls, ask_user |
-| fetcher | read, bash, write, grep, find, ls, web_read, ask_user |
+| planner | decomposition and judgment — never writes code | frontier (Opus / Fable) |
+| auditor | independent verification of design | frontier or mid-tier |
+| scout | fast reconnaissance, web + repo | cheap API (flash-class) |
+| builder | implementation volume | local 27B — or frontier for hard sprints |
+| tester, scribe, fetcher | diligence, docs, retrieval | local 27B, $0 |
+
+You pay frontier rates only on the decisions that deserve them. If a project
+exceeds the local model, swap one seat up and leave the rest alone.
+
+## How a room runs
+
+- **Routing modes** — `auto` (handoffs dispatch freely), `semi` (each handoff
+  pauses for operator approval), `manual` (you route everything).
+- **Plan-aware routing** — write a plan with `[owner]`-prefixed steps; an
+  agent that ends its turn without handing off routes to the owner of the
+  next incomplete step.
+- **Shared task board** — `task_create/update/list` tools, visible live in
+  both clients; the room's working memory for what's in flight.
+- **ask_user** — any agent can pause the room with a clarifying question
+  (including closed-option picks); the answer resumes exactly where it paused.
+- **Mid-turn steering** — redirect a running agent between tool calls without
+  aborting it.
+- **Per-agent context management** — live context bars, session stats with
+  KV-cache hit rate, role-aware compaction (each persona knows what to
+  preserve), per-agent thinking levels.
+- **Vision** — paste an image to any vision-enabled agent; images never reach
+  a model without a projector.
+
+## Scaling out
+
+- **Multi-room** — independent rooms with their own rosters, conversations
+  and workspaces, in one server.
+- **Sub-rooms** — the planner spawns a delegate room for a bounded
+  workstream (`spawn_room`) and is woken with a report when its goal
+  resolves; sub-room agents escalate blocking questions back via
+  `ask_orchestrator`. Evaluator-loop goals (`goalMode: "eval"`) re-verify
+  each pass — build-until-green with the producer never grading its own work.
+- **Count backends, not rooms** — parallelism pays only across
+  non-contending backends. A local room plus an all-API sub-room genuinely
+  run at once; two local-heavy rooms serialize at your GPU. The planner's
+  orchestrator skill encodes this and the rest of the delegation playbook.
+
+## Architecture
+
+```
+TUI (Ink)                Web UI (React + Vite)
+    ╰──────── @pipeline-moe/client-core ────────╯
+                    │  REST + SSE
+                    ▼
+Express backend ──► Rooms (multi-room · sub-rooms report back)
+  serial turn queue      │  each room: shared transcript + workspace
+  handoff-tool routing   ▼
+  review gates      Registry of pi AgentSession instances
+  task board             planner / builder / auditor / tester / scribe …
+  plan-aware steps       │  each = persona + model + tools + skills
+                         ▼
+                ┌────────┴────────┐
+          llama-server        Cloud APIs
+       (any local GGUF)   (Anthropic, OpenRouter, …)
+            :5000              on opt-in
+```
+
+Each participant is a real pi `AgentSession`: its own conversation memory,
+its own tools, the shared transcript threaded into its prompt, the shared
+filesystem making every edit visible to the whole team.
+
+Two clients ship on a framework-agnostic core (`@pipeline-moe/client-core`):
+the **TUI** (`packages/tui`) — the flagship terminal client: multi-room,
+slash commands, live markdown streaming, roster strip, task board, handoff
+approval — and the **web UI** (`web/`), the same rooms in the browser.
+
+## Reference
+
+Full HTTP API, SSE events, routing/turn mechanics, seed personas and tool
+tables: [`docs/REFERENCE.md`](docs/REFERENCE.md).
+
+## Credits
+
+Built on [pi](https://github.com/earendil-works/pi) by Mario Zechner.
+Written by its own agents, under direction by [DAXZEIT](https://about.daxzeit.eu).
 
 ## License
 
