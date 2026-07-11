@@ -84,6 +84,29 @@ test("a failed write does not wedge later writes", async () => {
   expect(await store.read("after-failure")).not.toBeNull()
 })
 
+// ── flush — shutdown waits the write chain out (auditor debt 2026-07-11) ──
+
+test("flush resolves after all queued writes have landed", async () => {
+  const writes = Array.from({ length: 10 }, (_, i) => {
+    const c = makeConv("flush-test")
+    c.title = `v${i}`
+    return store.write(c) // deliberately not awaited — flush must cover these
+  })
+  await store.flush()
+  // After flush, the last queued write is on disk, not in flight.
+  const got = await store.read("flush-test")
+  expect(got!.title).toBe("v9")
+  await Promise.all(writes)
+})
+
+test("flush never rejects, even after a failed write", async () => {
+  await expect(store.write(makeConv("../../flush-evil"))).rejects.toThrow()
+  await expect(store.flush()).resolves.toBeUndefined()
+  // And the chain still works after the flush.
+  await store.write(makeConv("after-flush-failure"))
+  expect(await store.read("after-flush-failure")).not.toBeNull()
+})
+
 // ── Path traversal guards ──────────────────────────────────────────────
 // Note: read() and remove() wrap in try/catch and swallow errors (return null/undefined).
 // write() throws before the file operation because assertInside runs in file() first.

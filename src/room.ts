@@ -551,6 +551,7 @@ export class Room {
 
   /** Persist the current conversation and push the refreshed list to clients. */
   async saveCurrent(): Promise<void> {
+    if (this.sealed) return
     if (this.saveTimer) {
       clearTimeout(this.saveTimer)
       this.saveTimer = null
@@ -572,8 +573,28 @@ export class Room {
     }
   }
 
+  /** True once the shutdown flush has run — no save may fire past it. The
+   *  teardown itself mutates the roster (disposeAll clears every participant,
+   *  firing onChange → scheduleSave), so an unsealed room would clobber the
+   *  flushed snapshot with the demolition state. Observed live (2026-07-11,
+   *  first implementation of this flush): snapshot persisted with
+   *  `personas: []` — seeds included — because the flush ran after disposal. */
+  private sealed = false
+
+  /** Flush persistence before shutdown, then seal: fire a pending debounced
+   *  save now, wait out the store's write chain, and refuse every later save.
+   *  Without the flush, up to 400 ms of mutations (a scheduleSave in flight)
+   *  or an in-progress snapshot die with the process; without the seal, the
+   *  teardown overwrites what was just flushed. */
+  async flushWrites(): Promise<void> {
+    if (this.saveTimer) await this.saveCurrent()
+    await this.store.flush()
+    this.sealed = true
+  }
+
   /** Debounced autosave, for bursty roster mutations. */
   private scheduleSave(): void {
+    if (this.sealed) return
     if (this.saveTimer) clearTimeout(this.saveTimer)
     this.saveTimer = setTimeout(() => {
       this.saveTimer = null

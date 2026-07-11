@@ -346,8 +346,13 @@ export class RoomManager {
   /** Resolve once all queued manifest + room-meta writes have drained. createRoom,
    *  renameRoom, and destroyRoom trigger these writes fire-and-forget (`void`), so
    *  shutdown and tests use this to wait them out before tearing down the
-   *  sessions dir — otherwise an in-flight write can race the cleanup. */
+   *  sessions dir — otherwise an in-flight write can race the cleanup.
+   *  Also flushes AND SEALS every room's conversation persistence (pending
+   *  debounced save + store write chain; no save fires past the seal) — the
+   *  manifest/meta queues alone left the last snapshot losable at exit, and
+   *  an unsealed room let the teardown clobber it (auditor debt, 2026-07-11). */
   async flushWrites(): Promise<void> {
+    await Promise.all([...this.rooms.values()].map((e) => e.room.flushWrites()))
     await this.saveQueue
     await this.metaQueue
   }

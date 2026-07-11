@@ -2200,6 +2200,12 @@ async function main(): Promise<void> {
 
   const shutdown = async () => {
     console.log("\n[server] shutting down…")
+    // Flush BEFORE disposeAll and seal: disposal clears the roster and fires
+    // onChange → scheduleSave, so a post-disposal flush persists the
+    // demolition (observed live 2026-07-11: snapshot landed with
+    // `personas: []`). flushWrites persists the last user-meaningful state,
+    // then seals every room so teardown-triggered saves are no-ops.
+    await roomManager.flushWrites().catch(() => {})
     registry.disposeAll()
     // Unmount any sshfs-scoped rooms so a normal shutdown leaves no orphaned
     // FUSE mounts. Best-effort — never block shutdown on a failed unmount.

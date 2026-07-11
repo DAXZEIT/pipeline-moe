@@ -103,6 +103,14 @@ export class ConversationStore {
     return run
   }
 
+  /** Resolve once every write queued so far has settled. Shutdown awaits this
+   *  so an in-flight snapshot isn't cut mid-rename (auditor debt, 2026-07-11:
+   *  the last snapshot was losable at exit). Never rejects — write() already
+   *  surfaces its own failures; flush only waits the chain out. */
+  async flush(): Promise<void> {
+    await this.writeChain
+  }
+
   async remove(id: string): Promise<void> {
     try {
       await unlink(this.file(id))

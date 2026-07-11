@@ -56,6 +56,31 @@ describe("RoomManager", () => {
     expect(room.roomId).toBe("default")
   })
 
+  test("flushWrites persists a pending debounced room save (shutdown path)", async () => {
+    const room = manager.createDefaultRoom()
+    // Schedule a debounced save the way registry mutations do, then flush
+    // WITHOUT waiting the 400 ms debounce out — shutdown must not drop it
+    // (auditor debt 2026-07-11: last snapshot losable at exit).
+    ;(room as unknown as { scheduleSave(): void })["scheduleSave"]()
+    await manager.flushWrites()
+    const { currentId } = await room.getConversations()
+    expect(existsSync(resolve(suiteTmp, "default", `${currentId}.json`))).toBe(true)
+  })
+
+  test("flushWrites seals the room — teardown-triggered saves cannot clobber the snapshot", async () => {
+    const room = manager.createDefaultRoom()
+    ;(room as unknown as { scheduleSave(): void })["scheduleSave"]()
+    await manager.flushWrites()
+    const { currentId } = await room.getConversations()
+    const file = resolve(suiteTmp, "default", `${currentId}.json`)
+    const flushed = readFileSync(file, "utf8")
+    // disposeAll clears the roster and fires onChange → scheduleSave; a save
+    // past the seal would rewrite the file with the demolition state
+    // (observed live 2026-07-11: personas persisted as []).
+    await room.saveCurrent()
+    expect(readFileSync(file, "utf8")).toBe(flushed)
+  })
+
   test("getRoom returns the default room after createDefaultRoom", () => {
     const room = manager.createDefaultRoom()
     expect(manager.getRoom("default")).toBe(room)
