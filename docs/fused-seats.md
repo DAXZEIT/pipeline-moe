@@ -109,6 +109,16 @@ Hypothesis: seat framing wins exactly where role-play costs — overthink,
 out-of-character refusals, shared-context coherence — and loses nothing
 elsewhere.
 
+**First A/B (2026-07-11, T2, 2 runs per variant):** persona 90/93%,
+seat 91/88-93% — indistinguishable within noise (±2.5%). Expected: a
+stateless micro-decision has no surface where role-play costs (no long
+turn, no shared context). What it establishes is the "loses nothing"
+half: adopting assignment language is cost-free on decision quality.
+The supervisor prompt now uses it (the stack's first seat-framed
+header); the "wins where role-play costs" half remains to be measured
+on long turns — the right instrument is reasoning-chars per dispatched
+turn, not T2.
+
 ### 2c. Seat logbooks — institutional memory, not personal memory
 
 `agent_memory/` reframed: not "your memory" but **the seat's logbook** —

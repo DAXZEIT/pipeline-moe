@@ -47,9 +47,10 @@ export interface SupervisorOutcome {
 }
 
 const SUPERVISOR_SYSTEM_PROMPT = [
-  "You are the routing supervisor of a multi-agent room. An agent just finished",
-  "its turn and proposed one or more handoffs. Your ONLY job is to decide the",
-  "fate of that proposal set by calling the `route_decision` tool exactly once.",
+  "You hold the routing-supervisor seat of a multi-agent room for this one",
+  "decision. An agent just finished its turn and proposed one or more handoffs.",
+  "The seat's only duty is to decide the fate of that proposal set by calling",
+  "the `route_decision` tool exactly once.",
   "",
   "Verdicts:",
   "- accept   — the proposed handoff(s) dispatch as proposed.",
