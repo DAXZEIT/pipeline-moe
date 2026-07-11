@@ -1,5 +1,11 @@
 # /preset new — le team composer dans le TUI
 
+> **Statut 2026-07-12** : v0 livrée — schéma client-core synchronisé,
+> `PUT /api/presets/:name` (validation bruyante + warnings, dont le
+> warning parallel×local), écrans A et B, remix `n`/`from`/`edit`
+> (commits `540515f`, `5cbcc15`). Reste ouvert : brief par membre,
+> YAML, `create_preset` orchestrateur (§5), hook RoomForm (§3).
+
 > Idée (2026-07-11) : amplifier `/preset new` pour composer une équipe complète
 > sans quitter le terminal — membres, providers/modèles, outils, couleurs,
 > system prompts, compaction, skills, thinking level, vision par agent.
