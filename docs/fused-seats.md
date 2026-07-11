@@ -76,6 +76,38 @@ Durable memory stays **per hat** (`agent_memory/<persona>.md` — identity,
 lessons); working context is **per seat**. Identity survives the fusion;
 only the redundant re-reading dies.
 
+### 2b. Assignment, not role-play (the framing is part of the feature)
+
+Dax's observation (2026-07-11): "I don't play the helpdesk role, I take
+the helpdesk seat." Persona prompts say *you are X* — an invitation to
+perform a character, including its theatrical flaws (part of the tester's
+130K-char overthink is *performing* thoroughness). Seat prompts say *you
+have been assigned seat X; the seat's duties are…* — the actor stays
+fully capable, the duties attach to the seat.
+
+Two mechanical reasons this matters beyond taste:
+
+- **The seat is true; the character is false.** Same weights behind every
+  persona today; same *session* behind a fused seat tomorrow. Role-play
+  framing becomes self-contradictory on a shared context ("I am the
+  tester, yet I remember writing this diff") — the model must sustain a
+  fiction its own context refutes. Seat framing makes the situation
+  coherent: "you wrote this from the maker seat; judge it now from the
+  tester hat." Duties attach to the seat, not to pride of authorship.
+- **Free institutional vocabulary.** Seats are occupied, vacated,
+  reassigned — and one **recuses** oneself: "the audit seat is never
+  occupied by whoever sat in the maker seat for this change" states the
+  auditor rule in a concept the model deeply knows. Critique also
+  depersonalizes: "the maker seat's output has a bug," not "@builder,
+  you made a mistake" — less performed social politeness between agents.
+
+Caveat, to be measured not assumed: small models sometimes lean on a
+strong persona as a stable behavioral attractor. The framing switch is a
+prompt change, A/B-able on the T2 bench like the supervisor's 73→85%.
+Hypothesis: seat framing wins exactly where role-play costs — overthink,
+out-of-character refusals, shared-context coherence — and loses nothing
+elsewhere.
+
 ### 3. The intra-seat handoff becomes a hat switch
 
 builder → tester within the maker seat: same session, so the "transfer"
