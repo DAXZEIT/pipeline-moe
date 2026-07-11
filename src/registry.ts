@@ -5,6 +5,7 @@ import { rmSync } from "node:fs"
 import { resolve } from "node:path"
 import { config } from "./config.js"
 import { checkHandoffGates } from "./handoff-gates.js"
+import { describeRosterBlock, type RosterSeatInfo } from "./roster-awareness.js"
 import { isAllowedModel as isAllowedModel_ } from "./model.js"
 import { Participant } from "./participant.js"
 import type { ResolvedModel } from "./model.js"
@@ -62,6 +63,11 @@ export class Registry implements HandoffSink {
    *  Null outside a batch (single create() calls already see a fully-formed
    *  registry, since every prior agent finished constructing before them). */
   private pendingRosterIds: Set<string> | null = null
+  /** Full states of the batch being loaded by reset() — describeRoster()
+   *  reads these while the participants map is still filling, for the same
+   *  reason pendingRosterIds exists: the FIRST persona in a batch builds its
+   *  system prompt against an otherwise-empty roster. Null outside a batch. */
+  private pendingRosterStates: import("./types.js").PersonaState[] | null = null
 
   /** HandoffSink: ids of currently active participants — used by the
    *  `handoff` tool to build its enum (at construction) and to hard-validate
@@ -105,6 +111,56 @@ export class Registry implements HandoffSink {
 
   setHandoffGates(gates: HandoffGate[]): void {
     this.handoffGates = gates
+  }
+
+  /** HandoffSink: the roster-awareness block for `selfId` — one line per
+   *  active seat with the RESOLVED model (pin ?? room default) and a compact
+   *  tool summary. During a reset() batch, reads the incoming states so the
+   *  first-created persona still sees the whole team. */
+  describeRoster(selfId: string): string | null {
+    const fallback = this.defaultModelRef() ?? null
+    let seats: RosterSeatInfo[]
+    if (this.pendingRosterStates) {
+      seats = this.pendingRosterStates
+        .filter((st) => st.active)
+        .map((st) => ({
+          id: st.id,
+          name: st.name,
+          modelRef: st.model ?? fallback,
+          tools: st.tools,
+          vision: st.vision,
+        }))
+    } else {
+      seats = this.activeParticipants().map((p) => ({
+        id: p.persona.id,
+        name: p.persona.name,
+        modelRef: p.persona.model ?? fallback,
+        tools: p.persona.tools,
+        vision: p.persona.vision,
+      }))
+    }
+    if (seats.length === 0) return null
+    return describeRosterBlock(seats, selfId)
+  }
+
+  /** Push a fresh roster block (+ a one-line reason) to every active agent
+   *  as a hidden nextTurn note — the work-receipt channel. Fired on
+   *  incremental mutations only: a reset() batch recreates every session
+   *  with a fresh block anyway, so it stays silent (pendingRosterStates
+   *  doubles as the batch flag). Fire-and-forget: a failed delivery must
+   *  never block the mutation that triggered it. */
+  private notifyRosterChange(reason: string): void {
+    if (this.pendingRosterStates) return
+    for (const p of this.activeParticipants()) {
+      const block = this.describeRoster(p.persona.id)
+      if (!block) continue
+      void p
+        .sendCustomMessage(
+          { customType: "roster_update", content: `${block}\n(Roster change: ${reason})`, display: false },
+          { deliverAs: "nextTurn" },
+        )
+        .catch(() => { /* agent mid-dispose or session gone — the next block is in its rebuilt prompt */ })
+    }
   }
 
   getHandoffGates(): HandoffGate[] {
@@ -296,6 +352,7 @@ export class Registry implements HandoffSink {
     this.participants.set(persona.id, participant)
     this.broadcastRoster()
     this.onChange?.()
+    this.notifyRosterChange(`@${persona.id} joined the room`)
     return participant
   }
 
@@ -345,6 +402,11 @@ export class Registry implements HandoffSink {
 
     this.broadcastRoster()
     this.onChange?.()
+    // Tell the OTHER seats — the edited one was just rebuilt with a fresh
+    // block in its own system prompt. Model changes are what teammates care
+    // about most (a brief for Opus reads differently than one for a 27B).
+    const modelNote = patch.model !== undefined ? ` (model: ${persona.model ?? this.defaultModelRef() ?? "room default"})` : ""
+    this.notifyRosterChange(`@${id} was reconfigured${modelNote}`)
     return replacement
   }
 
@@ -419,6 +481,7 @@ export class Registry implements HandoffSink {
     p.status = "idle"
     this.broadcastRoster()
     this.onChange?.()
+    this.notifyRosterChange(`@${id} was ${active ? "activated" : "deactivated"}`)
     return p
   }
 
@@ -465,6 +528,7 @@ export class Registry implements HandoffSink {
     // must not wake up with this one's memory.
     if (p.sessionDir) rmSync(p.sessionDir, { recursive: true, force: true })
     this.participants.delete(id)
+    this.notifyRosterChange(`@${id} left the room`)
     this.broadcastRoster()
     this.onChange?.()
   }
@@ -481,6 +545,7 @@ export class Registry implements HandoffSink {
     // gets it. Only active personas count — an inactive one isn't a valid
     // handoff target even prospectively.
     this.pendingRosterIds = new Set(states.filter((s) => s.active).map((s) => s.id))
+    this.pendingRosterStates = states
     try {
       for (const p of this.participants.values()) p.dispose()
       this.participants.clear()
@@ -491,6 +556,7 @@ export class Registry implements HandoffSink {
     } finally {
       this.onChange = cb
       this.pendingRosterIds = null
+      this.pendingRosterStates = null
     }
     this.broadcastRoster()
   }

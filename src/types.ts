@@ -161,6 +161,11 @@ export interface HandoffSink {
    *  Returns a correctable error message when a gate blocks it, null when
    *  allowed. Optional — absent means no gates are enforced. */
   checkGate?(from: string, to: string): string | null
+  /** Roster-awareness block for `selfId`'s system prompt: one line per
+   *  active seat (id, name, resolved model + local/cloud tag, tool summary,
+   *  vision) — see docs/roster-awareness.md. Optional so lightweight test
+   *  doubles keep compiling; absent → no block injected. */
+  describeRoster?(selfId: string): string | null
 }
 
 /** A human decision on a proposed handoff (semi/manual routing). */

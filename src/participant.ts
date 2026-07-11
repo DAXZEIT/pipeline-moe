@@ -234,6 +234,12 @@ export class Participant {
     // must be granted these dirs too (read-only) — see buildConfinedTools.
     const skillRoots = (persona.skills ?? []).map((s) => join(config.skillsDir, s))
 
+    // Roster awareness (docs/roster-awareness.md): who is in the room, on
+    // what brain, with what hands. Injected at birth; incremental changes
+    // arrive as hidden roster_update notes from the registry. Optional
+    // capability — test doubles without describeRoster inject nothing.
+    const rosterNote = handoffSink?.describeRoster?.(persona.id) ?? null
+
     const loader = new DefaultResourceLoader({
       cwd: workspaceDir,
       agentDir: getAgentDir(),
@@ -244,6 +250,7 @@ export class Participant {
         persona.systemPrompt,
         workspaceNote(workspaceDir),
         ROOM_NOTE,
+        ...(rosterNote ? [rosterNote] : []),
         ...(memoryNote ? [memoryNote] : []),
       ],
     })

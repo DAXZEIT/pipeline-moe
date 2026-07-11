@@ -22,6 +22,25 @@
   ever was a motivated refuse, return-to-sender complied, abort mid-flow left no
   orphan `pendingRoute`. Design + retro: `docs/supervised-routing.md`.
 
+- **Roster awareness — agents know who is in the room, and on what brain**
+  (docs/roster-awareness.md): every agent's system prompt now carries a
+  YOUR TEAM block — one line per active seat with the RESOLVED model
+  (pin ?? room default) tagged `[local GPU]`/`[cloud]`, a compact tool summary
+  (read-only / write / bash / web / orchestration), vision flag, and a `← you`
+  marker — closed by guidance to adapt briefs to the receiving seat (a local
+  model needs numbered, checkable instructions; a frontier seat can take
+  judgment calls). Incremental changes (join/kick/activate/deactivate/persona
+  edit incl. model swaps) push a hidden `roster_update` note to every other
+  active agent over the work-receipt channel (`deliverAs: nextTurn`); a batch
+  load stays silent — those sessions are rebuilt with fresh blocks anyway. The
+  supervisor micro-prompt's `Active agents:` line gains the same per-seat
+  `[model, local|cloud]` annotations, making capability-aware route decisions
+  possible. Pure formatter in `src/roster-awareness.ts`; wired through an
+  optional `HandoffSink.describeRoster` (same seam pattern as `peekHandoff`),
+  zero call-site churn. Live-verified: the planner quoted its block verbatim
+  from a real session; deactivating the scout delivered `(Roster change:
+  @scout was deactivated)` to the tester with the scout absent from the block.
+
 ### Fixed
 
 - **One-handoff-per-turn guard was a TOCTOU race** — pi's agent loop executes a

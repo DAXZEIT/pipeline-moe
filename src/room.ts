@@ -2295,7 +2295,18 @@ export class Room {
       }
     }
 
-    const roster = this.registry.activeIds().map((id) => (id === supervisorId ? `${id} (you — the supervisor)` : id))
+    // Per-seat model annotations — a capability-aware verdict ("don't
+    // transfer an architecture question to a local seat") needs to know the
+    // brains, not just the ids (docs/roster-awareness.md §3).
+    const seatTag = (id: string): string => {
+      const persona = this.registry.get(id)?.persona
+      const ref = persona?.model ?? this.getDefaultModel()
+      if (!ref) return id
+      const local = ref.startsWith("local/")
+      const short = (ref.split("/").pop() ?? ref).replace(/\.gguf$/i, "")
+      return `${id} [${short}, ${local ? "local" : "cloud"}]`
+    }
+    const roster = this.registry.activeIds().map((id) => (id === supervisorId ? `${id} (you — the supervisor)` : seatTag(id)))
     lines.push("", `Active agents: ${roster.join(", ")}`)
     lines.push("", "Decide with route_decision: accept, refuse (your reason returns to the proposer), or transfer (targetIds).")
     return lines.join("\n")
