@@ -1,13 +1,15 @@
 import { Box, Text, useInput } from "ink"
 import { useEffect, useMemo, useState } from "react"
-import type { Api, PresetFile, PresetPersona, RoomStore } from "@pipeline-moe/client-core"
+import type { Api, ModelInfo, PersonaTemplate, PresetFile, PresetPersona, RoomStore } from "@pipeline-moe/client-core"
 import { shortModel } from "../../commands/registry"
+import { SelectOverlay } from "./SelectOverlay"
 import {
   backspaceText,
   blankMember,
   clonePersonas,
   cycle,
   duplicateMember,
+  memberFromTemplate,
   moveMember,
   PALETTE,
   slugify,
@@ -50,14 +52,29 @@ export function PresetComposerOverlay({
   const [naming, setNaming] = useState(isNew && !initial.name)
   const [confirmDiscard, setConfirmDiscard] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [models, setModels] = useState<string[]>([])
+  const [models, setModels] = useState<ModelInfo[]>([])
+  const [templates, setTemplates] = useState<PersonaTemplate[]>([])
+  const [adding, setAdding] = useState(false)
 
   useEffect(() => {
+    // Both lists are garnish: no models → the model field still cycles host
+    // default/custom; no templates → `a` still offers a blank member.
     api
       .models()
-      .then(({ models }) => setModels(models.map((m) => m.ref)))
-      .catch(() => {}) // no models list — the model field still cycles host default/custom
+      .then(({ models }) => setModels(models))
+      .catch(() => {})
+    api
+      .personaTemplates()
+      .then(setTemplates)
+      .catch(() => {})
   }, [api])
+
+  const addMember = (member: PresetPersona) => {
+    setAdding(false)
+    setPersonas((list) => [...list, member])
+    setCursor(personas.length)
+    setEditing(personas.length)
+  }
 
   const save = () => {
     if (!name.trim()) {
@@ -114,10 +131,10 @@ export function PresetComposerOverlay({
         return setEditing(cursor)
       }
       if (input === "a") {
-        const next = [...personas, blankMember(personas)]
-        setPersonas(next)
-        setCursor(next.length - 1)
-        setEditing(next.length - 1)
+        // Template picker first (blank stays one ⏎ away as the top entry) —
+        // a team is mostly assembled from the roles the app already knows.
+        if (templates.length > 0) setAdding(true)
+        else addMember(blankMember(personas))
         return
       }
       if (input === "d" && n > 0) {
@@ -145,8 +162,30 @@ export function PresetComposerOverlay({
       if (input === "r") return setNaming(true)
       if (input === "s") return save()
     },
-    { isActive: isActive && editing === null },
+    { isActive: isActive && editing === null && !adding },
   )
+
+  if (adding) {
+    return (
+      <SelectOverlay
+        title="Add member"
+        items={[
+          { id: "__blank", label: "＋ blank member", hint: "from scratch" },
+          ...templates.map((t) => ({
+            id: t.id,
+            label: `${t.icon} ${t.name}`,
+            hint: `${t.tools.length} tools${t.model ? ` · ${shortModel(t.model)}` : ""}`,
+          })),
+        ]}
+        isActive={isActive}
+        onCancel={() => setAdding(false)}
+        onSelect={(id) => {
+          const t = templates.find((x) => x.id === id)
+          addMember(t ? memberFromTemplate(t, personas) : blankMember(personas))
+        }}
+      />
+    )
+  }
 
   if (editing !== null && personas[editing]) {
     return (
@@ -236,7 +275,7 @@ function MemberEditor({
 }: {
   persona: PresetPersona
   siblingIds: string[]
-  models: string[]
+  models: ModelInfo[]
   isActive: boolean
   onDone: (p: PresetPersona) => void
 }) {
@@ -245,6 +284,7 @@ function MemberEditor({
   const [toolCursor, setToolCursor] = useState(0)
   const [flagCursor, setFlagCursor] = useState(0)
   const [customModel, setCustomModel] = useState(false)
+  const [pickingModel, setPickingModel] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [colorIdx, setColorIdx] = useState(() => {
     const i = PALETTE.findIndex((c) => c.toLowerCase() === persona.color.toLowerCase())
@@ -262,10 +302,13 @@ function MemberEditor({
     setDraft((d) => ({ ...d, ...f(d) }))
   }
 
-  // Model cycle: host default (undefined) → each configured model → custom….
-  const modelOrder = useMemo<(string | undefined)[]>(() => [undefined, ...models, CUSTOM], [models])
+  // Model cycle (quick ←→ adjust): host default (undefined) → each configured
+  // model → custom…. The real catalogue lives behind ⏎: a searchable picker,
+  // same interaction as /model — a 300-model list is not arrow-key territory.
+  const refs = useMemo(() => models.map((m) => m.ref), [models])
+  const modelOrder = useMemo<(string | undefined)[]>(() => [undefined, ...refs, CUSTOM], [refs])
   const modelCycle = (delta: number) => {
-    const cur = draft.model !== undefined && !models.includes(draft.model) ? CUSTOM : draft.model
+    const cur = draft.model !== undefined && !refs.includes(draft.model) ? CUSTOM : draft.model
     const next = cycle(modelOrder, cur, delta)
     if (next === CUSTOM) {
       setCustomModel(true)
@@ -390,6 +433,9 @@ function MemberEditor({
       if (key.return) {
         if (row.kind === "done") return finish()
         if (row.kind === "text" && row.label === "model") setCustomModel(false)
+        // The model row's ⏎ opens the searchable catalogue instead of moving
+        // on — ←→ still cycles for quick adjustments.
+        if (row.kind === "cycle" && row.label === "model") return setPickingModel(true)
         return setFocus((f) => Math.min(rows.length - 1, f + 1))
       }
       if (row.kind === "cycle") {
@@ -423,13 +469,42 @@ function MemberEditor({
         if (clean) row.update((v) => v + clean)
       }
     },
-    { isActive },
+    { isActive: isActive && !pickingModel },
   )
 
   const caret = <Text color="green">▌</Text>
   const marker = (i: number) => (
     <Text color={i === focus ? "green" : undefined}>{i === focus ? "▶ " : "  "}</Text>
   )
+
+  if (pickingModel) {
+    return (
+      <SelectOverlay
+        title={`Model for ${draft.icon} ${draft.name}`}
+        items={[
+          { id: "__default", label: "host default", hint: "no pin — process default" },
+          ...models.map((m) => ({
+            id: m.ref,
+            label: m.name,
+            hint: m.local ? `${m.provider} · local` : m.provider,
+          })),
+          { id: "__custom", label: CUSTOM, hint: "free provider/id" },
+        ]}
+        isActive={isActive}
+        onCancel={() => setPickingModel(false)}
+        onSelect={(id) => {
+          setPickingModel(false)
+          if (id === "__custom") {
+            setCustomModel(true)
+            patch({ model: draft.model ?? "" })
+          } else {
+            setCustomModel(false)
+            patch({ model: id === "__default" ? undefined : id })
+          }
+        }}
+      />
+    )
+  }
 
   return (
     <Box flexDirection="column" borderStyle="round" borderColor="green" paddingX={1}>
@@ -516,7 +591,11 @@ function MemberEditor({
         )
       })}
       {error ? <Text color="red">{error}</Text> : null}
-      <Text dimColor>↑↓ field · ←→ cycle/tool · space toggle · ⏎ next · esc/Done back to roster</Text>
+      <Text dimColor>
+        {rows[focus]?.kind === "cycle" && rows[focus]?.label === "model"
+          ? "⏎ search catalogue · ←→ quick cycle · ↑↓ field · esc/Done back to roster"
+          : "↑↓ field · ←→ cycle/tool · space toggle · ⏎ next · esc/Done back to roster"}
+      </Text>
     </Box>
   )
 }

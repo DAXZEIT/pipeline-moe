@@ -2,7 +2,7 @@
 // the PresetComposerOverlay needs that doesn't touch Ink, extracted for unit
 // tests, same split as preset-picker.ts.
 
-import type { PresetFile, PresetPersona } from "@pipeline-moe/client-core"
+import type { PersonaTemplate, PresetFile, PresetPersona } from "@pipeline-moe/client-core"
 
 /** VALID_TOOLS (src/validation.ts) shown as the card's grouped chip rows.
  *  Grouping is presentation only — the server's allowlist stays flat — so a
@@ -67,6 +67,20 @@ export function blankMember(existing: PresetPersona[]): PresetPersona {
     color: PALETTE[existing.length % PALETTE.length],
     icon: "🤖",
     tools: [...DEFAULT_TOOLS],
+    active: true,
+  }
+}
+
+/** Seed a member from a built-in persona template (the Add-agent picker's
+ *  source) — a second "builder" in the roster becomes builder-2. */
+export function memberFromTemplate(t: PersonaTemplate, existing: PresetPersona[]): PresetPersona {
+  return {
+    id: uniqueId(t.id, new Set(existing.map((p) => p.id))),
+    name: t.name,
+    color: t.color,
+    icon: t.icon,
+    tools: [...t.tools],
+    ...(t.model ? { model: t.model } : {}),
     active: true,
   }
 }

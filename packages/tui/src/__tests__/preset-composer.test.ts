@@ -6,6 +6,7 @@ import {
   clonePersonas,
   cycle,
   duplicateMember,
+  memberFromTemplate,
   moveMember,
   slugify,
   teamStats,
@@ -81,6 +82,23 @@ describe("roster operations", () => {
     copy[0].skills!.push("x")
     expect(src[0].tools).toEqual(["read", "grep"])
     expect(src[0].skills).toEqual(["webfetch"])
+  })
+})
+
+describe("memberFromTemplate", () => {
+  it("seeds from the template, deduping the id against the roster", () => {
+    const t = { id: "builder", name: "Builder", color: "#EF9F27", icon: "🔨", tools: ["read", "edit"], model: "anthropic/claude-haiku-4-5" }
+    const first = memberFromTemplate(t, [])
+    expect(first).toMatchObject({ id: "builder", model: "anthropic/claude-haiku-4-5", active: true })
+    const second = memberFromTemplate(t, [first])
+    expect(second.id).toBe("builder-2")
+    second.tools.push("bash")
+    expect(t.tools).toEqual(["read", "edit"])
+  })
+
+  it("omits model when the template has none", () => {
+    const p = memberFromTemplate({ id: "x", name: "X", color: "#888888", icon: "🤖", tools: [] }, [])
+    expect("model" in p).toBe(false)
   })
 })
 
