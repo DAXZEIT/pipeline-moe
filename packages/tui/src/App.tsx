@@ -24,6 +24,7 @@ import { RoomForm } from "./components/overlays/RoomForm"
 import { PromptOverlay } from "./components/overlays/PromptOverlay"
 import { EditAgentForm } from "./components/overlays/EditAgentForm"
 import { PresetPickerOverlay } from "./components/overlays/PresetPickerOverlay"
+import { PresetComposerOverlay } from "./components/overlays/PresetComposerOverlay"
 import { lookup } from "./commands/registry"
 import type { CommandContext, Overlay } from "./commands/types"
 import { useTerminalSize } from "./useTerminalSize"
@@ -496,7 +497,23 @@ export function App({
         <EditAgentForm agentId={overlay.agentId} store={store} isActive onClose={closeOverlay} />
       ) : null}
       {overlay?.kind === "presetPicker" ? (
-        <PresetPickerOverlay presets={overlay.presets} store={store} isActive onCancel={closeOverlay} />
+        <PresetPickerOverlay
+          presets={overlay.presets}
+          store={store}
+          isActive
+          onCancel={closeOverlay}
+          onCompose={(preset) => setOverlay({ kind: "presetComposer", initial: preset, isNew: false })}
+        />
+      ) : null}
+      {overlay?.kind === "presetComposer" ? (
+        <PresetComposerOverlay
+          initial={overlay.initial}
+          isNew={overlay.isNew}
+          api={api}
+          store={store}
+          isActive
+          onClose={closeOverlay}
+        />
       ) : null}
       {state.oauthProgress ? (
         <OAuthPanel

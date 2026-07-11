@@ -2,6 +2,7 @@ import { Box, Text, useInput } from "ink"
 import { useEffect, useState } from "react"
 import type { RoomStore } from "@pipeline-moe/client-core"
 import { ALL_TOOLS } from "./AgentForm"
+import { backspaceText } from "../../preset-composer"
 
 // The web UI's color input is a free picker; a terminal wants a palette.
 // The agent's current color is always slot 0, so "leave it alone" is easy.
@@ -119,7 +120,8 @@ export function EditAgentForm({
       const set = focus === NAME_ROW ? setName : setIcon
       if (key.backspace || key.delete) {
         setError(null)
-        set((v) => v.slice(0, -1))
+        // Code-point-safe: slice(0, -1) would split the emoji in Icon.
+        set((v) => backspaceText(v))
         return
       }
       if (key.ctrl || key.meta) return

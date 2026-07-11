@@ -25,11 +25,14 @@ export function PresetPickerOverlay({
   presets,
   store,
   onCancel,
+  onCompose,
   isActive,
 }: {
   presets: PresetFile[]
   store: RoomStore
   onCancel: () => void
+  /** Open the highlighted preset in the composer (remix) — n key. */
+  onCompose?: (preset: PresetFile) => void
   isActive: boolean
 }) {
   const [index, setIndex] = useState(0)
@@ -61,6 +64,12 @@ export function PresetPickerOverlay({
           .applyPreset(current.name)
           .then(() => store.pushNotice(`Applied preset "${current.name}" — roster swapped, transcript kept.`))
           .catch(() => {})
+        return
+      }
+      if (input === "n" && onCompose) {
+        if (!current) return
+        // The composer replaces this overlay (overlays don't stack).
+        onCompose(current)
       }
     },
     { isActive },
@@ -112,7 +121,7 @@ export function PresetPickerOverlay({
           {hidden > 0 ? <Text dimColor>{`  … +${hidden} more agents`}</Text> : null}
         </>
       )}
-      <Text dimColor>⏎ load · a apply · ↑↓ select · esc cancel</Text>
+      <Text dimColor>⏎ load · a apply · n remix · ↑↓ select · esc cancel</Text>
     </Box>
   )
 }

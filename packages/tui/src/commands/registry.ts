@@ -1,4 +1,4 @@
-import type { RoomState, RoutingMode } from "@pipeline-moe/client-core"
+import type { PresetFile, RoomState, RoutingMode } from "@pipeline-moe/client-core"
 import type { Command, CommandContext } from "./types"
 import { loadImageAttachment } from "../image-attach"
 import { openRosterMenu } from "../roster-menu"
@@ -233,6 +233,25 @@ async function openPresetPicker(ctx: CommandContext): Promise<void> {
     ctx.openOverlay({ kind: "presetPicker", presets })
   } catch {
     ctx.notify("Failed to load presets.", "error")
+  }
+}
+
+/** Fetch a preset by name for the composer, notifying on miss (with the
+ *  available names — the user is typing blind on the command line). */
+async function findPreset(ctx: CommandContext, name: string): Promise<PresetFile | null> {
+  if (!name) {
+    ctx.notify("A preset name is required.", "error")
+    return null
+  }
+  try {
+    const presets = await ctx.api.presets()
+    const hit = presets.find((p) => p.name === name)
+    if (hit) return hit
+    ctx.notify(`No preset "${name}" — available: ${presets.map((p) => p.name).join(", ") || "none"}`, "error")
+    return null
+  } catch {
+    ctx.notify("Failed to load presets.", "error")
+    return null
   }
 }
 
@@ -749,8 +768,8 @@ export const COMMANDS: Command[] = [
   },
   {
     name: "preset",
-    summary: "Save or load a room preset",
-    usage: "save <name> | load",
+    summary: "Save, load, or compose a room preset",
+    usage: "save <name> | load | new [from <name>] | edit <name>",
     run: async (ctx, args) => {
       const { target: sub, rest } = splitTarget(args)
       if (sub === "save") {
@@ -763,7 +782,27 @@ export const COMMANDS: Command[] = [
         await openPresetPicker(ctx)
         return
       }
-      ctx.notify("Usage: /preset save <name> | /preset load", "error")
+      // Composer entry points — a preset is a DOCUMENT here, no live room
+      // involved: compose the team first, /newroom it later.
+      if (sub === "new") {
+        const { target: kw, rest: fromName } = splitTarget(rest)
+        if (kw === "from") {
+          const source = await findPreset(ctx, fromName.trim())
+          if (!source) return
+          ctx.openOverlay({ kind: "presetComposer", initial: { ...source, name: "" }, isNew: true })
+          return
+        }
+        if (kw !== "") return ctx.notify("Usage: /preset new [from <name>]", "error")
+        ctx.openOverlay({ kind: "presetComposer", initial: { name: "", personas: [] }, isNew: true })
+        return
+      }
+      if (sub === "edit") {
+        const source = await findPreset(ctx, rest.trim())
+        if (!source) return
+        ctx.openOverlay({ kind: "presetComposer", initial: source, isNew: false })
+        return
+      }
+      ctx.notify("Usage: /preset save <name> | load | new [from <name>] | edit <name>", "error")
     },
   },
 ]

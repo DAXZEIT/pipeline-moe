@@ -41,6 +41,13 @@ export type Overlay =
       kind: "presetPicker"
       presets: PresetFile[]
     }
+  | {
+      kind: "presetComposer"
+      /** Starting document — empty roster for /preset new, a copy of an
+       *  existing preset for edit/remix. */
+      initial: PresetFile
+      isNew: boolean
+    }
 
 /** Everything a command needs to act, injected by the App at dispatch time. */
 export interface CommandContext {
