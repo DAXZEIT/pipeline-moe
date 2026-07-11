@@ -13,6 +13,9 @@ import { presetSummary, presetPickerLayout, previewPersonas } from "../../preset
  * moves the preview along with the cursor; there's no "open detail" step.
  *   ⏎  load  — start a new discussion with this roster
  *   a  apply — swap the roster in-place, keeping the current transcript
+ * The list always ends with a virtual "＋ new" row — ⏎ there opens the
+ * composer on a blank roster, so /preset alone is a complete entry point
+ * (list, load, remix, or start from scratch) even before any preset exists.
  *
  * No typing-to-filter here, unlike SelectOverlay: a bare "a" key is the
  * apply shortcut, and a filter-typing mode would need a second key just to
@@ -31,24 +34,29 @@ export function PresetPickerOverlay({
   presets: PresetFile[]
   store: RoomStore
   onCancel: () => void
-  /** Open the highlighted preset in the composer (remix) — n key. */
-  onCompose?: (preset: PresetFile) => void
+  /** Open a preset in the composer — n key (remix, isNew false) or the
+   *  "＋ new" row (blank roster, isNew true). */
+  onCompose?: (preset: PresetFile, isNew: boolean) => void
   isActive: boolean
 }) {
   const [index, setIndex] = useState(0)
   const { rows } = useTerminalSize()
-  const cursor = Math.min(index, Math.max(0, presets.length - 1))
-  const current = presets[cursor]
+  // The virtual "＋ new" row lives past the end of `presets`.
+  const total = presets.length + 1
+  const cursor = Math.min(index, total - 1)
+  const current: PresetFile | undefined = presets[cursor]
+  const onNewRow = cursor === presets.length
 
   useInput(
     (input, key) => {
       if (key.escape) return onCancel()
-      // Nothing to pick — any key dismisses, same as SelectOverlay, so the
-      // overlay never reads as a stuck modal.
-      if (presets.length === 0) return onCancel()
-      if (key.upArrow) return setIndex((cursor - 1 + presets.length) % presets.length)
-      if (key.downArrow) return setIndex((cursor + 1) % presets.length)
+      if (key.upArrow) return setIndex((cursor - 1 + total) % total)
+      if (key.downArrow) return setIndex((cursor + 1) % total)
       if (key.return) {
+        if (onNewRow) {
+          if (onCompose) onCompose({ name: "", personas: [] }, true)
+          return
+        }
         if (!current) return
         onCancel()
         store.actions
@@ -69,45 +77,53 @@ export function PresetPickerOverlay({
       if (input === "n" && onCompose) {
         if (!current) return
         // The composer replaces this overlay (overlays don't stack).
-        onCompose(current)
+        onCompose(current, false)
       }
     },
     { isActive },
   )
 
-  const { listVisible, previewMax } = presetPickerLayout(rows, presets.length)
+  const { listVisible, previewMax } = presetPickerLayout(rows, total)
   let start = cursor - Math.floor(listVisible / 2)
-  start = Math.max(0, Math.min(start, presets.length - listVisible))
-  const windowItems = presets.slice(start, start + listVisible)
+  start = Math.max(0, Math.min(start, total - listVisible))
+  const windowEnd = start + listVisible
   const hasAbove = start > 0
-  const hasBelow = start + listVisible < presets.length
+  const hasBelow = windowEnd < total
   const { shown, hidden } = previewPersonas(current, previewMax)
 
   return (
     <Box flexDirection="column" borderStyle="round" borderColor="magenta" paddingX={1}>
       <Text color="magenta" bold>
         Presets
-        {presets.length > listVisible ? <Text dimColor>{`  ${cursor + 1}/${presets.length}`}</Text> : null}
+        {total > listVisible ? <Text dimColor>{`  ${cursor + 1}/${total}`}</Text> : null}
       </Text>
-      {presets.length === 0 ? (
-        <Text dimColor>No saved presets — /preset save &lt;name&gt; stores the current line-up.</Text>
+      <Text dimColor>{hasAbove ? "  ▲ more" : " "}</Text>
+      {presets.slice(start, Math.min(windowEnd, presets.length)).map((p, i) => {
+        const real = start + i
+        return (
+          <Box key={p.name} justifyContent="space-between">
+            <Text color={real === cursor ? "magenta" : undefined} inverse={real === cursor}>
+              {real === cursor ? "▶ " : "  "}
+              {p.name}
+            </Text>
+            <Text dimColor> {presetSummary(p)}</Text>
+          </Box>
+        )
+      })}
+      {windowEnd > presets.length ? (
+        <Box justifyContent="space-between">
+          <Text color={onNewRow ? "magenta" : "green"} inverse={onNewRow}>
+            {onNewRow ? "▶ " : "  "}＋ new
+          </Text>
+          <Text dimColor> compose a team from scratch</Text>
+        </Box>
+      ) : null}
+      <Text dimColor>{hasBelow ? "  ▼ more" : " "}</Text>
+      <Text> </Text>
+      {onNewRow ? (
+        <Text dimColor>Opens the composer on an empty roster — a add member, s save.</Text>
       ) : (
         <>
-          <Text dimColor>{hasAbove ? "  ▲ more" : " "}</Text>
-          {windowItems.map((p, i) => {
-            const real = start + i
-            return (
-              <Box key={p.name} justifyContent="space-between">
-                <Text color={real === cursor ? "magenta" : undefined} inverse={real === cursor}>
-                  {real === cursor ? "▶ " : "  "}
-                  {p.name}
-                </Text>
-                <Text dimColor> {presetSummary(p)}</Text>
-              </Box>
-            )
-          })}
-          <Text dimColor>{hasBelow ? "  ▼ more" : " "}</Text>
-          <Text> </Text>
           {shown.map((p) => (
             <Text key={p.id} wrap="truncate-end">
               <Text color={p.color}>
@@ -121,7 +137,7 @@ export function PresetPickerOverlay({
           {hidden > 0 ? <Text dimColor>{`  … +${hidden} more agents`}</Text> : null}
         </>
       )}
-      <Text dimColor>⏎ load · a apply · n remix · ↑↓ select · esc cancel</Text>
+      <Text dimColor>{onNewRow ? "⏎ compose · ↑↓ select · esc cancel" : "⏎ load · a apply · n remix · ↑↓ select · esc cancel"}</Text>
     </Box>
   )
 }

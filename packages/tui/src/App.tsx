@@ -502,7 +502,7 @@ export function App({
           store={store}
           isActive
           onCancel={closeOverlay}
-          onCompose={(preset) => setOverlay({ kind: "presetComposer", initial: preset, isNew: false })}
+          onCompose={(preset, isNew) => setOverlay({ kind: "presetComposer", initial: preset, isNew })}
         />
       ) : null}
       {overlay?.kind === "presetComposer" ? (
