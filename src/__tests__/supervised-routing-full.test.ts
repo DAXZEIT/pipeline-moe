@@ -376,6 +376,24 @@ describe("degradation notice format", () => {
   })
 })
 
+describe("degradation leaves a transcript trace", () => {
+  test("degraded hop posts a ⚠ trace authored by the supervisor", async () => {
+    const registry = new MockRegistry()
+    const room = await makeRoom(registry, new MockStore())
+    addAgents(registry, {id:"planner"}, {id:"builder", handoffTo:"tester"}, {id:"tester"})
+    stubRunner(room, { decision: null, degraded: "supervisor decision timed out after 120s" })
+    room.submit("@builder go")
+    await sleep(300)
+    const trace = room.getTranscript().find((e) => e.text.includes("⚠"))
+    expect(trace).toBeDefined()
+    expect(trace!.author).toBe("planner")
+    expect(trace!.text).toContain("@builder → @tester")
+    expect(trace!.text).toContain("timed out")
+    expect(registry.get("tester")!.calls).toBe(1)
+    await room.abortCurrent()
+  })
+})
+
 describe("no active supervisor degrades to auto", () => {
   test("supervisor deactivated → hop degrades without invoking runner", async () => {
     const registry = new MockRegistry()
@@ -387,6 +405,25 @@ describe("no active supervisor degrades to auto", () => {
     await sleep(300)
     expect(registry.get("tester")!.calls).toBe(1)
     expect(priv(room).supervisorAbort).toBeNull()
+    await room.abortCurrent()
+  })
+
+  test("dead-supervisor degradation leaves a system-authored ⚠ trace (auditor F1)", async () => {
+    const registry = new MockRegistry()
+    const room = await makeRoom(registry, new MockStore())
+    addAgents(registry, {id:"planner"}, {id:"builder", handoffTo:"tester"}, {id:"tester"})
+    registry.setActive("planner", false)
+    stubRunner(room, { decision: { verdict: "refuse", reason: "should never be asked" } })
+    room.submit("@builder go")
+    await sleep(300)
+    // The sibling silent-degradation branch (no active supervisor) must also
+    // leave a trace — no supervisor to sign it, so it's system-authored.
+    const trace = room.getTranscript().find((e) => e.text.includes("⚠"))
+    expect(trace).toBeDefined()
+    expect(trace!.author).toBe("system")
+    expect(trace!.text).toContain("@builder → @tester")
+    expect(trace!.text).toContain("no active supervisor")
+    expect(registry.get("tester")!.calls).toBe(1)
     await room.abortCurrent()
   })
 })

@@ -1818,6 +1818,24 @@ export class Room {
       // off to @planner in the same pass, enqueue the planner once instead of
       // running it back-to-back (the loop kept returning to it 2-3× in a row).
       const next = mentioned.filter((p) => !target.includes(p))
+      // Supervised observability (design decision 2026-07-11): a handoff to an
+      // agent ALREADY in the queue coalesces — typically because the user
+      // @-mention-dispatched it, or a supervisor accept enqueued it earlier in
+      // this same drain. Either way it does NOT go through the supervisor (user
+      // directive outranks the supervisor, same authority order as plan-owner
+      // routing). The ≡ label stays cause-neutral — `target.includes(p)` can't
+      // tell the two apart, and over-attributing to "user dispatch" would be
+      // wrong for the accept-coalesce case (auditor F-low, #11). But it must
+      // not be SILENT: three live runs were spent because a coalesced hop was
+      // indistinguishable from a bypass. Emit a system-authored ≡ line so every
+      // supervised hop shows either a supervisor glyph or a coalescence note.
+      if (this.routingMode === "supervised") {
+        for (const p of mentioned) {
+          if (target.includes(p)) {
+            this.post("system", "Routing", `≡ @${fromId} → @${p.persona.id} — already queued — handoff coalesced (not supervised)`)
+          }
+        }
+      }
       if (next.length === 0) return []
       if (this.routingMode !== "auto") {
         // semi/manual: hand these back for human approval. Don't enqueue or spend
@@ -2111,9 +2129,16 @@ export class Room {
 
     // Dead-supervisor invariant: no active supervisor → degrade the hop to
     // auto. Degradation = dispatch as proposed, never a stall or a drop.
+    // This is the SECOND silent-degradation site (the first is the runner's
+    // no-decision path in applySupervisorOutcome). Same observability rule:
+    // a degraded hop must leave a transcript trace, else it's invisible and
+    // indistinguishable from a bypass (auditor F1). No supervisor exists to
+    // author it here, so the trace is system-authored.
     const supervisor = supId ? this.registry.get(supId) : undefined
     if (!supervisor || !supervisor.active) {
       this.notice("supervised routing: no active supervisor — hop degraded to auto", "info")
+      const setLabel = fresh.map((p) => `@${p.fromId} → @${p.target.persona.id}`).join(", ")
+      this.post("system", "Routing", `⚠ ${setLabel} — no active supervisor — dispatched as proposed`)
       enqueue(fresh.map((p) => p.target), null)
       return false
     }
@@ -2173,7 +2198,19 @@ export class Room {
     const setLabel = pr.proposals.map((p) => `@${p.fromId} → @${p.target.persona.id}`).join(", ")
     const d = outcome.decision
     if (!d) {
-      this.notice(`supervised routing degraded to auto (${outcome.degraded ?? "no decision"}) — dispatching as proposed`, "info")
+      const cause = outcome.degraded ?? "no decision"
+      this.notice(`supervised routing degraded to auto (${cause}) — dispatching as proposed`, "info")
+      // Observability-before-behavior invariant: a degraded hop must be as
+      // visible in the transcript as accept/refuse/transfer. Without this,
+      // a silent degradation (timeout, cold supervisor that never called
+      // route_decision) is indistinguishable from the supervisor being
+      // bypassed entirely — the exact ambiguity live-verify hit on the first
+      // hop of a chain. This is the runner's no-decision path; the sibling
+      // site (dead supervisor, superviseProposals) posts its own ⚠ trace.
+      // Together they close both silent-degradation branches. This ⚠ is
+      // authored by the supervisor (a decision was attempted); the sibling's
+      // is system-authored (no supervisor to sign).
+      this.post(supId, supervisor.persona.name, `⚠ ${setLabel} — supervisor unavailable (${cause}) — dispatched as proposed`)
       await this.processRouteDecision({ action: "approve" })
       return
     }
