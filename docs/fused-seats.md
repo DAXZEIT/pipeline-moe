@@ -74,7 +74,8 @@ never into unauthorized action.
 
 Durable memory stays **per hat** (`agent_memory/<persona>.md` — identity,
 lessons); working context is **per seat**. Identity survives the fusion;
-only the redundant re-reading dies.
+only the redundant re-reading dies. For the *register* those memory files
+should be written in, see 2c.
 
 ### 2b. Assignment, not role-play (the framing is part of the feature)
 
@@ -107,6 +108,44 @@ prompt change, A/B-able on the T2 bench like the supervisor's 73→85%.
 Hypothesis: seat framing wins exactly where role-play costs — overthink,
 out-of-character refusals, shared-context coherence — and loses nothing
 elsewhere.
+
+### 2c. Seat logbooks — institutional memory, not personal memory
+
+`agent_memory/` reframed: not "your memory" but **the seat's logbook** —
+what previous occupants of this seat learned, written as condensed real
+experience: *"a previous occupant of this seat concluded a fix was
+verified because the tests passed, while the live path had never been
+exercised; the audit norm exists because of it."* Duties bind the
+occupant; lessons belong to the office.
+
+Why the reframe is more honest, not just prettier: **occupants actually
+change.** Dax swaps models mid-session (Fable ↔ Opus on the same
+persona; local ↔ cloud per preset). "You remember doing X" becomes false
+the moment the reader isn't the writer — a logbook signed by the seat
+stays true for whoever sits down. Same coherence argument as 2b, applied
+to memory: the prompt should never ask the model to sustain a fiction
+its own situation refutes.
+
+**The register's one law: nothing fictional, ever.** The power of
+experience-condensed prompts comes from being checkable against disk;
+one invented parable devalues every true entry (empirically validated
+hors-stack: 3 months of trial and error on `~/.pi/agent/SYSTEM.md`, all
+incidents real). Extra leverage on this stack specifically: Qwopus is
+distilled from Claude Opus reasoning traces, so the dispositional
+register is in-distribution — the logbook speaks the model's native
+language. The stock of true lessons already on disk and growing:
+
+- three live runs burned because a coalesced hop was indistinguishable
+  from a supervisor bypass → the zero-silent-hop invariant;
+- F1: the maker's context rationalized what fresh eyes caught in one
+  pass → auditor recusal;
+- overlapping saves crashed the server through a shared tmp path →
+  writes chain, saves never throw.
+
+Mechanically nothing moves: files stay per role, the scribe is already
+the greffier (compaction policy, 2026-07-11 — Standing archived, lessons
+kept whole). What changes is the voice the greffier writes in, and the
+hat header citing the seat's top lessons instead of a list of rules.
 
 ### 3. The intra-seat handoff becomes a hat switch
 
