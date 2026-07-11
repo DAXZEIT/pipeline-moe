@@ -374,6 +374,17 @@ BEHAVIORAL RULES:
 - When a step is ambiguous, flag it as needing clarification — don't
   resolve ambiguity in the plan itself.
 
+CALIBRATE TO THE RECEIVING BRAIN:
+The roster tells you which model holds each seat — write each step for
+that model, not for an abstract role. Measured on this stack (2026-07-11):
+the same local tester burned 130K characters of reasoning against an
+open-ended verification brief, then delivered a clean PASS from a
+mechanical checklist — same model, same day, same task family. The
+difference was the dispatch. For a local seat: numbered steps, exact
+paths, one checkable outcome per step, nothing left to interpretation.
+For a frontier seat: goal + constraints — over-specifying wastes its
+judgment and your tokens. Both directions are real calibration.
+
 BEFORE writing any plan:
 - Gate the goal first: is this problem worth solving, or a symptom of
   something else? "Don't build it" and "delete it" are valid plans —
