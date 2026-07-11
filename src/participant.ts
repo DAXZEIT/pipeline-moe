@@ -17,6 +17,7 @@ import { constants } from "node:fs"
 import { join } from "node:path"
 import { config } from "./config.js"
 import { installBatchTerminateGuard, type BatchTerminateGuard } from "./batch-terminate-guard.js"
+import { ReasoningBudget, reasoningBudgetFor, exhaustedTrace } from "./reasoning-budget.js"
 import { buildConfinedTools } from "./sandbox-tools.js"
 import { buildCustomTools } from "./custom-tools/index.js"
 import { resolveModelRef, type ResolvedModel } from "./model.js"
@@ -176,6 +177,17 @@ export class Participant {
   }
   /** Reasoning accumulated during the current turn. */
   private reasoningBuffer = ""
+  /** Per-turn reasoning budget (ROADMAP #9) — null on cloud seats / disabled.
+   *  Fresh instance per turn (see promptRounds); the thinking-delta watchdog
+   *  consumes into it and aborts the generation on breach. */
+  private budget: ReasoningBudget | null = null
+  /** Resolved "provider/id" this seat runs — decides budget applicability. */
+  private modelRef: string | null = null
+  /** Set by abort() — distinguishes a user/room stop from the budget
+   *  watchdog's breach-abort, so promptRounds never re-prompts over an Esc. */
+  private externallyAborted = false
+  /** Posts 🧠 checkpoint traces to the room transcript (HandoffSink capability). */
+  private checkpointSink: ((text: string) => void) | null = null
   private readonly emit: Emit
   /** The directory this participant's file tools are confined to. */
   private readonly workspaceDir: string
@@ -259,6 +271,14 @@ export class Participant {
     // Each persona may pin its own model ("provider/id"); undefined → default.
     const model = resolveModelRef(resolved, allowCloud, persona.model)
 
+    // Reasoning budget (ROADMAP #9): the model ref decides at turn time —
+    // local seats get the checkpoint budget (the overthink attractor lives
+    // there, and the seat contends for the one GPU slot); cloud reasoners
+    // spend legitimately, no budget. Resolved here, built fresh per turn.
+    const effectiveModel = model ?? resolved.model
+    p.modelRef = effectiveModel ? `${effectiveModel.provider}/${effectiveModel.id}` : null
+    p.checkpointSink = handoffSink?.postSystemNote ? (text) => handoffSink.postSystemNote!(text) : null
+
     // Auto-compaction: trigger when context exceeds 90K tokens.
     // reserveTokens = contextWindow - threshold. For 128K ctx: 128000 - 90000 = 38000.
     const settings = SettingsManager.inMemory({
@@ -326,6 +346,13 @@ export class Participant {
       } else if (me.type === "thinking_delta") {
         this.reasoningBuffer += me.delta
         this.emit("reasoning", { id: this.persona.id, delta: me.delta })
+        // Budget watchdog: on breach, abort THIS generation — promptRounds
+        // injects the checkpoint and re-prompts. (steer() can't do this: it
+        // queues for AFTER the assistant message ends, and a reasoning loop
+        // never ends its message.) consume() fires true once per grant.
+        if (this.budget?.consume(me.delta.length)) {
+          void this.session.abort()
+        }
       }
     } else if (ev.type === "tool_execution_start") {
       const item: ToolActivity = {
@@ -378,6 +405,46 @@ export class Participant {
     }
   }
 
+  /** Drive one turn as budget-checkpointed prompt rounds (ROADMAP #9).
+   *  Round 1 is the caller's prompt. If the reasoning watchdog breached (and
+   *  aborted) the round, inject the next checkpoint and re-prompt in the same
+   *  session — the partial reasoning stays in context, so "continue" resumes
+   *  rather than restarts. When even the final grant is spent, end the turn
+   *  visibly (⚠ trace; the last round keeps its aborted stopReason). An
+   *  abort WITHOUT a breach is external (user Esc, room stop) — return as-is.
+   *  Buffers accumulate across rounds: the TurnResult carries all of it. */
+  private async promptRounds(first: () => Promise<void>): Promise<unknown> {
+    this.budget = reasoningBudgetFor(this.modelRef, config.reasoningBudgetChars, config.reasoningBudgetContinues)
+    this.externallyAborted = false
+    let call = first
+    try {
+      for (;;) {
+        let thrown: unknown
+        try {
+          await call()
+        } catch (err) {
+          // session.prompt() is documented to resolve even on abort/provider-error
+          // (tagging the assistant message's stopReason instead of rejecting) —
+          // a real throw here is a library-level surprise, not the normal F7
+          // failure mode. Still salvage whatever streamed into our own buffers
+          // before treating it as an error turn, rather than losing that too.
+          thrown = err
+        }
+        if (thrown !== undefined || !this.budget?.breached || this.externallyAborted) return thrown
+        const ck = this.budget.nextCheckpoint(this.persona.id)
+        if (!ck) {
+          this.checkpointSink?.(exhaustedTrace(this.persona.id))
+          return undefined
+        }
+        this.checkpointSink?.(ck.trace)
+        const msg = ck.message
+        call = () => this.session.prompt(msg)
+      }
+    } finally {
+      this.budget = null
+    }
+  }
+
   /** Run one turn with the given prompt text. Optionally pass image paths
    *  (workspace-relative, e.g. "media/abc.png") for vision support. */
   async run(promptText: string, imagePaths?: string[]): Promise<TurnResult> {
@@ -388,17 +455,9 @@ export class Participant {
     this.setStatus("active")
     try {
       const images = await this.resolveImages(imagePaths)
-      let thrown: unknown
-      try {
-        await this.session.prompt(promptText, images.length > 0 ? { images } : undefined)
-      } catch (err) {
-        // session.prompt() is documented to resolve even on abort/provider-error
-        // (tagging the assistant message's stopReason instead of rejecting) —
-        // a real throw here is a library-level surprise, not the normal F7
-        // failure mode. Still salvage whatever streamed into our own buffers
-        // before treating it as an error turn, rather than losing that too.
-        thrown = err
-      }
+      const thrown = await this.promptRounds(() =>
+        this.session.prompt(promptText, images.length > 0 ? { images } : undefined),
+      )
       const result: TurnResult = {
         text: this.buffer.trim(),
         activity: [...this.activity.values()],
@@ -456,6 +515,7 @@ export class Participant {
   }
 
   async abort(): Promise<void> {
+    this.externallyAborted = true
     await this.session.abort()
   }
 
@@ -534,18 +594,12 @@ export class Participant {
       // session.followUp() only delivers when the agent is currently streaming.
       // After ask_user (terminate=true) the session is idle — the followUp message
       // would be queued but never processed. Use prompt() for idle sessions instead.
-      let thrown: unknown
-      try {
-        if (!this.session.isStreaming) {
-          await this.session.prompt(text, images.length > 0 ? { images } : undefined)
-        } else {
-          await this.session.followUp(text, images.length > 0 ? images : undefined)
-        }
-      } catch (err) {
-        // See run() — same rationale: a real throw here is a library-level
-        // surprise, not the normal F7 failure mode. Salvage what streamed.
-        thrown = err
-      }
+      // Budget-checkpointed like run(): a resumed turn can overthink too.
+      const thrown = await this.promptRounds(() =>
+        !this.session.isStreaming
+          ? this.session.prompt(text, images.length > 0 ? { images } : undefined)
+          : this.session.followUp(text, images.length > 0 ? images : undefined),
+      )
       const result: TurnResult = {
         text: this.buffer.trim(),
         activity: [...this.activity.values()],

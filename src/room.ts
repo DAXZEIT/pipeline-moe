@@ -525,6 +525,9 @@ export class Room {
     }
     // From now on, any roster change autosaves the current conversation.
     this.registry.onChange = () => this.scheduleSave()
+    // 🧠 reasoning-checkpoint traces (src/reasoning-budget.ts) land in the
+    // transcript live — zero silent burn, same invariant as zero silent hop.
+    this.registry.onSystemNote = (text) => this.post("system", "Budget", text)
   }
 
   private buildConversation(): Conversation {

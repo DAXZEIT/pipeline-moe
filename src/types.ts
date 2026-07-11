@@ -166,6 +166,11 @@ export interface HandoffSink {
    *  vision) — see docs/roster-awareness.md. Optional so lightweight test
    *  doubles keep compiling; absent → no block injected. */
   describeRoster?(selfId: string): string | null
+  /** Post a system-authored note to the room transcript (the 🧠 reasoning-
+   *  checkpoint traces — zero silent burn, same invariant as zero silent
+   *  hop). Optional so lightweight test doubles keep compiling; absent →
+   *  traces are dropped, turn behavior unchanged. */
+  postSystemNote?(text: string): void
 }
 
 /** A human decision on a proposed handoff (semi/manual routing). */

@@ -47,6 +47,14 @@ export class Registry implements HandoffSink {
   private participants = new Map<string, Participant>()
   /** Fired after any roster mutation (create/activate/kick). Used for autosave. */
   onChange: (() => void) | null = null
+  /** Room-assigned hook: post a system-authored note to the transcript.
+   *  Same idiom as onChange. Carries the 🧠 reasoning-checkpoint traces. */
+  onSystemNote: ((text: string) => void) | null = null
+
+  /** HandoffSink capability — participants call this via their sink. */
+  postSystemNote(text: string): void {
+    this.onSystemNote?.(text)
+  }
   /** Per-agent handoff target registered by the `handoff` tool this turn,
    *  keyed by the calling agent's id. Room consumes it once via
    *  takeHandoff() when resolving that agent's reply — per-agent (not a

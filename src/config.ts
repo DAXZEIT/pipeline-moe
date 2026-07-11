@@ -57,6 +57,14 @@ export const config = {
    *  without bound — every local room contends for the single llama-server slot.
    *  provisionRoom rejects spawns past this. Set PIPELINE_MAX_ROOMS to tune. */
   maxRooms: Math.max(1, Number(process.env.PIPELINE_MAX_ROOMS ?? 8) || 8),
+  /** Per-turn reasoning budget in streamed chars for LOCAL seats (checkpoint,
+   *  not guillotine — see src/reasoning-budget.ts / ROADMAP #9). 0 disables.
+   *  Cloud seats never get a budget: deep reasoners spend legitimately. */
+  reasoningBudgetChars: Math.max(0, Number(process.env.PIPELINE_REASONING_BUDGET ?? 25_000) || 0),
+  /** How many "continue" grants a checkpoint may hand out per turn before the
+   *  final answer-or-ask checkpoint. Bounded — a looping model would answer
+   *  "continue" forever. */
+  reasoningBudgetContinues: Math.max(0, Number(process.env.PIPELINE_REASONING_CONTINUES ?? 2) || 0),
   /** Allowed CORS origins, comma-separated. Defaults to local dev servers. */
   corsOrigins: process.env.PIPELINE_CORS_ORIGINS
     ? process.env.PIPELINE_CORS_ORIGINS.split(",").map((s) => s.trim())
