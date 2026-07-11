@@ -2557,3 +2557,18 @@ body {
 .settings-input {
   box-sizing: border-box;
 }
+
+/* Routing preview — who the current draft will dispatch (explicit mentions
+   only; quoted @handles in pasted text route for real, so say it pre-send). */
+.route-preview {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 12px;
+  font-size: 12px;
+  color: var(--text-muted, #8b949e);
+}
+.route-preview-arrow { opacity: 0.7; }
+.route-preview-target { font-weight: 600; }
+.route-preview-none { font-style: italic; }
+.route-preview-dropped { color: #d29922; }

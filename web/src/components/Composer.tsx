@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { previewRouting } from "@pipeline-moe/client-core"
 import type { ClipboardEvent } from "react"
 import type { RosterItem } from "../types"
 
@@ -205,6 +206,16 @@ export function Composer({ roster, turnActive, runningAgentId, paused, pausedQue
 
   // ── Render ────────────────────────────────────────────────────────────────
 
+  // Routing preview for the draft: pasted transcripts quoting @handles route
+  // for real (session mrff3qwe), so the composer says who will run BEFORE
+  // send. Only shown for explicit mentions/@all — default routing is silent.
+  const draftPreview = useMemo(() => {
+    const t = value.trim()
+    if (!t || t.startsWith("/")) return null
+    const p = previewRouting(value, roster, null)
+    return p.kind === "mentions" || p.kind === "all" ? p : null
+  }, [value, roster])
+
   return (
     <div className="composer">
       {suggestions.length > 0 && (
@@ -288,6 +299,26 @@ export function Composer({ roster, turnActive, runningAgentId, paused, pausedQue
         </div>
       )}
 
+      {draftPreview && (
+        <div className="route-preview">
+          <span className="route-preview-arrow">⏎⇒</span>
+          {draftPreview.targetIds.length > 0
+            ? draftPreview.targetIds.map((id) => {
+                const r = roster.find((x) => x.id === id)
+                return (
+                  <span key={id} className="route-preview-target" style={{ color: r?.color }}>
+                    {r?.icon} @{id}
+                  </span>
+                )
+              })
+            : <span className="route-preview-none">nobody</span>}
+          {draftPreview.dropped.length > 0 && (
+            <span className="route-preview-dropped">
+              ignored: {draftPreview.dropped.map((id) => `@${id}`).join(" ")}
+            </span>
+          )}
+        </div>
+      )}
       <div className="composer-row">
         <textarea
           ref={ref}

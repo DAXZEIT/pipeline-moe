@@ -4,7 +4,8 @@ import { matchCommands } from "../commands/registry"
 import { shouldAbortOnEscape } from "../escape-behavior"
 import { pickerKeyAction, pickerVisible } from "../answer-picker"
 import { inputBorderColor, inputMode, inputModeHint } from "../input-mode"
-import type { RoutingMode } from "@pipeline-moe/client-core"
+import { previewRouting } from "@pipeline-moe/client-core"
+import type { RosterItem, RoutingMode } from "@pipeline-moe/client-core"
 
 /**
  * The input line. Plain text is sent as a room message; a leading "/" turns it
@@ -37,6 +38,9 @@ export function CommandLine({
   pasteInsertRef,
   pendingImageCount,
   onClearPending,
+  roster,
+  defaultAgent,
+  onRoutingPreview,
   isActive,
   connected,
 }: {
@@ -88,6 +92,16 @@ export function CommandLine({
   /** Esc clears staged images along with the text — the parent owns the
    *  images, so this component can't clear them itself. */
   onClearPending?: () => void
+  /** Live roster + room default — feeds the routing preview under the input:
+   *  a draft with explicit @mentions shows exactly who will run BEFORE send,
+   *  so a pasted transcript quoting agent handles can't dispatch a surprise
+   *  wave (session mrff3qwe: a pasted report routed @builder and @tester). */
+  roster?: RosterItem[]
+  defaultAgent?: string | null
+  /** Fires when the draft's explicit routing changes: `{t: targetIds, d: dropped}`
+   *  while the draft @mentions agents (or @all), null otherwise. Rendered by
+   *  the parent in the StatusBar — a stable row, not a new one. */
+  onRoutingPreview?: (p: { t: string[]; d: string[] } | null) => void
   isActive: boolean
   connected: boolean
 }) {
@@ -293,6 +307,22 @@ export function CommandLine({
   // Name the mode while its command part is still empty — the bare glyph
   // ("! ") gave no feedback that the input switched semantics.
   const modeHint = disp.length === 0 && value ? inputModeHint(mode) : null
+  // Routing preview: only plain messages route. Reported UP to the parent
+  // (rendered in the StatusBar) instead of adding a row here — the transcript
+  // height math reserves fixed rows, and a line that appears per keystroke
+  // is exactly the jumping layout that doctrine forbids.
+  const previewKey =
+    mode === "text" && value.trim() && roster && roster.length > 0
+      ? (() => {
+          const p = previewRouting(value, roster, defaultAgent ?? null)
+          return p.kind === "mentions" || p.kind === "all"
+            ? JSON.stringify({ t: p.targetIds, d: p.dropped })
+            : null
+        })()
+      : null
+  useEffect(() => {
+    onRoutingPreview?.(previewKey ? (JSON.parse(previewKey) as { t: string[]; d: string[] }) : null)
+  }, [previewKey, onRoutingPreview])
 
   return (
     <Box flexDirection="column">

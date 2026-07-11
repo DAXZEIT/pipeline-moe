@@ -31,6 +31,7 @@ export function StatusBar({
   routingMode,
   roomId,
   messageCount,
+  draftTargets,
 }: {
   connection: "connecting" | "connected" | "reconnecting"
   turnActive: boolean
@@ -42,6 +43,11 @@ export function StatusBar({
   routingMode: RoutingMode
   roomId: string
   messageCount: number
+  /** Explicit routing of the CURRENT draft (t: will run, d: ignored dud
+   *  mentions) — pasted transcripts quoting @handles route for real, so the
+   *  bar says who runs BEFORE the user hits ⏎. Null when the draft routes
+   *  by default (no noise on the common case). */
+  draftTargets?: { t: string[]; d: string[] } | null
 }) {
   const elapsed = useElapsed(turnActive ? runningSince : null)
   const conn =
@@ -84,6 +90,15 @@ export function StatusBar({
         {"  "}room:{roomId}
         {"  "}msgs:{messageCount}
       </Text>
+      {draftTargets ? (
+        <Text>
+          <Text dimColor>{"   "}⏎⇒ </Text>
+          <Text color="cyan">{draftTargets.t.map((id) => `@${id}`).join(" ") || "nobody"}</Text>
+          {draftTargets.d.length > 0 ? (
+            <Text color="yellow"> (ignored: {draftTargets.d.map((id) => `@${id}`).join(" ")})</Text>
+          ) : null}
+        </Text>
+      ) : null}
     </Box>
   )
 }

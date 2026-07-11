@@ -354,6 +354,9 @@ export function App({
   // App owns the child_process call, this ref is the bridge).
   const pasteInsertRef = useRef<(text: string) => void>(() => {})
   const [pendingImages, setPendingImages] = useState<string[]>([])
+  // Explicit routing of the current draft, reported by CommandLine and shown
+  // in the StatusBar — the paste-safety net (a quoted "@builder" routes!).
+  const [draftTargets, setDraftTargets] = useState<{ t: string[]; d: string[] } | null>(null)
   const pasteClipboard = () => {
     readClipboardImage()
       .then(async (img) => {
@@ -506,6 +509,7 @@ export function App({
 
       <Notices notices={state.notices} />
       <StatusBar
+        draftTargets={draftTargets}
         connection={connection}
         turnActive={state.turnActive}
         runningAgent={runningAgent}
@@ -517,6 +521,9 @@ export function App({
         messageCount={state.messages.length}
       />
       <CommandLine
+        roster={state.roster}
+        defaultAgent={state.defaultAgent}
+        onRoutingPreview={setDraftTargets}
         onSend={(text) => {
           store.actions.send(text || "(image shared)", pendingImages.length > 0 ? pendingImages : undefined)
           setPendingImages([])

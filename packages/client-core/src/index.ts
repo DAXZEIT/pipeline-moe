@@ -7,6 +7,9 @@ export * from "./types.js"
 export { createApi } from "./api.js"
 export type { ClientApi, RoomApi, Api } from "./api.js"
 
+export { previewRouting } from "./mentions.js"
+export type { RoutingPreview } from "./mentions.js"
+
 export {
   initialRoomState,
   resetTransient,

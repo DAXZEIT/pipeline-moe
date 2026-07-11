@@ -40,16 +40,19 @@
   looked like it came out of nowhere. The notice now appends `(queued after @…)`
   when the routed agent lands behind existing queue entries.
 
-### Known issue (decision pending)
-
-- **User-message mention parsing routes on quoted/pasted content** — pasting a
-  transcript or report containing `@builder`-style strings into a user message
-  targets those agents (this is what queued the surprise @tester turn in session
-  mrff3qwe: the pasted smoke report contained `✗ @builder → @tester refused`). The
-  agent-side twin of this bug (F5) was fixed by the enum handoff tool; the
-  user-side fix is a product decision — candidates: a routing-preview chip in the
-  composer before send, a paste-safe mode, or restricting mention scanning to the
-  message's first line.
+- **Routing preview in both composers** — resolves the user-side F5: pasting a
+  transcript or report containing `@builder`-style strings routes those agents
+  (session mrff3qwe: a pasted smoke report containing `✗ @builder → @tester
+  refused` queued both). Decision: observability over semantics — mention
+  parsing is deliberately unchanged; instead the draft's ACTUAL routing is shown
+  before send. New `previewRouting()` in client-core (exact mirror of the
+  server's `resolveTargets` rules: same regex, `@all` fan-out, insertion order,
+  unknown/inactive dropped — kept in lockstep, with the incident itself as a
+  test case). TUI: the StatusBar gains a `⏎⇒ @builder @tester (ignored: @ghost)`
+  segment while the draft mentions agents — a stable row, not a new one (the
+  transcript height math is untouched). WebUI: a `route-preview` chip above the
+  composer row with roster icons/colors. Default routing stays silent — no
+  noise on the common case.
 
 ## [Unreleased] — 2026-07-10
 
