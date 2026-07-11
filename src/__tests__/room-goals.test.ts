@@ -289,7 +289,7 @@ describe("RoomManager — goal support", () => {
 
   afterEach(() => {
     ;(config as { sessionsDir: string }).sessionsDir = realSessionsDir
-    rmSync(suiteTmp, { recursive: true, force: true })
+    rmSync(suiteTmp, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 })
   })
 
   test("overridePersonas replaces seedPersonas entirely", () => {
