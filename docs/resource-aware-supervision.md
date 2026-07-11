@@ -104,9 +104,12 @@ beyond what renders today.
 
 ## Measurement
 
-Extend the T2 bench (workspace/shakedown/bench-route-decision.ts) — which
-must FIRST be re-synced with the annotated prompt format (roster awareness
-changed it; the 85% baseline predates annotations):
+Extend the T2 bench (workspace/shakedown/bench-route-decision.ts) — re-synced
+with the annotated prompt format 2026-07-11 (seatTag mirrored, derived from
+the runtime model). **New baseline: 90% (18/20)** — up from the
+pre-annotation 85%; the model tags measurably help the local supervisor.
+Misses on record (results.jsonl): B1 failing-tests-to-scribe accepted
+(should refuse), C1/C3 refuse-instead-of-transfer (half credit). Next:
 
 - new case category: context-pressure cases (target at ctx 9x% with heavy
   work proposed → expect compactIds on the verdict; target at 3x% → expect
