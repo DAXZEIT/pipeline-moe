@@ -6,6 +6,7 @@ import type {
   PersonaDetail,
   PersonaTemplate,
   PresetFile,
+  PresetWarning,
   ProviderInfo,
   ResumableRoom,
   RoomSettings,
@@ -341,6 +342,15 @@ export function createApi(API_BASE: string) {
       fetch(`${API_BASE}/api/presets/${name}`, { method: "DELETE" }).then((r) => {
         if (!r.ok && r.status !== 204) throw new Error(`${r.status}`)
       }),
+
+    // Document write: saves a full preset composed client-side (no live room
+    // involved, unlike POST /api/presets which snapshots the current roster).
+    savePresetDoc: (preset: PresetFile) =>
+      fetch(`${API_BASE}/api/presets/${encodeURIComponent(preset.name)}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(preset),
+      }).then((r) => json<{ preset: PresetFile; warnings: PresetWarning[] }>(r)),
 
     // ── Providers (process-global) ──────────────────────────────────────────
 

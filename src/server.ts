@@ -79,7 +79,7 @@ import type { ParentLink, RoomOrchestrator } from "./orchestrator.js"
 import { SseHub } from "./sse.js"
 import { cleanupStaleMounts, isSshTarget, mountSshfs, unmountSshfs, type RoomMount } from "./sshfs.js"
 import type { HandoffGate, Persona, PersonaState, RouteDecision } from "./types.js"
-import { parsePersona, VALID_TOOLS } from "./validation.js"
+import { parseHandoffGates, parsePersona, parsePresetFile, VALID_TOOLS } from "./validation.js"
 
 /** Directory for saved user images (relative to workspace). */
 function mediaDir(): string {
@@ -672,6 +672,22 @@ async function main(): Promise<void> {
     await doSavePreset(room, name, res)
   })
 
+  // Document write: accepts a full preset composed OUTSIDE any live room (TUI
+  // composer, site builder, orchestrator-authored team spec) — unlike POST
+  // /api/presets, which snapshots the current roster. Validation rejects with
+  // a readable error (400) so a generated preset can be fixed by its author;
+  // non-blocking advice comes back as `warnings` on the 200.
+  app.put("/api/presets/:name", async (req, res) => {
+    try {
+      const { preset, warnings } = parsePresetFile(req.params.name, req.body)
+      const stored = { ...preset, personas: stripSeedFields(preset.personas) }
+      await writePreset(stored)
+      res.json({ preset: stored, warnings })
+    } catch (err) {
+      res.status(400).json({ error: err instanceof Error ? err.message : String(err) })
+    }
+  })
+
   app.delete("/api/presets/:name", async (req, res) => {
     const name = req.params.name
     const deleted = await deletePreset(name)
@@ -1204,29 +1220,6 @@ async function main(): Promise<void> {
     pendingRoute: r.getPendingRoute(),
     handoffGates: r.getHandoffGates(),
   })
-
-  /** Validate a `handoffGates` payload: an array of {from, via, when?}.
-   *  Returns the normalized gates, or a string describing the first problem. */
-  const parseHandoffGates = (raw: unknown): HandoffGate[] | string => {
-    if (!Array.isArray(raw)) return "`handoffGates` must be an array"
-    const gates: HandoffGate[] = []
-    for (const [i, g] of raw.entries()) {
-      if (!g || typeof g !== "object") return `handoffGates[${i}] must be an object`
-      const { from, via, when } = g as Record<string, unknown>
-      if (typeof from !== "string" || !from.trim()) return `handoffGates[${i}].from must be a non-empty string`
-      if (typeof via !== "string" || !via.trim()) return `handoffGates[${i}].via must be a non-empty string`
-      if (from.trim() === via.trim()) return `handoffGates[${i}]: from and via must differ`
-      if (when !== undefined && (!Array.isArray(when) || when.some((w) => typeof w !== "string" || !w.trim()))) {
-        return `handoffGates[${i}].when must be an array of non-empty glob strings`
-      }
-      gates.push({
-        from: from.trim(),
-        via: via.trim(),
-        ...(when !== undefined && (when as string[]).length > 0 ? { when: (when as string[]).map((w) => w.trim()) } : {}),
-      })
-    }
-    return gates
-  }
 
   const parseRouteDecision = (body: Record<string, unknown>): RouteDecision | null => {
     const action = body?.action

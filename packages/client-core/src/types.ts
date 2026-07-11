@@ -131,7 +131,9 @@ export interface ConversationMeta {
   messageCount: number
 }
 
-/** A saved room preset. */
+/** A saved room preset. Mirrors the server's wire format (src/preset-hydration.ts):
+ *  seed-owned fields (systemPrompt, skills) may be absent on disk — the server
+ *  rehydrates them from SEED_PERSONAS at load time. */
 export interface PresetPersona {
   id: string
   name: string
@@ -141,6 +143,12 @@ export interface PresetPersona {
   systemPrompt?: string
   model?: string
   thinkingLevel?: string
+  /** Custom instructions for context compaction. */
+  compactionInstructions?: string
+  /** Whether this agent receives image attachments. Undefined → true. */
+  vision?: boolean
+  /** Agent Skills granted to this persona. Absent → inherit from seed. */
+  skills?: string[]
   active: boolean
   parallel?: boolean
 }
@@ -148,6 +156,16 @@ export interface PresetPersona {
 export interface PresetFile {
   name: string
   personas: PresetPersona[]
+  /** Review gates saved with the roster. Absent → the preset defines none. */
+  handoffGates?: HandoffGate[]
+}
+
+/** Non-blocking advice returned by preset validation (PUT /api/presets/:name) —
+ *  the preset was saved, but something about it is likely not what the author
+ *  meant (e.g. parallel personas pinned to a sequential local backend). */
+export interface PresetWarning {
+  personaId?: string
+  message: string
 }
 
 /** How agent→agent handoffs are routed within a room. `supervised` routes
