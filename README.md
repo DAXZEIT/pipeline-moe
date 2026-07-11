@@ -100,8 +100,13 @@ exceeds the local model, swap one seat up and leave the rest alone.
 
 ## How a room runs
 
-- **Routing modes** — `auto` (handoffs dispatch freely), `semi` (each handoff
-  pauses for operator approval), `manual` (you route everything).
+- **Routing modes** — `auto` (handoffs dispatch freely), `supervised` (each
+  handoff is judged by the `supervisorAgent` — accept / refuse with reason /
+  transfer — in a disposable micro-session on its model; any non-decision
+  degrades the hop to auto, so a dead supervisor never blocks the room),
+  `semi` (each handoff pauses for operator approval), `manual` (you route
+  everything). Benchmarked: a local 27B holds the supervisor seat at 85%
+  rubric alignment, with every miss failing open to auto behavior.
 - **Plan-aware routing** — write a plan with `[owner]`-prefixed steps; an
   agent that ends its turn without handing off routes to the owner of the
   next incomplete step.

@@ -178,3 +178,39 @@ its power degrades gracefully when it's absent. The chain stops being shaped
 by where the planner sits and starts being shaped by what the planner
 decides — control at the boundary, not control by detour. Constrained
 agency, one level up.
+## Phase 2 — first measurements (2026-07-11)
+
+Question measured: can the LOCAL 27B (Qwopus3.6-27B-v2, Q4_K_M) hold the
+supervisor seat? Harness: `workspace/shakedown/bench-route-decision.ts`
+(untracked) — 20 synthetic proposal sets through the REAL
+`runSupervisorDecision`, prompts in the exact `buildSupervisorPrompt` format,
+4 categories × 5 cases. Scoring: preferred verdict 1.0, defensible
+alternative 0.5.
+
+| Category | stock prompt | tuned prompt |
+|---|---|---|
+| Clear accepts | 5/5 | 5/5 |
+| Clear refuses | 2/5 | 3/5 |
+| Transfers (incl. one mixed SET) | 2.5/5 | 4/5 |
+| Judgment traps (user-intent, read-only seats, red typecheck, verbosity) | 5/5 | 5/5 |
+| **Total** | **14.5/20 (73%)** | **17/20 (85%)** |
+
+The tune is three added prompt rules, each targeting a measured gap: a
+handoff is earned by content not tone (under-refusal of politely narrated
+empty turns); prefer transfer to the right seat over refuse (safe-but-
+conservative bias); judge mixed sets per-proposal (the set case went from
+"accept everything" to `transfer ['builder']` with a correct reason).
+
+Findings beyond the score:
+- **Every remaining miss fails OPEN**: a wrong accept = auto-mode behavior on
+  that hop. Zero wrong refusals, zero degradations, 40/40 valid tool calls
+  across both runs. Supervised-local strictly dominates auto-local.
+- One "miss" (bouncing a disputed audit finding back to the auditor) is
+  arguably a rubric weakness — the model's reason ("the correct escalation
+  path for a disagreement") is defensible.
+- Latency ~6s/decision on the RTX 3090 (≈3s warm) — the micro-turn cost
+  claim holds.
+- Consequence for this doc's phase-2 items: the live-session decision
+  variant is now LESS justified (stateless measured sufficient; its failure
+  mode benign). Re-run the bench after any supervisor-prompt or quant change
+  before considering it again.

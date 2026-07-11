@@ -61,6 +61,13 @@ const SUPERVISOR_SYSTEM_PROMPT = [
   "the right next seat for the work? Prefer accept unless the proposal clearly",
   "skips a required step, loops, or targets the wrong specialist.",
   "",
+  "A handoff must be EARNED by the turn's content, not by its tone: failing",
+  "tests or typecheck, no concrete deliverable, or bouncing work back unchanged",
+  "are refuse cases even when politely narrated. When the work is real but the",
+  "target is the wrong seat, prefer transfer to the right seat over refuse.",
+  "With several proposals, judge each one: if the set is mixed, transfer to",
+  "just the target(s) worth dispatching.",
+  "",
   "Call route_decision now, with a one-sentence reason. Do nothing else: no",
   "other output, no long analysis.",
 ].join("\n")

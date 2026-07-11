@@ -47,7 +47,8 @@ room-scoped (`/api/rooms/:roomId/...`). Rooms are created and listed under
 | Field | Type | Meaning |
 |---|---|---|
 | `chaining` | boolean | allow agent→agent turns at all |
-| `routingMode` | `"auto" \| "semi" \| "manual"` | handoffs dispatch freely / pause for approval / operator routes everything |
+| `routingMode` | `"auto" \| "supervised" \| "semi" \| "manual"` | free dispatch / supervisor agent decides / human approves / operator routes everything |
+| `supervisorAgent` | string | who judges handoff proposals in `supervised` mode (default `"planner"`) |
 | `defaultAgent` | string | who receives unaddressed user messages |
 | `fallbackAgent` | string | who receives unrouted agent turns |
 | `planAwareRouting` | boolean | route to the owner of the next incomplete plan step |
@@ -58,7 +59,8 @@ room-scoped (`/api/rooms/:roomId/...`). Rooms are created and listed under
 | `handoffGates` | `{from, via, when?: string[]}[]` | review gates (see README) |
 
 `GET /api/settings` returns all of the above plus `defaultModel`, `maxRooms`
-and `pendingRoute` (the held handoff awaiting approval in semi mode).
+and `pendingRoute` (the proposal set awaiting a decision — the human's in
+semi mode, the supervisor's in supervised mode).
 
 ## SSE events
 
@@ -75,6 +77,7 @@ and `pendingRoute` (the held handoff awaiting approval in semi mode).
 | `turn` | `{phase, targets?, askerId?, question?}` | turn lifecycle: `start`, `end`, `chain`, `parallel`, `pause`, `resume` |
 | `workspace` | `FileEntry[]` | live workspace file listing |
 | `settings` | full settings payload | any room-settings change |
+| `routing` | `{roomId, type: "proposed" \| "resolved", …}` | supervised-mode decision lifecycle (proposal set, then verdict) |
 | `transcript` | `TranscriptEntry[]` | full replacement (conversation switch) |
 | `conversations` | `{conversations, currentId}` | saved-conversation list + current id |
 | `tasks` | task board state | shared board changes |
@@ -102,9 +105,25 @@ This — not pattern detection — is the loop safety net (the repetition
 circuit breaker was removed deliberately; see the CHANGELOG for the
 rationale).
 
-**Routing modes.** `auto` dispatches handoffs immediately; `semi` holds each
-handoff for operator approval (`pendingRoute` in settings, approval UI in both
-clients); `manual` disables agent routing entirely.
+**Routing modes.** `auto` dispatches handoffs immediately; `supervised`
+submits each proposal set to the `supervisorAgent` (see below); `semi` holds
+each handoff for operator approval (`pendingRoute` in settings, approval UI in
+both clients); `manual` disables agent routing entirely.
+
+**Supervised mode.** The supervisor decides in a STATELESS micro-turn: a
+disposable in-memory session on the supervisor's model, given the proposal
+set, a summary of the proposing turn, and plan/board state, with exactly one
+tool — `route_decision({verdict: accept | refuse | transfer, targetIds?,
+reason})`. One decision covers the whole proposal set (parallel waves propose
+several handoffs). Accept/transfer dispatch; refuse re-runs the proposer with
+the reason injected, bounded by an anti-ping-pong cap (an identical
+re-proposal after a refuse falls to the fallback). The supervisor's own
+proposals auto-accept; plan-owner routing is not supervised (the plan is the
+supervisor's own artifact). ANY non-decision outcome — error, abort, timeout,
+a turn that never calls the tool — degrades that hop to auto with a notice: a
+dead supervisor never deadlocks the room. Every decision leaves a transcript
+trace (`✓` / `↪` / `✗` with the reason). Design, retro and phase-2 bench
+numbers: `docs/supervised-routing.md`.
 
 ## Turn mechanics
 
@@ -167,7 +186,11 @@ per persona through the `tools` allowlist. Shipped tools:
 - **Task board**: `task_create`, `task_update`, `task_list` (granted when the
   room has a board)
 - **Turn control**: `handoff` and `ask_user` are granted automatically to
-  every agent — they are infrastructure, not allowlist items
+  every agent — they are infrastructure, not allowlist items. `route_decision`
+  exists only inside the supervisor's ephemeral micro-session (supervised
+  mode); no persona ever holds it. All turn-control tools declare
+  `executionMode: "sequential"` — pi runs a batch's tool calls in parallel by
+  default, which would make their first-call-stands guards a TOCTOU race
 
 ## Seed personas
 
