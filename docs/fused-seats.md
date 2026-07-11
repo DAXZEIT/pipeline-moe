@@ -184,9 +184,18 @@ compaction-ordering supervisor wants to see.
 - **LoRA per seat is the mechanic that fits**: one base Qwopus + a
   maker-LoRA and an orchestrator-LoRA, hot-swappable per request,
   megabytes of VRAM each.
-- **The training data already exists**: `sessions/*.json` transcripts
-  are near-ShareGPT, and CLAUDE.md carries a proven tool-calling dataset
-  methodology. Cut by role, train per seat.
+- **The raw material exists; the practice doesn't**: `sessions/*.json`
+  transcripts are near-ShareGPT, and CLAUDE.md carries a tool-calling
+  dataset methodology — from the abandoned teach-Qwopus-Claude-Code
+  project, never validated by an actual training run. A seat LoRA would
+  be dax's first fine-tune ever, which raises the evidence bar for this
+  phase accordingly.
+- **Protect the inherited register**: Qwopus's CoT is Claude-shaped
+  (distilled from Opus traces) — functional, self-auditing, experience-
+  seeking. Off-the-shelf reasoning fine-tunes of Qwen 3.6 carry the
+  formulaic "here's a thinking process:" style and would overwrite that
+  asset. Any seat LoRA must be trained on Qwopus's own register, or not
+  at all.
 - **Gate it on evidence**: only if phase 1 shows measured *hat drift*
   (roles blurring on a shared context). Context fusion buys a certain
   win; weight fusion buys uncertain specialization. Don't pay for the
