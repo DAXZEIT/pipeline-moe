@@ -555,8 +555,21 @@ export class Room {
       clearTimeout(this.saveTimer)
       this.saveTimer = null
     }
-    await this.store.write(this.buildConversation())
-    await this.broadcastConversations()
+    // A save must never crash the server. The store fix removed the concurrent
+    // rename RACE, but a genuine write failure (ENOSPC, EACCES, a yanked dir)
+    // still rejects — and 14 call sites invoke this as `void saveCurrent()`,
+    // where a rejection becomes an unhandled rejection and takes the process
+    // down (Node 26). Swallow-and-log: a lost snapshot is bad, a dead server is
+    // worse, and a SILENT lost snapshot is the exact failure class this whole
+    // lot was about — so it's logged and surfaced as a notice, never silent.
+    try {
+      await this.store.write(this.buildConversation())
+      await this.broadcastConversations()
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      console.error(`[room] saveCurrent failed: ${msg}`)
+      this.notice(`save failed — this snapshot was not persisted: ${msg}`, "error")
+    }
   }
 
   /** Debounced autosave, for bursty roster mutations. */

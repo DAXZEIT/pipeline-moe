@@ -21,6 +21,18 @@ export function conversationMeta(conv: Conversation): ConversationMeta {
 export class ConversationStore {
   constructor(private readonly dir: string = config.sessionsDir) {}
 
+  /** Serializes write() calls so two concurrent saves of the same conversation
+   *  can't race. Bug found live (2026-07-11): a multi-field settings PATCH fires
+   *  several `void saveCurrent()` at once, and supervised routing adds async save
+   *  points (supervisor decision + drain resume); overlapping writes collided on
+   *  a shared tmp path — the losing rename threw ENOENT, crashing the server as
+   *  an unhandled rejection, and in the softer case dropped the snapshot (losing
+   *  a just-posted supervisor trace). Chaining makes the last-invoked write win. */
+  private writeChain: Promise<void> = Promise.resolve()
+  /** Monotonic tmp suffix so even writes that somehow bypass the chain (e.g. two
+   *  store instances on the same dir) never share a tmp path. */
+  private writeSeq = 0
+
   /** The directory this store persists into — the Room anchors per-agent pi
    *  session directories next to the conversation files it writes here. */
   get baseDir(): string {
@@ -68,11 +80,27 @@ export class ConversationStore {
     }
   }
 
-  /** Atomic write (tmp + rename) so the list never sees a partial file. */
+  /** Atomic write (tmp + rename) so the list never sees a partial file, and
+   *  serialized so concurrent saves of the same conversation can't collide on
+   *  the tmp path (see writeChain). Each write uses a unique tmp so a failed
+   *  rename can never take out a sibling's tmp, and cleans up its own tmp on
+   *  failure rather than leaking it. */
   async write(conv: Conversation): Promise<void> {
-    const tmp = `${this.file(conv.id)}.tmp`
-    await writeFile(tmp, JSON.stringify(conv, null, 2), "utf8")
-    await rename(tmp, this.file(conv.id))
+    const run = this.writeChain.then(async () => {
+      const final = this.file(conv.id)
+      const tmp = `${final}.${process.pid}.${++this.writeSeq}.tmp`
+      await writeFile(tmp, JSON.stringify(conv, null, 2), "utf8")
+      try {
+        await rename(tmp, final)
+      } catch (err) {
+        try { await unlink(tmp) } catch { /* already gone */ }
+        throw err
+      }
+    })
+    // Keep the chain alive even if this write rejects — one failed save must
+    // not wedge every later save behind a rejected promise.
+    this.writeChain = run.catch(() => {})
+    return run
   }
 
   async remove(id: string): Promise<void> {

@@ -57,6 +57,33 @@ test("remove deletes a conversation", async () => {
   expect(await store.read("rm-test")).toBeNull()
 })
 
+// ── Concurrent-write race (live bug 2026-07-11) ────────────────────────
+// A fixed tmp path made two overlapping writes of the same id collide: the
+// losing rename threw ENOENT (crashing the server as an unhandled rejection)
+// or dropped the snapshot. write() is now serialized + unique-tmp'd.
+
+test("concurrent writes of the same id do not throw (ENOENT race)", async () => {
+  const writes = Array.from({ length: 25 }, (_, i) => {
+    const c = makeConv("race")
+    c.title = `v${i}`
+    return store.write(c)
+  })
+  // Before the fix, some of these reject with ENOENT on rename.
+  await expect(Promise.all(writes)).resolves.toBeDefined()
+  const got = await store.read("race")
+  expect(got).not.toBeNull()
+  // Last-invoked write wins (serialized in call order).
+  expect(got!.title).toBe("v24")
+})
+
+test("a failed write does not wedge later writes", async () => {
+  // A traversal id rejects inside file(); the chain must survive it.
+  await expect(store.write(makeConv("../../evil"))).rejects.toThrow()
+  const conv = makeConv("after-failure")
+  await store.write(conv)
+  expect(await store.read("after-failure")).not.toBeNull()
+})
+
 // ── Path traversal guards ──────────────────────────────────────────────
 // Note: read() and remove() wrap in try/catch and swallow errors (return null/undefined).
 // write() throws before the file operation because assertInside runs in file() first.
