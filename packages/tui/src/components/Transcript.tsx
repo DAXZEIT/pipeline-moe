@@ -3,7 +3,7 @@ import { useTerminalSize } from "../useTerminalSize"
 import { useRef, useState } from "react"
 import type { Message, Receipt, RosterItem, ToolActivity } from "@pipeline-moe/client-core"
 import { renderMarkdownLines, renderStreamingMarkdownLines } from "../markdown"
-import { summarizeArgs, TOOL_ICON, statusBadge } from "../activity"
+import { groupActivity, groupLine, windowActivity, type ActivityGroup } from "../activity"
 import { fmtDuration, headerRule, receiptLines } from "../transcript-format"
 
 /**
@@ -134,22 +134,32 @@ export function Transcript({
   const pushActivity = (activity: ToolActivity[], live: boolean) => {
     if (activity.length === 0) return
     const hasRunning = live && activity.some((a) => a.status === "running")
-    const suffix = hasRunning ? " · running…" : ""
-    if (showTools || live) {
-      // Expanded: header + one line per tool call
-      lines.push({ text: `🔧 ${activity.length} tool ${activity.length === 1 ? "call" : "calls"}${suffix}`, dim: true })
-      const argWidth = Math.max(10, width - 32) // leave room for icon + name + badge
-      for (const a of activity) {
-        const icon = TOOL_ICON[a.toolName] ?? "🔧"
-        const args = summarizeArgs(a)
-        const badge = statusBadge(a.status)
-        const truncated = args.length > argWidth ? args.slice(0, argWidth - 1) + "…" : args
-        const line = `  ${icon} ${a.toolName}${truncated ? " " + truncated : ""}  ${badge.text}`
-        lines.push({ text: line, color: badge.color === "green" ? undefined : badge.color })
-      }
+    const errors = activity.filter((a) => a.status === "error").length
+    const count = `🔧 ${activity.length} tool ${activity.length === 1 ? "call" : "calls"}`
+    const errSuffix = errors ? ` · ${errors} ✗` : ""
+    const runSuffix = hasRunning ? " · running…" : ""
+    const argWidth = Math.max(10, width - 32) // leave room for icon + name + badge
+    const pushGroup = (g: ActivityGroup) => {
+      const l = groupLine(g, argWidth)
+      lines.push({ text: l.text, color: l.color === "green" ? undefined : l.color })
+    }
+    if (showTools) {
+      // Fully expanded (ctrl+o): one line per call, no aggregation.
+      lines.push({ text: `${count}${errSuffix}${runSuffix}`, dim: true })
+      for (const a of activity) pushGroup({ toolName: a.toolName, items: [a], status: a.status })
+    } else if (live) {
+      // Live window: ×N-aggregated groups, last LIVE_WINDOW only — a 100-call
+      // turn otherwise floods the transcript. Errors that scrolled past the
+      // window stay pinned above it; the header carries the full count.
+      const { pinnedErrors, visible, hiddenCalls } = windowActivity(groupActivity(activity))
+      const hidden = hiddenCalls ? ` · ${hiddenCalls} earlier · ctrl+o` : ""
+      lines.push({ text: `${count}${errSuffix}${hidden}${runSuffix}`, dim: true })
+      for (const g of pinnedErrors) pushGroup(g)
+      if (hiddenCalls) lines.push({ text: "  ⋯", dim: true })
+      for (const g of visible) pushGroup(g)
     } else {
-      // Collapsed: single summary line
-      lines.push({ text: `🔧 ${activity.length} tool ${activity.length === 1 ? "call" : "calls"} · ctrl+o`, dim: true })
+      // Collapsed: single summary line (errors stay visible even collapsed)
+      lines.push({ text: `${count}${errSuffix} · ctrl+o`, dim: true })
     }
   }
 

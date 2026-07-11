@@ -1779,6 +1779,22 @@ body {
   color: #e6c07b;
   border-color: #5a4f2c;
 }
+.activity-errors {
+  color: var(--danger);
+}
+.activity-earlier {
+  align-self: flex-start;
+  background: none;
+  border: none;
+  padding: 0 0 0 10px;
+  font: inherit;
+  font-size: 11px;
+  color: var(--muted);
+  cursor: pointer;
+}
+.activity-earlier:hover {
+  color: var(--text);
+}
 .activity-result {
   margin-top: 4px;
 }
