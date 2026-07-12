@@ -1,5 +1,6 @@
 import { useState } from "react"
 import { api } from "../api"
+import { groupBySeat } from "@pipeline-moe/client-core"
 import type { PersonaDetail, RosterItem } from "../types"
 import { AddAgent } from "./AddAgent"
 import { AgentMenu, type AgentMenuItem } from "./AgentMenu"
@@ -134,11 +135,12 @@ export function Roster({
 
       <div className="roster-list">
         {(() => {
-          // Fused seats: adjacent members sharing a seat render as ONE group —
-          // label + a single context gauge (the values cannot diverge: one
-          // session behind every hat). Singletons render exactly as before.
+          // Fused seats: members sharing a seat render as ONE group — label +
+          // a single context gauge (the values cannot diverge: one session
+          // behind every hat). groupBySeat normalizes scattered wire order
+          // (pre-fix persisted rosters, drags); singletons render as before.
           const runs: { seat?: string; items: RosterItem[] }[] = []
-          for (const r of roster) {
+          for (const r of groupBySeat(roster)) {
             const last = runs[runs.length - 1]
             if (last && last.seat !== undefined && r.seat === last.seat) last.items.push(r)
             else runs.push({ seat: r.seat, items: [r] })

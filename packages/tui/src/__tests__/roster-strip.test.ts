@@ -157,6 +157,25 @@ describe("renderStrip", () => {
     for (const r of rows.slice(1)) expect(stringWidth(r)).toBe(stringWidth(rows[0]))
   })
 
+  it("a SCATTERED seat is normalized: mates pull up behind the first hat", () => {
+    // planner(maker) at 0, scribe(maker) at the END — the exact live report:
+    // the pre-normalization strip stranded each hat in its own wall-separated
+    // cell with no ⌐group at all.
+    const cells = stripCells(
+      [
+        agent({ id: "planner", name: "planner", seat: "pl-sc" }),
+        agent({ id: "builder", name: "builder", icon: "🔨" }),
+        agent({ id: "scribe", name: "scribe", icon: "📝", seat: "pl-sc" }),
+      ],
+      null,
+      140,
+    )
+    expect(cells.map((c) => c.id)).toEqual(["planner", "scribe", "builder"])
+    const rows = renderStrip(cells).map(plain)
+    expect(rows[0]).toContain("planner ┈ ")
+    expect(rows[0]).toContain("scribe │ ")
+  })
+
   it("singleton-only rosters render exactly as before (no seat → no fusion)", () => {
     const cells = stripCells([agent({}), agent({ id: "b", name: "b" })], null, 120)
     const rows = renderStrip(cells).map(plain)

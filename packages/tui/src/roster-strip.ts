@@ -1,6 +1,6 @@
 import chalk, { type ChalkInstance } from "chalk"
 import stringWidth from "string-width"
-import type { RosterItem } from "@pipeline-moe/client-core"
+import { groupBySeat, type RosterItem } from "@pipeline-moe/client-core"
 import { prettyModel } from "./model-name"
 import { fmt } from "./roster-stats"
 
@@ -74,11 +74,14 @@ function printedWidth(text: string): number {
  *  for. The model and usage rows exist only at name tier and never affect
  *  the fit (they truncate to their cell's width). */
 export function stripCells(
-  roster: RosterItem[],
+  rosterIn: RosterItem[],
   runningId: string | null,
   width: number,
   defaultModel?: string | null,
 ): StripCell[] {
+  // Runs group by ADJACENCY — normalize scattered seats (pre-fix persisted
+  // rosters, manual drags, older servers) instead of trusting wire order.
+  const roster = groupBySeat(rosterIn)
   const modelRow = roster.some((r) => r.model) || !!defaultModel
   const usageRow = roster.some((r) => r.contextUsage)
   const build = (tier: "name" | "icon") =>
