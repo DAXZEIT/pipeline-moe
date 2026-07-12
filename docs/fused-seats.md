@@ -251,6 +251,40 @@ compaction-ordering supervisor wants to see.
   (zero-silent-hop invariant holds across the refactor);
 - compaction: per-seat compaction leaves both hats functional.
 
+## Glossaire (fixé au grilling phase 1, 2026-07-12)
+
+- **Seat / siège** — une session pi partagée par un cluster de chapeaux ;
+  l'unité de contexte, de compaction, de jauge et de cache. Configuré par
+  `seat?: string` sur la persona (opt-in ; absent = seat == persona).
+  ⚠ collision héritée : l'ancien code (roster-awareness.ts, types.ts)
+  disait « seat » pour *membre du roster* — le concept fused-seats possède
+  le mot désormais ; migrer les usages anciens vers **member**/**agent**.
+- **Hat / chapeau** — la persona réduite à son rôle par tour : prompt de
+  devoirs + allowlist. Identité, statut, cursor, activité restent par
+  chapeau. Le `Participant` devient le handle du chapeau.
+- **Seat prompt** — l'unique system prompt du siège : framing
+  d'assignation multi-rôle (« you currently have roles X, Y and Z in this
+  seat ») + une section titrée par chapeau (devoirs condensés, allowlist,
+  top-leçons de son cahier). Stable, additif, cache-friendly.
+- **Hat header** — la bascule par tour, ≤ ~400 chars, préfixe du prompt de
+  tour : chapeau du tour, pointeur vers sa section, mains du tour. Zéro
+  leçon, zéro lecture de fichier.
+- **Hat switch** — handoff intra-siège. Routing et glyphes inchangés ; la
+  trace reçoit le suffixe `— hat switch (<seat> seat, context carried)`
+  (grepable = métrique de re-dérivation).
+- **Cahier du siège / seat logbook** — `agent_memory/<persona>.md`,
+  inchangé sur disque, injecté dans la section de son chapeau ; visible de
+  tous les chapeaux du siège (les leçons sont institutionnelles).
+- **Siège singleton** — un chapeau seul (ex. auditor) : cas dégénéré
+  strictement équivalent au comportement pré-feature.
+- **Défusion** — repli sûr seat == persona quand l'invariant
+  un-siège-un-modelRef est violé ; toujours bruyant, jamais silencieux.
+- **Session orpheline** — session par-persona laissée sur disque quand un
+  roster adopte des sièges ; jamais adoptée ni migrée, inspectable.
+- **Mapping de naissance** — le `seat` gravé dans le roster persisté
+  (`PersonaState[]`) d'une conversation ; un preset édité n'affecte que
+  les rooms futures.
+
 ## Why it fits
 
 pipeline-moe becomes literal: a mixture of experts where the seats are
