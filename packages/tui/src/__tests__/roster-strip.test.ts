@@ -149,8 +149,10 @@ describe("renderStrip", () => {
     // Fused gutter INSIDE the seat, wall between seats.
     expect(rows[0]).toContain("builder ┈ ")
     expect(rows[0]).toContain("tester │ ")
-    // One spanning usage entry labeled with the seat — not one gauge per hat.
-    expect(rows[2]).toContain("⌐maker: 42K/200K")
+    // One spanning usage entry, ⌐-marked — not one gauge per hat, and never
+    // the seat NAME (a long name would truncate the payload away).
+    expect(rows[2]).toContain("⌐ 42K/200K")
+    expect(rows[2]).not.toContain("maker:")
     expect(rows[2].match(/42K\/200K/g)).toHaveLength(1)
     expect(rows[2]).toContain("220K/1000K") // the singleton keeps its own
     // All rows keep the exact same printed width.

@@ -175,10 +175,12 @@ export function renderStrip(cells: StripCell[]): string[] {
       .map((r) => {
         if (r.cells.length === 1) return pad(paint(r.cells[0]), text(r.cells[0]) ?? "", cellWidth(r.cells[0]))
         // Spanning entry for the fused group — first cell carrying data wins
-        // (the values cannot differ: same session behind every hat).
+        // (the values cannot differ: same session behind every hat). Marked
+        // with a bare ⌐, never the seat NAME: a long user-chosen name would
+        // eat the whole group width and truncate away the actual payload
+        // (seen live: "⌐planner-scribe-seat:…" twice, model and gauge gone).
         const first = r.cells.find((c) => text(c) !== undefined) ?? r.cells[0]
-        const label = r.seat ? `⌐${r.seat}: ` : ""
-        return pad(paint(first), `${label}${text(first) ?? ""}`, runWidth(r))
+        return pad(paint(first), `⌐ ${text(first) ?? ""}`, runWidth(r))
       })
       .join(sep)
 
