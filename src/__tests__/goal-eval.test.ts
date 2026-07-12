@@ -18,16 +18,25 @@ class SeqParticipant {
    *  the reply at the same index is produced. Undefined index → no handoff,
    *  turn ends naturally — matches the real "didn't call handoff" contract. */
   private handoffs: (string | undefined)[]
+  /** Verdict to register (mirrors the goal_verdict tool's execute()) when the
+   *  reply at the same index is produced. Undefined index → no verdict call. */
+  private verdicts: (boolean | undefined)[]
   callCount = 0
   customMessages: Array<{ customType: string; content: string }> = []
   /** Set by MockRegistry.add() so run() can register a handoff, exactly like
    *  the real handoff tool calling registry.register() during execution. */
   registry: MockRegistry | null = null
 
-  constructor(persona: Persona, replies: string[], handoffs: (string | undefined)[] = []) {
+  constructor(
+    persona: Persona,
+    replies: string[],
+    handoffs: (string | undefined)[] = [],
+    verdicts: (boolean | undefined)[] = [],
+  ) {
     this.persona = persona
     this.replies = replies.length > 0 ? replies : ["(done)"]
     this.handoffs = handoffs
+    this.verdicts = verdicts
   }
 
   async run(_text: string) {
@@ -35,6 +44,8 @@ class SeqParticipant {
     const text = this.replies[idx]
     const handoffTo = this.handoffs[idx]
     if (handoffTo) this.registry?.register(this.persona.id, handoffTo)
+    const verdict = this.verdicts[idx]
+    if (verdict !== undefined) this.registry?.registerVerdict(this.persona.id, verdict, "test verdict")
     this.callCount++
     return { text, activity: [], reasoning: undefined, question: undefined }
   }
@@ -125,6 +136,18 @@ class MockRegistry {
     this.pendingHandoff.delete(from)
     return to
   }
+  /** GoalVerdictSink surface — mirrors the real Registry (first call stands). */
+  private pendingVerdict: { from: string; met: boolean; reason: string } | null = null
+  registerVerdict(from: string, met: boolean, reason: string): void {
+    if (this.pendingVerdict) return
+    this.pendingVerdict = { from, met, reason }
+  }
+  takeVerdict(): { from: string; met: boolean; reason: string } | undefined {
+    const v = this.pendingVerdict ?? undefined
+    this.pendingVerdict = null
+    return v
+  }
+  clearVerdict(): void { this.pendingVerdict = null }
   personaStates(): PersonaState[] {
     return [...this.parts.values()].map(p => ({ ...p.persona, active: p.active, parallel: p.parallel }))
   }
@@ -501,5 +524,204 @@ describe("GOAL_MET keyword detection", () => {
     expect(detect("the goal is not met yet")).toBe(false)
     expect(detect("goalkeeper meeting")).toBe(false)
     expect(detect("metgoal")).toBe(false)
+  })
+})
+
+// ── goal_verdict tool channel + format-repair retry ──────────────────────────
+// Born from the 9B chaos-v2 run (2026-07-12): the evaluator verified the goal
+// correctly but answered "**MET**" (the old prompt's bullet label) instead of
+// the GOAL_MET token, five times in a row — six iterations burned, room failed
+// over a correct workspace. The tool is the structured channel; the retry is
+// the closed-menu rescue for tool-less seats.
+
+describe("goal_verdict channel and format-repair retry", () => {
+  let registry: MockRegistry
+  let hub: SseHub
+  let store: MockStore
+  let room: Room
+
+  beforeEach(() => {
+    hub = new SseHub(1)
+    store = new MockStore()
+    registry = new MockRegistry()
+    room = new Room(registry as any, hub, store as any, [], "verdict-room")
+  })
+
+  afterEach(async () => {
+    await room.abortCurrent()
+  })
+
+  test("tool verdict met=true completes even when the text is label-drift", async () => {
+    registry.add(new SeqParticipant(makePersona("worker"), ["(done)"]))
+    // The chaos-v2 text exactly: no GOAL_MET token anywhere — only the tool call.
+    const planner = new SeqParticipant(
+      makePersona("planner"),
+      ["**MET** — I verified the file contains exactly 6 alternating lines."],
+      [],
+      [true],
+    )
+    registry.add(planner)
+    priv(room).fallbackAgentId = null
+    await room.init()
+
+    room.submitGoal("@worker build it", { mode: "eval", maxIterations: 5 })
+    await settle()
+
+    expect(room.getGoalStatus()).toBe("completed")
+    expect(priv(room).goalIteration).toBe(1)
+    // No retry was needed — the tool verdict was read directly.
+    expect(planner.customMessages.filter(m => m.content.includes("verdict not registered"))).toHaveLength(0)
+  })
+
+  test("tool verdict met=false without a dispatch gets the dispatch-repair retry", async () => {
+    registry.add(new SeqParticipant(makePersona("worker"), ["(done)"]))
+    // iter1 pass: not-met via tool but NO handoff (the chaos-v3 stall). The
+    // dispatch retry gets the routing; iter2: met via tool.
+    const planner = new SeqParticipant(
+      makePersona("planner"),
+      [
+        "**NOT MET** — line 4 is missing.",
+        "**NOT MET** — dispatching the worker to fix line 4.",
+        "**MET** — repaired and verified.",
+      ],
+      [undefined, "worker", undefined],
+      [false, false, true],
+    )
+    registry.add(planner)
+    priv(room).fallbackAgentId = null
+    await room.init()
+
+    room.submitGoal("@worker build it", { mode: "eval", maxIterations: 5 })
+    await settle(600)
+
+    expect(room.getGoalStatus()).toBe("completed")
+    // The dispatch retry did not consume an iteration.
+    expect(priv(room).goalIteration).toBe(2)
+    expect(planner.customMessages.filter(m => m.content.includes("dispatch missing"))).toHaveLength(1)
+    expect(planner.customMessages.filter(m => m.content.includes("verdict not registered"))).toHaveLength(0)
+  })
+
+  test("format-repair retry rescues a tool-less evaluator's label drift within the same iteration", async () => {
+    registry.add(new SeqParticipant(makePersona("worker"), ["(done)"]))
+    // iter1 pass: "**MET**" — no tool call, no token, no dispatch (the chaos-v2
+    // drift). The retry's closed menu gets the parseable token.
+    const planner = new SeqParticipant(
+      makePersona("planner"),
+      ["**MET** — verified, all six lines present.", "GOAL_MET"],
+    )
+    registry.add(planner)
+    priv(room).fallbackAgentId = null
+    await room.init()
+
+    room.submitGoal("@worker build it", { mode: "eval", maxIterations: 5 })
+    await settle(500)
+
+    expect(room.getGoalStatus()).toBe("completed")
+    // The retry did NOT consume an iteration — conformity is not convergence.
+    expect(priv(room).goalIteration).toBe(1)
+    const retries = planner.customMessages.filter(m => m.content.includes("verdict not registered"))
+    expect(retries).toHaveLength(1)
+    expect(planner.callCount).toBe(2)
+  })
+
+  test("GOAL_NOT_MET token without a dispatch gets the dispatch-repair retry, then converges", async () => {
+    registry.add(new SeqParticipant(makePersona("worker"), ["(done)"]))
+    // Token channel (tool-less evaluator), chaos-v3 shape: perfect diagnosis,
+    // no routing. The dispatch retry closes the gap within the iteration.
+    const planner = new SeqParticipant(
+      makePersona("planner"),
+      [
+        "GOAL_NOT_MET — pong 2 is missing.",
+        "GOAL_NOT_MET — dispatching the worker.",
+        "GOAL_MET — verified.",
+      ],
+      [undefined, "worker", undefined],
+    )
+    registry.add(planner)
+    priv(room).fallbackAgentId = null
+    await room.init()
+
+    room.submitGoal("@worker build it", { mode: "eval", maxIterations: 5 })
+    await settle(600)
+
+    expect(room.getGoalStatus()).toBe("completed")
+    expect(priv(room).goalIteration).toBe(2)
+    expect(planner.customMessages.filter(m => m.content.includes("dispatch missing"))).toHaveLength(1)
+  })
+
+  test("not-met WITH a dispatch gets no retry — the normal iterate path", async () => {
+    const worker = new SeqParticipant(makePersona("worker"), ["(done)"])
+    registry.add(worker)
+    const planner = new SeqParticipant(
+      makePersona("planner"),
+      ["GOAL_NOT_MET — missing line, sending the worker.", "GOAL_MET — verified."],
+      ["worker", undefined],
+    )
+    registry.add(planner)
+    priv(room).fallbackAgentId = null
+    await room.init()
+
+    room.submitGoal("@worker build it", { mode: "eval", maxIterations: 5 })
+    await settle(600)
+
+    expect(room.getGoalStatus()).toBe("completed")
+    expect(priv(room).goalIteration).toBe(2)
+    expect(planner.customMessages.filter(m => m.content.includes("dispatch missing"))).toHaveLength(0)
+    expect(planner.customMessages.filter(m => m.content.includes("verdict not registered"))).toHaveLength(0)
+  })
+})
+
+// ── goal_verdict tool definition guards ──────────────────────────────────────
+
+describe("goal_verdict tool definition", () => {
+  const makeSink = (overrides: Partial<import("../types.js").GoalVerdictSink> = {}) => {
+    let verdict: { from: string; met: boolean } | undefined
+    const sink: import("../types.js").GoalVerdictSink = {
+      goalEvaluatorId: () => "planner",
+      goalEvalActive: () => true,
+      registerVerdict: (from, met) => { if (!verdict) verdict = { from, met } },
+      peekVerdict: () => verdict,
+      ...overrides,
+    }
+    return sink
+  }
+  const text = (r: any): string => r.content[0].text
+
+  test("met=true registers and terminates the turn", async () => {
+    const sink = makeSink()
+    const { createGoalVerdictToolDefinition } = await import("../custom-tools/goal-verdict.js")
+    const tool = createGoalVerdictToolDefinition(sink, "planner")
+    const res: any = await tool.execute("t1", { met: true, reason: "verified" } as any, undefined as any, undefined as any, undefined as any)
+    expect(text(res)).toContain("goal met")
+    expect(res.terminate).toBe(true)
+    expect(sink.peekVerdict!()).toEqual({ from: "planner", met: true })
+  })
+
+  test("met=false registers without terminating (dispatch follows)", async () => {
+    const sink = makeSink()
+    const { createGoalVerdictToolDefinition } = await import("../custom-tools/goal-verdict.js")
+    const tool = createGoalVerdictToolDefinition(sink, "planner")
+    const res: any = await tool.execute("t1", { met: false, reason: "missing line" } as any, undefined as any, undefined as any, undefined as any)
+    expect(text(res)).toContain("NOT met")
+    expect(res.terminate).toBeUndefined()
+  })
+
+  test("no active goal eval → correctable error, nothing registered", async () => {
+    const sink = makeSink({ goalEvalActive: () => false })
+    const { createGoalVerdictToolDefinition } = await import("../custom-tools/goal-verdict.js")
+    const tool = createGoalVerdictToolDefinition(sink, "planner")
+    const res: any = await tool.execute("t1", { met: true, reason: "x" } as any, undefined as any, undefined as any, undefined as any)
+    expect(text(res)).toContain("goal_verdict error")
+    expect(sink.peekVerdict!()).toBeUndefined()
+  })
+
+  test("second call in the same pass — first stands", async () => {
+    const sink = makeSink()
+    const { createGoalVerdictToolDefinition } = await import("../custom-tools/goal-verdict.js")
+    const tool = createGoalVerdictToolDefinition(sink, "planner")
+    await tool.execute("t1", { met: false, reason: "gap" } as any, undefined as any, undefined as any, undefined as any)
+    const res: any = await tool.execute("t2", { met: true, reason: "changed my mind" } as any, undefined as any, undefined as any, undefined as any)
+    expect(text(res)).toContain("first call stands")
+    expect(sink.peekVerdict!()).toEqual({ from: "planner", met: false })
   })
 })

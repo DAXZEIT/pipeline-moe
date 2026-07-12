@@ -23,7 +23,7 @@ import { buildCustomTools } from "./custom-tools/index.js"
 import { resolveModelRef, type ResolvedModel } from "./model.js"
 import type { ParentLink, RoomOrchestrator } from "./orchestrator.js"
 import type { TaskBoard } from "./task-board.js"
-import type { HandoffSink, Persona, ParticipantStatus, ToolActivity } from "./types.js"
+import type { GoalVerdictSink, HandoffSink, Persona, ParticipantStatus, ToolActivity } from "./types.js"
 
 /** Cap a tool result/arg to keep SSE frames and persisted transcripts small. */
 function clip(value: unknown, max = 2000): string {
@@ -223,6 +223,9 @@ export class Participant {
      *  every room (Registry implements it); the tool itself is only granted
      *  when at least one other active agent exists to hand off to. */
     handoffSink?: HandoffSink,
+    /** Goal-verdict capability (Registry implements this too). The
+     *  goal_verdict tool is granted to the room's evaluator seat only. */
+    goalVerdictSink?: GoalVerdictSink,
   ): Promise<Participant> {
     const p = new Participant(persona, emit, workspaceDir)
 
@@ -305,7 +308,7 @@ export class Participant {
       noTools: "builtin",
       customTools: (() => {
         const confined = buildConfinedTools(workspaceDir, persona.tools, skillRoots)
-        const custom = buildCustomTools(persona.tools, { orchestrator, taskBoard, personaId: persona.id, roomId, parentLink, handoffSink })
+        const custom = buildCustomTools(persona.tools, { orchestrator, taskBoard, personaId: persona.id, roomId, parentLink, handoffSink, goalVerdictSink })
         return [...confined, ...custom]
       })(),
       thinkingLevel: persona.thinkingLevel ?? defaultThinkingLevel,

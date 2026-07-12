@@ -12,7 +12,7 @@ import type { ResolvedModel } from "./model.js"
 import type { ParentLink, RoomOrchestrator } from "./orchestrator.js"
 import type { TaskBoard } from "./task-board.js"
 import type { SseHub } from "./sse.js"
-import type { HandoffGate, HandoffSink, Persona, PersonaState } from "./types.js"
+import type { GoalVerdictSink, HandoffGate, HandoffSink, Persona, PersonaState } from "./types.js"
 
 export interface RosterItem {
   id: string
@@ -43,7 +43,7 @@ export interface RosterItem {
   }
 }
 
-export class Registry implements HandoffSink {
+export class Registry implements HandoffSink, GoalVerdictSink {
   private participants = new Map<string, Participant>()
   /** Fired after any roster mutation (create/activate/kick). Used for autosave. */
   onChange: (() => void) | null = null
@@ -111,6 +111,57 @@ export class Registry implements HandoffSink {
     const to = this.pendingHandoff.get(from)
     this.pendingHandoff.delete(from)
     return to
+  }
+
+  // ── GoalVerdictSink ────────────────────────────────────────────────────────
+  /** Evaluator seat the goal_verdict tool is built for. Defaults to the Room
+   *  default ("planner") and is updated by Room on submitGoal — but tools are
+   *  built at participant creation, so a goal submitted later with a
+   *  DIFFERENT evaluator leaves that seat without the tool. Documented
+   *  degradation: the eval loop's token fallback + format-repair retry still
+   *  carry that case (same build-time-snapshot tradeoff as the handoff enum). */
+  private goalEvaluatorHint = "planner"
+  /** True while an eval-mode goal is running — the tool's live gate. */
+  private goalEvalRunning = false
+  /** Verdict registered by the goal_verdict tool during the current eval
+   *  pass. Room clears it before each pass and consumes it once after the
+   *  drain (same lifecycle as pendingHandoff). */
+  private pendingVerdict: { from: string; met: boolean; reason: string } | null = null
+
+  /** GoalVerdictSink: evaluator seat — read at tool build time. */
+  goalEvaluatorId(): string {
+    return this.goalEvaluatorHint
+  }
+  setGoalEvaluator(id: string): void {
+    this.goalEvaluatorHint = id
+  }
+  /** GoalVerdictSink: live gate — true only while an eval-mode goal runs. */
+  goalEvalActive(): boolean {
+    return this.goalEvalRunning
+  }
+  setGoalEvalActive(active: boolean): void {
+    this.goalEvalRunning = active
+  }
+  /** GoalVerdictSink: record the eval pass verdict. First call stands — the
+   *  tool rejects a second call via peekVerdict before ever reaching here. */
+  registerVerdict(from: string, met: boolean, reason: string): void {
+    if (this.pendingVerdict) return
+    this.pendingVerdict = { from, met, reason }
+  }
+  /** GoalVerdictSink: peek without consuming (the tool's double-call guard). */
+  peekVerdict(): { from: string; met: boolean } | undefined {
+    return this.pendingVerdict ?? undefined
+  }
+  /** Consume (get-and-clear) the pass verdict. Called once per eval pass by
+   *  Room after the drain. */
+  takeVerdict(): { from: string; met: boolean; reason: string } | undefined {
+    const v = this.pendingVerdict ?? undefined
+    this.pendingVerdict = null
+    return v
+  }
+  /** Drop any stale verdict before an eval pass starts. */
+  clearVerdict(): void {
+    this.pendingVerdict = null
   }
 
   /** Declarative handoff gates for this room — set by the Room whenever its
@@ -349,6 +400,7 @@ export class Registry implements HandoffSink {
       this.roomId,
       this.parentLink,
       this,
+      this,
     )
     // A resumed on-disk session already holds everything up to the saved
     // cursor — restoring it avoids replaying that context a second time. A
@@ -395,6 +447,7 @@ export class Registry implements HandoffSink {
       this.taskBoard,
       this.roomId,
       this.parentLink,
+      this,
       this,
     )
     replacement.cursor = replacement.resumed ? cursorBefore : 0
@@ -446,6 +499,7 @@ export class Registry implements HandoffSink {
         this.taskBoard,
         this.roomId,
         this.parentLink,
+        this,
         this,
       )
       fresh.cursor = 0

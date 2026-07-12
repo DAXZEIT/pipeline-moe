@@ -472,21 +472,58 @@ agents' word for it — use your tools (read, grep, find, ls, bash) to verify th
 actual state of the workspace against the goal. The transcript tells you what was
 claimed; your tools tell you what is true.
 
-Then choose exactly one:
+Then register your verdict — exactly one of:
 
-• NOT MET — explain precisely what is still missing or wrong, then dispatch the
-  right agent to close the gap by calling handoff(to: "...") with their id
-  (e.g. handoff(to: "builder"), handoff(to: "tester")). Be specific in your
-  reply about what they must do — they read your explanation, the tool call
-  just routes.
+• GOAL_NOT_MET — call goal_verdict(met: false, reason: "<what is missing>"),
+  then dispatch the right agent to close the gap by calling handoff(to: "...")
+  with their id (e.g. handoff(to: "builder"), handoff(to: "tester")). Be
+  specific in your reply about what they must do — they read your explanation,
+  the tool calls just route.
 
-• MET — write the token GOAL_MET on its own line, then explain why you are
-  confident, citing what you verified with tools.
+• GOAL_MET — call goal_verdict(met: true, reason: "<what you verified>").
+  This ends the room.
 
-Do NOT write GOAL_MET unless you have actually confirmed the condition with your
-tools. Writing it ends the room. This is iteration ${iteration} of at most
-${maxIterations}; if the loop keeps dispatching without converging, the room
-fails the goal — so dispatch decisively toward closing the remaining gap.)`
+If the goal_verdict tool is not in your toolset, write the exact token GOAL_MET
+(or GOAL_NOT_MET) on its own line instead.
+
+Do NOT declare the goal met unless you have actually confirmed the condition
+with your tools. This is iteration ${iteration} of at most ${maxIterations}; if
+the loop keeps dispatching without converging, the room fails the goal — so
+dispatch decisively toward closing the remaining gap.)`
+}
+
+/** One-shot format-repair retry ("QCM") injected by the eval loop when an
+ *  eval pass drained on the evaluator with no readable verdict — no
+ *  goal_verdict call, no GOAL_MET/GOAL_NOT_MET token, no dispatch. A closed
+ *  two-option menu, nothing else: the evaluator already did the verification
+ *  work, only the emission format drifted (9B chaos-v2, 2026-07-12: five
+ *  "**MET**" replies over a solved goal). Deliberately NOT counted against
+ *  maxGoalIterations — iterations measure convergence, not conformity. */
+export function goalVerdictRetryPrompt(): string {
+  return `\
+(GOAL EVALUATION — verdict not registered)
+
+Your last reply did not register a verdict. Do exactly one thing now:
+
+• call goal_verdict(met: true, reason: "...")  — the goal condition is met
+• call goal_verdict(met: false, reason: "...") — it is not met
+
+If the goal_verdict tool is not in your toolset, reply with exactly one line:
+GOAL_MET or GOAL_NOT_MET. Nothing else.`
+}
+
+/** One-shot dispatch-repair retry — the symmetric gap to the format one: the
+ *  evaluator declared NOT met but routed no one, so nothing would change and
+ *  the iteration budget would burn on repeated identical diagnoses (9B
+ *  chaos-v3, 2026-07-12: six perfect "line 4 missing" verdicts, zero
+ *  handoffs). Closed menu of live agent ids, one action. */
+export function goalDispatchRetryPrompt(candidates: string[]): string {
+  return `\
+(GOAL EVALUATION — dispatch missing)
+
+You declared the goal NOT met but dispatched no one, so nothing will change.
+Call handoff(to: "...") now with the agent who should close the gap you
+described — one of: ${candidates.join(", ")}. Nothing else.`
 }
 
 // ─── Exported personas ─────────────────────────────────────────────────────

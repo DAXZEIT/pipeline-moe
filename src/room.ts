@@ -13,7 +13,7 @@ import type { ConversationStore } from "./store.js"
 import { conversationMeta } from "./store.js"
 import type { SseHub, SseEventName } from "./sse.js"
 import type { LocalModelLock } from "./local-model-lock.js"
-import { goalEvalPrompt } from "./personas.js"
+import { goalDispatchRetryPrompt, goalEvalPrompt, goalVerdictRetryPrompt } from "./personas.js"
 import { findPlanById, nextStepOwner, planAdoptionId } from "./plan-routing.js"
 import { runSupervisorDecision, type SupervisorOutcome } from "./route-supervisor.js"
 import { TaskBoard } from "./task-board.js"
@@ -122,6 +122,9 @@ export class Room {
    *  missed by a new resolution site. */
   private resolveGoal(status: "completed" | "failed" | "cancelled", reason?: string): void {
     this.goalStatus = status
+    // Close the goal_verdict live gate — verdicts outside a goal run are
+    // correctable errors at the tool, not silent state.
+    this.registry.setGoalEvalActive?.(false)
     this.emit("room", {
       type: `goal-${status}`,
       goalText: this.goalText,
@@ -256,6 +259,10 @@ export class Room {
       this.broadcastTasks()
       this.scheduleSave()
     }
+    // Tell the registry which seat evaluates goals BEFORE participants are
+    // built (loadPreset/reset run after construction), so the goal_verdict
+    // tool lands on the evaluator's schema. Defensive ?. for test doubles.
+    this.registry.setGoalEvaluator?.(this.goalEvaluator)
   }
 
   /** Default thinking level for agents without a per-agent override.
@@ -321,6 +328,11 @@ export class Room {
     this.goalStatus = "running"
     this.goalMode = opts?.mode ?? "auto"
     this.goalEvaluator = opts?.evaluator?.trim() || "planner"
+    // Keep the registry's evaluator hint current (participants built from now
+    // on grant goal_verdict to this seat) and open the tool's live gate for
+    // eval-mode runs.
+    this.registry.setGoalEvaluator?.(this.goalEvaluator)
+    this.registry.setGoalEvalActive?.((opts?.mode ?? "auto") === "eval")
     this.maxGoalIterations = Math.max(1, Math.min(50, Math.round(opts?.maxIterations ?? 10)))
     this.goalIteration = 0
     this.goalCancelled = false
@@ -871,8 +883,15 @@ export class Room {
     await this.emitWorkspace()
   }
 
-  /** Matches the GOAL_MET completion token in any reasonable form. */
+  /** Matches the GOAL_MET completion token in any reasonable form. Kept as
+   *  the fallback verdict channel for evaluator seats without the
+   *  goal_verdict tool (goal submitted later with a different evaluator,
+   *  sessions built before the tool existed). */
   private static readonly GOAL_MET_RE = /\bGOAL[\s_-]?MET\b/i
+  /** Matches the explicit GOAL_NOT_MET token — recognized so a tool-less
+   *  evaluator that answers the format-repair retry with the NOT-MET token
+   *  reads as a real verdict (continue iterating), not as format drift. */
+  private static readonly GOAL_NOT_MET_RE = /\bGOAL[\s_-]?NOT[\s_-]?MET\b/i
 
   /** Goal-eval loop (eval mode). After the pipeline drains naturally, route to
    *  the evaluator agent with a structured prompt. The evaluator verifies the
@@ -912,6 +931,9 @@ export class Room {
         this.goalIteration++
         // Each iteration's dispatches get a fresh one-shot no-handoff menu.
         this.noHandoffMenuUsed.clear()
+        // Drop any verdict left over from a previous pass — each pass's
+        // verdict must come from its own evaluation.
+        this.registry.clearVerdict?.()
 
         // Inject the structured eval context (invisible in the transcript).
         await evaluator.sendCustomMessage(
@@ -955,8 +977,57 @@ export class Room {
           return
         }
 
-        // Did the evaluator declare the goal met in its most recent message?
-        if (this.evaluatorDeclaredGoalMet(evaluator.persona.id)) {
+        // What did the evaluator decide? Tool verdict first, token fallback
+        // second (see evalOutcome).
+        let outcome = this.evalOutcome(evaluator.persona.id)
+
+        // Repair retry (the "QCM"): the chain died on the evaluator leaving
+        // the pass unusable, in one of two ways —
+        //   · no readable verdict (format drift — 9B chaos-v2, 2026-07-12:
+        //     five "**MET**" replies over a solved goal), or
+        //   · a NOT-MET verdict with no dispatch (9B chaos-v3, same day:
+        //     six perfect "line 4 missing" diagnoses, zero handoffs).
+        // Re-ask ONCE per iteration with a closed menu for exactly the
+        // missing action, NOT counted as an iteration — iterations measure
+        // convergence toward the goal, not protocol conformity. Bounded: if
+        // the re-ask produces nothing either, the iteration burns normally
+        // and maxGoalIterations still terminates the loop.
+        const evaluatorStalled =
+          this.transcript[this.transcript.length - 1]?.author === evaluator.persona.id
+        const dispatchCandidates = this.registry
+          .activeIds()
+          .filter((id) => id !== evaluator.persona.id)
+        if (
+          evaluatorStalled &&
+          (outcome === "none" || (outcome === "not-met" && dispatchCandidates.length > 0))
+        ) {
+          await evaluator.sendCustomMessage(
+            {
+              customType: "goal_eval",
+              content: outcome === "none" ? goalVerdictRetryPrompt() : goalDispatchRetryPrompt(dispatchCandidates),
+              display: false,
+            },
+            { deliverAs: "nextTurn" },
+          )
+          this.queue = [evaluator]
+          this.aborted = false
+          this.chainBudget = 0
+          this.runningAgentId = evaluator.persona.id
+          this.emit("turn", { phase: "chain", from: null, targets: [evaluator.persona.id] })
+          const pausedRetry = await this.drainQueue()
+          if (pausedRetry) {
+            this.goalEvalPausedOnQuestion = true
+            return
+          }
+          if (this.goalCancelled) {
+            this.resolveGoal("cancelled")
+            this.notice(`Goal cancelled on iteration ${this.goalIteration}.`, "info")
+            return
+          }
+          outcome = this.evalOutcome(evaluator.persona.id)
+        }
+
+        if (outcome === "met") {
           this.resolveGoal("completed")
           return
         }
@@ -985,13 +1056,26 @@ export class Room {
     }
   }
 
-  /** True if the evaluator's most recent transcript message declares GOAL_MET. */
-  private evaluatorDeclaredGoalMet(evaluatorId: string): boolean {
+  /** The evaluator's decision for the eval pass that just drained.
+   *  Channels, in precedence order:
+   *   1. goal_verdict tool registration (consumed here) — the structured
+   *      channel; immune to the label-echo drift that sank the token path.
+   *   2. GOAL_NOT_MET / GOAL_MET tokens in the evaluator's most recent
+   *      transcript message — fallback for tool-less evaluator seats.
+   *      NOT_MET is tested first: GOAL_MET_RE cannot match "GOAL_NOT_MET"
+   *      (single-separator), but the order makes the intent explicit.
+   *  "none" → the pass produced no readable verdict (format drift or the
+   *  evaluator dispatched without declaring — callers decide what that means). */
+  private evalOutcome(evaluatorId: string): "met" | "not-met" | "none" {
+    const verdict = this.registry.takeVerdict?.()
+    if (verdict && verdict.from === evaluatorId) return verdict.met ? "met" : "not-met"
     for (let i = this.transcript.length - 1; i >= 0; i--) {
       const e = this.transcript[i]
-      if (e.author === evaluatorId) return Room.GOAL_MET_RE.test(e.text)
+      if (e.author !== evaluatorId) continue
+      if (Room.GOAL_NOT_MET_RE.test(e.text)) return "not-met"
+      return Room.GOAL_MET_RE.test(e.text) ? "met" : "none"
     }
-    return false
+    return "none"
   }
 
   /** Public snapshot of the live conversation — roster, transcript, settings.

@@ -21,9 +21,10 @@ import {
 import { createAskOrchestratorToolDefinition } from "./ask-orchestrator.js"
 import { createAnswerRoomToolDefinition } from "./answer-room.js"
 import { createHandoffToolDefinition } from "./handoff.js"
+import { createGoalVerdictToolDefinition } from "./goal-verdict.js"
 import type { ParentLink, RoomOrchestrator } from "../orchestrator.js"
 import type { TaskBoard } from "../task-board.js"
-import type { HandoffSink } from "../types.js"
+import type { GoalVerdictSink, HandoffSink } from "../types.js"
 
 /** Runtime context the tool registry needs to build context-dependent tools.
  *  Orchestration tools (spawn/check/destroy room) require a live orchestrator;
@@ -42,6 +43,9 @@ export interface ToolContext {
    *  implements this). Present in every room; the tool itself is only
    *  granted when at least one OTHER active agent exists to hand off to. */
   handoffSink?: HandoffSink
+  /** Capability for the goal_verdict tool (Registry implements this too).
+   *  The tool is granted to the room's evaluator seat only. */
+  goalVerdictSink?: GoalVerdictSink
 }
 
 /** Orchestration tool names — gated on a RoomOrchestrator being present, not on
@@ -115,6 +119,18 @@ export function buildCustomTools(toolNames: string[], ctx?: ToolContext): ToolDe
     if (others.length > 0) {
       tools.push(createHandoffToolDefinition(ctx.handoffSink, personaId) as ToolDefinition)
     }
+  }
+
+  // goal_verdict — context-gated to the room's goal-evaluator seat ONLY
+  // (build-time id match; execution re-checks live). Not allowlist-gated for
+  // the same reason as handoff (the F0 VALID_TOOLS drift class), and NOT
+  // granted to workers: small models call any tool they are shown (the
+  // scribe's spurious task_update, 2026-07-12), so the verdict menu stays off
+  // their schemas entirely. A goal submitted later with a different evaluator
+  // leaves that seat tool-less — the eval loop's GOAL_MET token fallback and
+  // format-repair retry still carry that case.
+  if (ctx?.goalVerdictSink && ctx.personaId && ctx.goalVerdictSink.goalEvaluatorId() === ctx.personaId) {
+    tools.push(createGoalVerdictToolDefinition(ctx.goalVerdictSink, ctx.personaId) as ToolDefinition)
   }
 
   return tools

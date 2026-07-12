@@ -173,6 +173,31 @@ export interface HandoffSink {
   postSystemNote?(text: string): void
 }
 
+/** Capability surface for the `goal_verdict` tool: lets the goal evaluator
+ *  register its MET / NOT-MET verdict as a structured tool call instead of a
+ *  free-text magic token. Born from the 9B chaos-v2 run (2026-07-12): the
+ *  evaluator verified the goal correctly but answered with the eval prompt's
+ *  bullet labels ("**MET**") instead of the GOAL_MET token, so the regex never
+ *  matched and the goal failed closed over a correct workspace. A tool schema
+ *  is a closed menu — a small model pattern-matches it reliably where it
+ *  drifts on prose protocols (same principle as the handoff enum, F5). */
+export interface GoalVerdictSink {
+  /** Agent id expected to evaluate goals in this room (the room's
+   *  goalEvaluator, default "planner"). Read at tool BUILD time so only the
+   *  evaluator seat carries the tool — workers never see it, so they cannot
+   *  poke at it the way small models poke at any menu they are shown
+   *  (cf. the scribe's spurious task_update, 2026-07-12). */
+  goalEvaluatorId(): string
+  /** True while an eval-mode goal is running — execution-time live check so
+   *  a verdict outside a goal run is a correctable error, not silent state. */
+  goalEvalActive(): boolean
+  /** Record the verdict for the current eval pass. First call stands. */
+  registerVerdict(from: string, met: boolean, reason: string): void
+  /** Peek the current pass's verdict without consuming it (double-call
+   *  guard). Optional so lightweight test doubles keep compiling. */
+  peekVerdict?(): { from: string; met: boolean } | undefined
+}
+
 /** A human decision on a proposed handoff (semi/manual routing). */
 export interface RouteDecision {
   action: "approve" | "redirect" | "drop"
