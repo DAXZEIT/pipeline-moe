@@ -159,6 +159,23 @@ describe("fused seats through the real Registry", () => {
     expect(registry.get("tester")!.seat.seatId).toBe("tester")
   })
 
+  test("reseat onto a living seat reorders the mover next to its seat-mates (strip adjacency)", async () => {
+    await registry.create(persona("scout"))
+    await registry.create(persona("builder", { seat: "maker" }))
+    await registry.create(persona("tester", { seat: "maker" }))
+    await registry.reseat(["scout"], "maker")
+    expect(registry.roster().map((r) => r.id)).toEqual(["builder", "tester", "scout"])
+  })
+
+  test("fusing scattered hats onto a fresh seat groups them at the first hat's slot", async () => {
+    await registry.create(persona("scout"))
+    await registry.create(persona("builder"))
+    await registry.create(persona("auditor"))
+    await registry.create(persona("tester"))
+    await registry.reseat(["builder", "tester"], "maker")
+    expect(registry.roster().map((r) => r.id)).toEqual(["scout", "builder", "tester", "auditor"])
+  })
+
   test("reseat is a no-op with a friendly message when already seated", async () => {
     await registry.create(persona("auditor"))
     const summary = await registry.reseat(["auditor"], "auditor")

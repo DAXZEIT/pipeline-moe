@@ -2,6 +2,7 @@ import type { PresetFile, RoomState, RoutingMode } from "@pipeline-moe/client-co
 import type { Command, CommandContext } from "./types"
 import { loadImageAttachment } from "../image-attach"
 import { openRosterMenu } from "../roster-menu"
+import { openSeatsMenu } from "../seats-menu"
 
 /** Resolve a "@name" / "name" / id token to a roster participant id, or null. */
 export function resolveAgent(state: RoomState, token: string): string | null {
@@ -436,14 +437,15 @@ export const COMMANDS: Command[] = [
   },
   {
     // Fused seats (docs/fused-seats.md): several roles share one working
-    // context. Server-side command — the room owns the seat lifecycle — so
-    // this entry exists for discoverability (/help, autocomplete) and simply
-    // relays the raw text; the room's notice comes back over SSE.
+    // context. Bare /seats opens the interactive seat menu (à la Ctrl+R
+    // roster menu); with arguments it relays the server-side text command —
+    // the room owns the seat lifecycle and its notice comes back over SSE.
     name: "seats",
-    summary: "Fuse agents onto a shared context (several roles, one model)",
+    summary: "Seat menu — fuse agents onto shared contexts (several roles, one model)",
     usage: "[fuse <seat> @a @b… | solo @a…]",
     run: (ctx, args) => {
-      ctx.store.actions.send(`/seats${args ? ` ${args}` : ""}`)
+      if (!args.trim()) return openSeatsMenu(ctx)
+      ctx.store.actions.send(`/seats ${args}`)
     },
   },
   {

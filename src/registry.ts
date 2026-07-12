@@ -739,17 +739,32 @@ export class Registry implements HandoffSink, GoalVerdictSink {
       fresh.parallel = wasParallel
       this.participants.set(persona.id, fresh)
     }
-    // Preserve the original roster order (set() keeps existing keys in place,
-    // but rebuild defensively like update() does).
+    // Roster order: a seat's hats sit TOGETHER — the strip renders fused
+    // groups by ADJACENCY, and turn order reading as seat order is the honest
+    // picture. After any fuse the seat becomes contiguous, anchored where its
+    // incumbent hats already sat, newcomers seated BEHIND them (joining a
+    // seat, not jumping its queue). Fresh all-mover seats anchor at the first
+    // mover. A solo detach keeps the order untouched.
+    let nextOrder = order
+    if (!solo && target) {
+      const seatIds = new Set(target.hatIds())
+      const movedIds = new Set(moving.map((p) => p.persona.id))
+      const incumbents = order.filter((k) => seatIds.has(k) && !movedIds.has(k))
+      const group = [...incumbents, ...order.filter((k) => movedIds.has(k))]
+      const anchor = order.indexOf(group[0])
+      const others = order.filter((k) => !seatIds.has(k))
+      const at = order.slice(0, anchor).filter((k) => !seatIds.has(k)).length
+      nextOrder = [...others.slice(0, at), ...group, ...others.slice(at)]
+    }
     const rebuilt = new Map<string, Participant>()
-    for (const key of order) rebuilt.set(key, this.participants.get(key)!)
+    for (const key of nextOrder) rebuilt.set(key, this.participants.get(key)!)
     this.participants = rebuilt
 
     this.broadcastRoster()
     this.onChange?.()
     const summary = solo
       ? `@${ids[0]} detached to its own context (previous session orphaned on disk).`
-      : `${moving.map((p) => `@${p.persona.id}`).join(" + ")} now share the "${seatId}" seat` +
+      : `${moving.map((p) => `@${p.persona.id}`).join(" + ")} now ${moving.length > 1 ? "share" : "shares"} the "${seatId}" seat` +
         (already.length > 0 || (target && target.hats.length > moving.length)
           ? ` (joined its living context)`
           : ` (fresh shared context — it catches up on the transcript next turn)`) +
