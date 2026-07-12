@@ -2303,13 +2303,37 @@ export class Room {
     }
     if (fresh.length === 0) return false
 
+    // Hat-switch carve-out (fused seats, décision 2026-07-12): a proposal
+    // whose from and target share a seat is a SELF-switch — one brain putting
+    // on another of its hats, zero tokens transferred. The supervisor gates
+    // dispatch between brains; judging whether a brain may change its own hat
+    // is complexity with no object (same authority family as user-dispatch
+    // coalescence and supervisor auto-accept). Never silent: each carved hop
+    // posts its ≡ trace, and "hat switch" stays the grep anchor.
+    const seatOf = (id: string) => this.registry.seatOf?.(id) ?? id
+    const intraSeat = fresh.filter(
+      (p) => p.fromId !== p.target.persona.id && seatOf(p.fromId) === seatOf(p.target.persona.id),
+    )
+    if (intraSeat.length > 0) {
+      for (const p of intraSeat) {
+        this.post(
+          "system",
+          "Routing",
+          `≡ @${p.fromId} → @${p.target.persona.id} — same seat — hat switch auto-accepted (not supervised)`,
+        )
+      }
+      enqueue(intraSeat.map((p) => p.target), null)
+    }
+    const inter = fresh.filter((p) => !intraSeat.includes(p))
+    if (inter.length === 0) return false
+
     // No one supervises the supervisor: a set proposed entirely by the
     // supervisor auto-accepts — visible via the chain event, no runner.
     // (Mixed sets cannot be split without complicating resolveRoute; the
     // supervisor judging a set containing its own proposal is acceptable.)
     const supId = this.supervisorAgentId
-    if (supId && fresh.every((p) => p.fromId === supId)) {
-      enqueue(fresh.map((p) => p.target), supId)
+    if (supId && inter.every((p) => p.fromId === supId)) {
+      enqueue(inter.map((p) => p.target), supId)
       return false
     }
 
@@ -2323,13 +2347,13 @@ export class Room {
     const supervisor = supId ? this.registry.get(supId) : undefined
     if (!supervisor || !supervisor.active) {
       this.notice("supervised routing: no active supervisor — hop degraded to auto", "info")
-      const setLabel = fresh.map((p) => `@${p.fromId} → @${p.target.persona.id}${this.seatSuffix(p.fromId, p.target.persona.id)}`).join(", ")
+      const setLabel = inter.map((p) => `@${p.fromId} → @${p.target.persona.id}${this.seatSuffix(p.fromId, p.target.persona.id)}`).join(", ")
       this.post("system", "Routing", `⚠ ${setLabel} — no active supervisor — dispatched as proposed`)
-      enqueue(fresh.map((p) => p.target), null)
+      enqueue(inter.map((p) => p.target), null)
       return false
     }
 
-    this.pendingRoute = { proposals: fresh, heldQueue: [...held] }
+    this.pendingRoute = { proposals: inter, heldQueue: [...held] }
     this.emitRoutingProposed()
     this.startSupervisorDecision(supervisor)
     return true

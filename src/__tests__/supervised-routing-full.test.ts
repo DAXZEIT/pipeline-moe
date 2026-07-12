@@ -45,6 +45,9 @@ class MockRegistry {
   private parts = new Map<string, MockParticipant>()
   onChange: (() => void) | null = null
   private pendingHandoff = new Map<string, string>()
+  private seats = new Map<string, string>()
+  setSeat(id: string, seat: string) { this.seats.set(id, seat) }
+  seatOf(id: string): string | undefined { return this.seats.get(id) ?? id }
   add(p: MockParticipant) { this.parts.set(p.persona.id, p) }
   get(id: string) { return this.parts.get(id) }
   has(id: string) { return this.parts.has(id) }
@@ -486,6 +489,49 @@ describe("degradation on prompt build error", () => {
     await sleep(300)
     expect(registry.get("tester")!.calls).toBe(1)
     expect(priv(room).pendingRoute).toBeNull()
+    await room.abortCurrent()
+  })
+})
+
+describe("fused-seat hat switch carve-out", () => {
+  test("intra-seat handoff auto-accepts without invoking the supervisor", async () => {
+    const registry = new MockRegistry()
+    const room = await makeRoom(registry, new MockStore())
+    // planner + scribe share the "orch" seat; auditor supervises so the
+    // auto-accept cannot be the supervisor-own-proposal branch (planner ≠ sup).
+    addAgents(registry, {id:"planner", handoffTo:"scribe"}, {id:"scribe"}, {id:"auditor"})
+    registry.setSeat("planner", "orch")
+    registry.setSeat("scribe", "orch")
+    room.setSupervisorAgent("auditor")
+    let invoked = false
+    stubRunner(room, () => { invoked = true; return { decision: { verdict: "refuse", reason: "should never be asked" } } })
+    room.submit("@planner go")
+    await sleep(300)
+    // The self-switch dispatched scribe, the supervisor was never consulted,
+    // and the ≡ hat-switch trace names the hop (grep anchor: "hat switch").
+    expect(invoked).toBe(false)
+    expect(registry.get("scribe")!.calls).toBe(1)
+    expect(priv(room).pendingRoute).toBeNull()
+    const trace = room.getTranscript().find((e) => e.text.includes("hat switch auto-accepted"))
+    expect(trace).toBeDefined()
+    expect(trace!.text).toContain("@planner → @scribe")
+    expect(trace!.text).toContain("same seat")
+    await room.abortCurrent()
+  })
+
+  test("inter-seat hop from the same wave still reaches the supervisor", async () => {
+    const registry = new MockRegistry()
+    const room = await makeRoom(registry, new MockStore())
+    // A cross-seat proposer must NOT be swept into the carve-out: builder is a
+    // singleton, so its hop is supervised as before.
+    addAgents(registry, {id:"planner"}, {id:"builder", handoffTo:"tester"}, {id:"tester"})
+    room.setSupervisorAgent("planner")
+    let invoked = false
+    stubRunner(room, () => { invoked = true; return { decision: { verdict: "accept", reason: "ok" } } })
+    room.submit("@builder go")
+    await sleep(400)
+    expect(invoked).toBe(true)
+    expect(registry.get("tester")!.calls).toBe(1)
     await room.abortCurrent()
   })
 })

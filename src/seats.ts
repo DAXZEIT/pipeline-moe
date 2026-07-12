@@ -177,7 +177,11 @@ export function buildSeatSystemPrompt(seatId: string, sections: HatSection[]): s
       `working context, several hats. Each turn arrives wearing exactly ONE hat, named in the hat header at the ` +
       `top of the turn. The duties below attach to the seat, not to pride of authorship — work you watched being ` +
       `done from another hat is work you may judge, extend or hand off; the seat's memory of it is real and yours ` +
-      `to use. Wear the named hat's duties and hands for the whole turn.`,
+      `to use. Wear the named hat's duties and hands for the whole turn.\n` +
+      `Switching hats within your seat is a SELF-switch, not a delegation: when the next work belongs to another ` +
+      `of your hats, call handoff with that hat's id and stop — no brief (the context is already yours), no ` +
+      `announcement, no asking permission. Narrating a handoff to your own seat is theatre; the transcript trace ` +
+      `already records the switch.`,
   )
   if (shared) {
     parts.push(`Shared foundation for every hat of this seat:\n${shared.trimEnd()}`)
@@ -212,7 +216,7 @@ export function buildHatHeader(
     `[${seatId} seat — ${hat.id} hat] This turn you wear the ${hat.id} hat ` +
     `(duties: the "${hat.id} hat" section of your system prompt). ` +
     `Hands this turn: ${hands}. ` +
-    `Other hats of this seat (${others.join(", ")}) keep their own tools — hand off to switch hats.`
+    `Handoff to ${others.join("/")} is a SELF-switch to your other hat — no brief, no ceremony.`
   )
 }
 
