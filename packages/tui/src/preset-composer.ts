@@ -114,6 +114,20 @@ export function teamStats(personas: PresetPersona[]): string {
   const inactive = personas.length - active.length
   if (inactive > 0) parts.push(`${inactive} inactive`)
 
+  // Fused seats: name the clusters, and mirror the server's one-seat-one-
+  // modelRef warning at compose time (the server would defuse at room load).
+  const seats = new Map<string, PresetPersona[]>()
+  for (const p of personas) {
+    if (p.seat) seats.set(p.seat, [...(seats.get(p.seat) ?? []), p])
+  }
+  for (const [seat, hats] of seats) {
+    if (hats.length < 2) continue
+    parts.push(`⌐${seat}: ${hats.map((h) => h.id).join("+")}`)
+    if (new Set(hats.map((h) => h.model ?? "(host default)")).size > 1) {
+      parts.push(`⚠ seat ${seat} mixes models — it will defuse at room load`)
+    }
+  }
+
   const has = (pred: (t: string) => boolean) => active.some((p) => p.tools.some(pred))
   const webTools = new Set(TOOL_GROUPS[1].tools)
   if (personas.length > 0) {

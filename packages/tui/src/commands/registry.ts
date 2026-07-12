@@ -435,6 +435,18 @@ export const COMMANDS: Command[] = [
       }),
   },
   {
+    // Fused seats (docs/fused-seats.md): several roles share one working
+    // context. Server-side command — the room owns the seat lifecycle — so
+    // this entry exists for discoverability (/help, autocomplete) and simply
+    // relays the raw text; the room's notice comes back over SSE.
+    name: "seats",
+    summary: "Fuse agents onto a shared context (several roles, one model)",
+    usage: "[fuse <seat> @a @b… | solo @a…]",
+    run: (ctx, args) => {
+      ctx.store.actions.send(`/seats${args ? ` ${args}` : ""}`)
+    },
+  },
+  {
     name: "active",
     summary: "Pause or resume an agent",
     usage: "@agent <on|off>",

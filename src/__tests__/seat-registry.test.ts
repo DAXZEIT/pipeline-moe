@@ -113,6 +113,58 @@ describe("fused seats through the real Registry", () => {
     expect(block).not.toContain("@auditor (Auditor) — room default model — read-only ← you")
   })
 
+  test("reseat fuses two live singletons onto a fresh seat; old sessions are orphaned, not deleted", async () => {
+    const builder = await registry.create(persona("builder"))
+    const tester = await registry.create(persona("tester"))
+    const oldBuilderDir = builder.sessionDir!
+    expect(existsSync(oldBuilderDir)).toBe(true)
+
+    const summary = await registry.reseat(["builder", "tester"], "maker")
+    expect(summary).toContain("fresh shared context")
+    const b = registry.get("builder")!
+    const t = registry.get("tester")!
+    expect(b.seat).toBe(t.seat)
+    expect(b.seat.seatId).toBe("maker")
+    expect(b.persona.seat).toBe("maker") // persisted birth mapping
+    expect(existsSync(oldBuilderDir)).toBe(true) // orphaned, inspectable
+    expect(registry.roster().find((r) => r.id === "builder")?.seat).toBe("maker")
+  })
+
+  test("reseat onto a LIVING seat joins its session (Q2 add-hat)", async () => {
+    await registry.create(persona("builder", { seat: "maker" }))
+    await registry.create(persona("tester", { seat: "maker" }))
+    await registry.create(persona("scout"))
+    const summary = await registry.reseat(["scout"], "maker")
+    expect(summary).toContain("living context")
+    expect(registry.get("scout")!.seat.seatId).toBe("maker")
+    expect(registry.get("scout")!.seat.hatIds()).toEqual(["builder", "tester", "scout"])
+  })
+
+  test("reseat solo detaches a hat; the seat survives for the remaining hat", async () => {
+    await registry.create(persona("builder", { seat: "maker" }))
+    await registry.create(persona("tester", { seat: "maker" }))
+    const summary = await registry.reseat(["tester"], "tester")
+    expect(summary).toContain("detached")
+    expect(registry.get("tester")!.seat.seatId).toBe("tester")
+    expect(registry.get("tester")!.persona.seat).toBeUndefined()
+    expect(registry.get("builder")!.seat.seatId).toBe("maker")
+    expect(registry.get("builder")!.seat.fused()).toBe(false)
+  })
+
+  test("reseat refuses a model mix BEFORE mutating anything", async () => {
+    await registry.create(persona("builder", { model: "local/a.gguf" }))
+    await registry.create(persona("tester", { model: "local/b.gguf" }))
+    await expect(registry.reseat(["builder", "tester"], "maker")).rejects.toThrow(/mix models/)
+    expect(registry.get("builder")!.seat.seatId).toBe("builder") // untouched
+    expect(registry.get("tester")!.seat.seatId).toBe("tester")
+  })
+
+  test("reseat is a no-op with a friendly message when already seated", async () => {
+    await registry.create(persona("auditor"))
+    const summary = await registry.reseat(["auditor"], "auditor")
+    expect(summary).toContain("already")
+  })
+
   test("a fused seat session survives restart under the seat key (same store, different key)", async () => {
     const builder = await registry.create(persona("builder", { seat: "maker" }))
     const seatDir = builder.sessionDir!

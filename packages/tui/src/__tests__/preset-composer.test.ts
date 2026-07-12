@@ -122,6 +122,24 @@ describe("teamStats", () => {
     const s = teamStats([member({ tools: ["write", "web_read"], active: false }), member({ id: "b" })])
     expect(s).toContain("nobody can write")
   })
+
+  it("names fused seats and warns on a model mix (defuses at room load)", () => {
+    const clean = teamStats([
+      member({ id: "builder", tools: ["write"], seat: "maker", model: "local/q.gguf" }),
+      member({ id: "tester", tools: ["read", "web_read"], seat: "maker", model: "local/q.gguf" }),
+    ])
+    expect(clean).toContain("⌐maker: builder+tester")
+    expect(clean).not.toContain("mixes models")
+    const mixed = teamStats([
+      member({ id: "builder", tools: ["write", "web_read"], seat: "maker", model: "local/q.gguf" }),
+      member({ id: "tester", seat: "maker" }),
+    ])
+    expect(mixed).toContain("⚠ seat maker mixes models")
+  })
+
+  it("a singleton seat declaration renders no cluster line", () => {
+    expect(teamStats([member({ tools: ["write", "web_read"], seat: "maker" })])).toBe("1 member")
+  })
 })
 
 describe("cycles", () => {

@@ -668,6 +668,96 @@ export class Registry implements HandoffSink, GoalVerdictSink {
     return p
   }
 
+  /** Fused seats: move LIVE participants onto `seatId` (/seats fuse), or back
+   *  to singletons when seatId equals the participant's own id (/seats solo).
+   *  Semantics are the acted grilling decisions, applied to live rosters:
+   *  - fusing onto a seat that already LIVES joins its session (Q2: the
+   *    newcomer opens its eyes in the seat's living context);
+   *  - fusing onto a NEW seat starts a fresh shared session — nobody's old
+   *    context is adopted (adoption would privilege one hat arbitrarily);
+   *    the fresh seat replays the room transcript on its first turn;
+   *  - every session left behind is ORPHANED on disk, never deleted here
+   *    (inspectable, zero cost — deletion belongs to kick's last-hat path);
+   *  - one seat = one declared modelRef, checked BEFORE anything moves —
+   *    a violation throws and the roster is untouched.
+   *  Returns a human-readable summary for the caller's notice. */
+  async reseat(ids: string[], seatId: string): Promise<string> {
+    const movers = ids.map((id) => {
+      const p = this.participants.get(id)
+      if (!p) throw new Error(`unknown participant "${id}"`)
+      return p
+    })
+    const solo = ids.length === 1 && seatId === ids[0]
+    const order = [...this.participants.keys()]
+    let target = solo ? undefined : this.seats.get(seatId)
+    // A singleton participant whose id IS the seat name owns that seat map
+    // entry already — movers joining it is the living-seat case.
+    const already = movers.filter((p) => p.seat.seatId === seatId)
+    const moving = movers.filter((p) => !already.includes(p))
+    if (moving.length === 0) return solo ? `@${ids[0]} is already its own seat.` : `nothing to do — already on the "${seatId}" seat.`
+
+    // One-seat-one-modelRef, checked over DECLARED refs before any mutation.
+    if (!solo) {
+      const fallback = this.defaultModelRef() ?? "(process default)"
+      const refs = new Map<string, string[]>()
+      const claim = (id: string, ref: string) => refs.set(ref, [...(refs.get(ref) ?? []), id])
+      for (const h of target?.hats ?? []) claim(h.id, h.model ?? fallback)
+      for (const p of moving) claim(p.persona.id, p.persona.model ?? fallback)
+      if (refs.size > 1) {
+        const detail = [...refs.entries()].map(([ref, who]) => `${who.join("+")} → ${ref}`).join(", ")
+        throw new Error(`seat "${seatId}" would mix models (${detail}) — a seat is one session with one cache prefix. Pin the same model first.`)
+      }
+    }
+
+    const orphaned: string[] = []
+    for (const p of moving) {
+      const persona: Persona = { ...p.persona, ...(solo ? { seat: undefined } : { seat: seatId }) }
+      const wasActive = p.active
+      const wasParallel = p.parallel
+      const old = p.seat
+      p.dispose()
+      const emptied = await old.removeHat(p.persona.id)
+      if (emptied) {
+        this.seats.delete(old.seatId)
+        if (old.sessionDir) orphaned.push(old.seatId)
+        // session dir stays on disk — orphaned, not deleted.
+      }
+      if (!target) {
+        target = await SeatRuntime.create(solo ? persona.id : seatId, [persona], this.seatDeps(solo ? persona.id : seatId))
+        this.seats.set(target.seatId, target)
+      } else {
+        await target.addHat(persona)
+      }
+      const fresh = Participant.attach(
+        persona,
+        target,
+        (event, data) => this.hub.broadcast(event, data, this.roomId),
+        this.workspaceDir,
+        this,
+      )
+      fresh.active = wasActive
+      fresh.parallel = wasParallel
+      this.participants.set(persona.id, fresh)
+    }
+    // Preserve the original roster order (set() keeps existing keys in place,
+    // but rebuild defensively like update() does).
+    const rebuilt = new Map<string, Participant>()
+    for (const key of order) rebuilt.set(key, this.participants.get(key)!)
+    this.participants = rebuilt
+
+    this.broadcastRoster()
+    this.onChange?.()
+    const summary = solo
+      ? `@${ids[0]} detached to its own context (previous session orphaned on disk).`
+      : `${moving.map((p) => `@${p.persona.id}`).join(" + ")} now share the "${seatId}" seat` +
+        (already.length > 0 || (target && target.hats.length > moving.length)
+          ? ` (joined its living context)`
+          : ` (fresh shared context — it catches up on the transcript next turn)`) +
+        (orphaned.length > 0 ? `; orphaned sessions kept on disk: ${orphaned.join(", ")}` : "")
+    this.notifyRosterChange(summary)
+    return summary
+  }
+
   /** Refcounted kick (grilling Q7): the hat leaves; the seat's session and
    *  its on-disk dir survive while another hat lives there, and are dropped
    *  only with the LAST hat — a future agent created with the same id must

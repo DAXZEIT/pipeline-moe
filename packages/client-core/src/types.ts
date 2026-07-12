@@ -153,6 +153,10 @@ export interface PresetPersona {
   vision?: boolean
   /** Agent Skills granted to this persona. Absent → inherit from seed. */
   skills?: string[]
+  /** Fused seats (docs/fused-seats.md): members declaring the same seat share
+   *  ONE working context — several roles on a single model. Absent = own
+   *  context. Constraint: every member of a seat must declare the same model. */
+  seat?: string
   active: boolean
   parallel?: boolean
 }

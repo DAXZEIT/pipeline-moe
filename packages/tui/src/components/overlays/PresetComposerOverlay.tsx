@@ -228,6 +228,7 @@ export function PresetComposerOverlay({
             </Text>
             <Text dimColor wrap="truncate-end">
               {" "}
+              {p.seat ? `⌐${p.seat} · ` : ""}
               {p.thinkingLevel ?? "inherit"} · {shortModel(p.model) ?? "host default"} · {p.tools.length} tools{" "}
               <Text color={p.active ? "green" : "gray"}>{p.active ? "●" : "○"}</Text>
               <Text color="cyan">{p.parallel ? "∥" : " "}</Text>
@@ -361,6 +362,16 @@ function MemberEditor({
           right: () => modelCycle(+1),
         },
     {
+      // Fused seats (docs/fused-seats.md): members typing the same seat share
+      // ONE working context — several roles on a single model. Free text on
+      // purpose: a seat is a name you invent ("maker"), not a catalogue pick.
+      kind: "text",
+      label: "seat",
+      get: () => draft.seat ?? "",
+      update: (fn) => upd((d) => ({ seat: fn(d.seat ?? "") || undefined })),
+      hint: "same seat = shared context · empty = own context",
+    },
+    {
       kind: "cycle",
       label: "thinking",
       view: () => draft.thinkingLevel ?? "inherit",
@@ -419,6 +430,7 @@ function MemberEditor({
       icon: draft.icon.trim() || "🤖",
       skills,
       model: draft.model?.trim() || undefined,
+      seat: draft.seat?.trim().toLowerCase() || undefined,
       systemPrompt: draft.systemPrompt?.trim() || undefined,
       compactionInstructions: draft.compactionInstructions?.trim() || undefined,
     })

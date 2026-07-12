@@ -1701,6 +1701,66 @@ export class Room {
           this.notice(`Activated @${id}.`)
         } else this.notice(`/activate: unknown participant "${rawTarget ?? ""}".`, "error")
         return true
+      case "/seats": {
+        // Fused seats (docs/fused-seats.md): live-room seat management.
+        //   /seats                     → show the seat map
+        //   /seats fuse <seat> @a @b…  → these hats share the <seat> context
+        //   /seats solo @a…            → detach hat(s) back to singleton
+        const sub = args[0]?.toLowerCase()
+        if (!sub) {
+          const items = this.registry.roster()
+          const fused = new Map<string, string[]>()
+          const singles: string[] = []
+          for (const it of items) {
+            if (it.seat) fused.set(it.seat, [...(fused.get(it.seat) ?? []), it.id])
+            else singles.push(it.id)
+          }
+          const parts = [...fused.entries()].map(([s, hats]) => `⌐${s}: ${hats.map((h) => `@${h}`).join(" + ")}`)
+          this.notice(
+            `Seats: ${parts.length > 0 ? parts.join(" · ") : "none fused"}` +
+              (singles.length > 0 ? ` · singletons: ${singles.map((s) => `@${s}`).join(", ")}` : "") +
+              `\nUsage: /seats fuse <seat> @a @b… · /seats solo @a…`,
+          )
+          return true
+        }
+        if (this.isGenerating()) {
+          this.notice(`/seats: agents are generating — wait or press Stop first (reseating rebuilds sessions).`, "error")
+          return true
+        }
+        const mentions = args.slice(sub === "fuse" ? 2 : 1).map((a) => a.replace(/^@/, "").toLowerCase()).filter(Boolean)
+        const unknown = mentions.find((m) => !this.registry.has(m))
+        if (unknown) {
+          this.notice(`/seats: unknown participant "@${unknown}".`, "error")
+          return true
+        }
+        if (sub === "fuse") {
+          const seatName = args[1]?.replace(/^@/, "").toLowerCase()
+          if (!seatName || mentions.length < 1) {
+            this.notice(`/seats fuse: usage — /seats fuse <seat> @a @b…`, "error")
+            return true
+          }
+          void this.registry
+            .reseat(mentions, seatName)
+            .then((summary) => this.notice(summary))
+            .catch((err) => this.notice(`/seats fuse failed: ${err instanceof Error ? err.message : String(err)}`, "error"))
+          return true
+        }
+        if (sub === "solo") {
+          if (mentions.length < 1) {
+            this.notice(`/seats solo: usage — /seats solo @a…`, "error")
+            return true
+          }
+          void (async () => {
+            for (const m of mentions) {
+              const summary = await this.registry.reseat([m], m)
+              this.notice(summary)
+            }
+          })().catch((err) => this.notice(`/seats solo failed: ${err instanceof Error ? err.message : String(err)}`, "error"))
+          return true
+        }
+        this.notice(`/seats: unknown subcommand "${sub}" — use fuse, solo, or no argument for the map.`, "error")
+        return true
+      }
       case "/compact": {
         if (!id) {
           this.notice(`/compact: usage — /compact @agent`, "error")

@@ -3,6 +3,7 @@
 import type { HandoffGate, Persona } from "./types.js"
 import type { PresetPersona } from "./preset-hydration.js"
 import { ORCHESTRATION_TOOLS } from "./custom-tools/index.js"
+import { validateSeatModels } from "./seats.js"
 
 // Base tools + orchestration tools (spawn_room, check_room, stop_room,
 // destroy_room, answer_room). ORCHESTRATION_TOOLS is the source of truth —
@@ -145,6 +146,9 @@ export function parsePresetFile(rawName: string, body: unknown): { preset: Parse
     if (p.skills !== undefined && (!Array.isArray(p.skills) || p.skills.some((s) => typeof s !== "string" || !s.trim()))) {
       throw new Error(who(` ("${id}"): \`skills\` must be an array of non-empty strings`))
     }
+    if (p.seat !== undefined && typeof p.seat !== "string") {
+      throw new Error(who(` ("${id}"): \`seat\` must be a string (fused-seats id, docs/fused-seats.md)`))
+    }
 
     const systemPrompt = String(p.systemPrompt ?? "").trim()
     const model = String(p.model ?? "").trim()
@@ -162,6 +166,9 @@ export function parsePresetFile(rawName: string, body: unknown): { preset: Parse
       ...(compaction ? { compactionInstructions: compaction } : {}),
       ...(p.vision !== undefined ? { vision: p.vision as boolean } : {}),
       ...(p.skills !== undefined ? { skills: (p.skills as string[]).map((s) => s.trim()) } : {}),
+      // Empty/blank seat is dropped, not stored — absent = singleton (the
+      // pre-feature default), same normalization as systemPrompt/model.
+      ...(typeof p.seat === "string" && p.seat.trim() ? { seat: p.seat.trim() } : {}),
       active: p.active === undefined ? true : Boolean(p.active),
       ...(p.parallel !== undefined ? { parallel: Boolean(p.parallel) } : {}),
     })
@@ -189,6 +196,12 @@ export function parsePresetFile(rawName: string, body: unknown): { preset: Parse
         warnings.push({ message: `handoff gate references "${ref}", which is not a persona in this preset — the gate will be inert` })
       }
     }
+  }
+  // Fused seats: one seat = one modelRef (declared refs — resolution varies by
+  // environment). A violating seat will DEFUSE at room load; warn at save time
+  // so the author fixes the document instead of discovering it in a transcript.
+  for (const w of validateSeatModels(personas, (p) => p.model).warnings) {
+    warnings.push({ message: `${w} (the seat will defuse at room load)` })
   }
 
   return { preset: { name, personas, ...(handoffGates ? { handoffGates } : {}) }, warnings }
