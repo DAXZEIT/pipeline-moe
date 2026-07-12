@@ -68,8 +68,12 @@ const listSchema = Type.Object({})
 
 export function createTaskCreateToolDefinition(
   board: TaskBoard,
-  personaId: string,
+  /** Creator attribution, resolved at execution time when a function — on a
+   *  fused seat the session serves several hats and the creator is whichever
+   *  hat wears the current turn. */
+  personaId: string | (() => string),
 ): ToolDefinition<typeof createSchema, undefined> {
+  const idOf = typeof personaId === "function" ? personaId : () => personaId
   return {
     name: "task_create",
     label: "Create Task",
@@ -82,7 +86,7 @@ export function createTaskCreateToolDefinition(
     parameters: createSchema,
     execute: async (_toolCallId, params) => {
       try {
-        const task = board.create(params.subject, personaId, params.owner)
+        const task = board.create(params.subject, idOf(), params.owner)
         return ok(
           `Created task #${task.id}: "${task.subject}"${task.owner ? ` — owner @${task.owner}` : ""} (pending).`,
         )

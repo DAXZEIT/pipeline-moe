@@ -16,6 +16,10 @@ export interface RosterItem {
   vision?: boolean
   /** May run concurrently with adjacent parallel-flagged agents. */
   parallel: boolean
+  /** Fused seats: resolved seat id when this member shares one context with
+   *  others — the UI groups the hats and shows ONE gauge per seat (the values
+   *  cannot diverge: same session). Absent → singleton, render as before. */
+  seat?: string
   /** Context token usage — populated after each turn via SSE status event. */
   contextUsage?: { tokens: number | null; contextWindow: number; percent: number | null }
   /** Session stats — populated after each turn via SSE status event. */

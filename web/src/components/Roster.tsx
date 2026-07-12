@@ -133,7 +133,77 @@ export function Roster({
       </div>
 
       <div className="roster-list">
-        {roster.map((r) => {
+        {(() => {
+          // Fused seats: adjacent members sharing a seat render as ONE group —
+          // label + a single context gauge (the values cannot diverge: one
+          // session behind every hat). Singletons render exactly as before.
+          const runs: { seat?: string; items: RosterItem[] }[] = []
+          for (const r of roster) {
+            const last = runs[runs.length - 1]
+            if (last && last.seat !== undefined && r.seat === last.seat) last.items.push(r)
+            else runs.push({ seat: r.seat, items: [r] })
+          }
+          return runs.map((run) =>
+            run.items.length === 1 ? (
+              renderItem(run.items[0], false)
+            ) : (
+              <div className="seat-group" key={`seat-${run.seat}`}>
+                <div className="seat-label" title="These agents share one working context (fused seat)">
+                  ⌐ {run.seat} seat · shared context
+                </div>
+                {run.items.map((r) => renderItem(r, true))}
+                {(() => {
+                  const carrier = run.items.find((r) => r.contextUsage) ?? run.items[0]
+                  return (
+                    <div className="seat-gauge">
+                      {carrier.contextUsage && (
+                        <div className={`ctx-bar ${carrier.contextUsage.percent !== null && carrier.contextUsage.percent > 80 ? "ctx-warning" : ""}`}>
+                          <div className="ctx-fill-wrap">
+                            <div
+                              className={`ctx-fill ${ctxColor(carrier.contextUsage.percent)}`}
+                              style={{ width: `${carrier.contextUsage.percent !== null ? carrier.contextUsage.percent : 0}%` }}
+                            />
+                          </div>
+                          <span className="ctx-label">{ctxLabel(carrier.contextUsage)}</span>
+                        </div>
+                      )}
+                      {carrier.sessionStats && (
+                        <div className="session-stats">{statsLabel(carrier.sessionStats)}</div>
+                      )}
+                    </div>
+                  )
+                })()}
+              </div>
+            ),
+          )
+        })()}
+      </div>
+
+      <div className="roster-foot">
+        {creating ? (
+          <AddAgent
+            onCancel={() => setCreating(false)}
+            onCreate={async (body) => {
+              await onCreate(body)
+              setCreating(false)
+            }}
+            onAddTemplate={async (id) => {
+              await onAddTemplate(id)
+              setCreating(false)
+            }}
+          />
+        ) : (
+          <button className="btn btn-ghost full" onClick={() => setCreating(true)}>
+            + Add agent
+          </button>
+        )}
+      </div>
+    </aside>
+  )
+
+  /** One roster row (+ its inline editor). `inSeatGroup` suppresses the
+   *  per-agent gauge/stats — the group renders the seat's single gauge. */
+  function renderItem(r: RosterItem, inSeatGroup: boolean) {
           const menuItems: AgentMenuItem[] = [
             { icon: "✏", label: editingId === r.id ? "Close editor" : "Edit persona", disabled: turnActive, onClick: () => setEditingId((cur) => (cur === r.id ? null : r.id)) },
             { icon: "★", label: r.id === explicit ? "Clear default" : "Set as default", checked: r.id === effective, disabled: !r.active, onClick: () => onSetDefault(r.id === explicit ? null : r.id) },
@@ -216,7 +286,7 @@ export function Roster({
                     {r.model.split("/").pop()?.replace(/\.gguf$/, "")}
                   </span>
                 )}
-                {r.contextUsage && (
+                {!inSeatGroup && r.contextUsage && (
                   <div className={`ctx-bar ${r.contextUsage.percent !== null && r.contextUsage.percent > 80 ? "ctx-warning" : ""}`}>
                     <div className="ctx-fill-wrap">
                       <div
@@ -229,7 +299,7 @@ export function Roster({
                     </span>
                   </div>
                 )}
-                {r.sessionStats && (
+                {!inSeatGroup && r.sessionStats && (
                   <div className="session-stats" title={`Input: ${r.sessionStats.tokens.input} · Output: ${r.sessionStats.tokens.output} · Cache read: ${r.sessionStats.tokens.cacheRead} · Cache write: ${r.sessionStats.tokens.cacheWrite}`}>
                     {statsLabel(r.sessionStats)}
                   </div>
@@ -247,28 +317,5 @@ export function Roster({
             )}
           </div>
           )
-        })}
-      </div>
-
-      <div className="roster-foot">
-        {creating ? (
-          <AddAgent
-            onCancel={() => setCreating(false)}
-            onCreate={async (body) => {
-              await onCreate(body)
-              setCreating(false)
-            }}
-            onAddTemplate={async (id) => {
-              await onAddTemplate(id)
-              setCreating(false)
-            }}
-          />
-        ) : (
-          <button className="btn btn-ghost full" onClick={() => setCreating(true)}>
-            + Add agent
-          </button>
-        )}
-      </div>
-    </aside>
-  )
+  }
 }

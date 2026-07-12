@@ -22,8 +22,11 @@ const askOrchestratorSchema = Type.Object({
 
 export function createAskOrchestratorToolDefinition(
   link: ParentLink,
-  personaId: string,
+  /** Asker attribution, resolved at execution time when a function (fused
+   *  seats: the current hat asks, not the hat the session was built for). */
+  personaId: string | (() => string),
 ): ToolDefinition<typeof askOrchestratorSchema, undefined> {
+  const idOf = typeof personaId === "function" ? personaId : () => personaId
   return {
     name: "ask_orchestrator",
     label: "Ask Orchestrator",
@@ -40,7 +43,7 @@ export function createAskOrchestratorToolDefinition(
     execute: async (_toolCallId, params) => {
       try {
         link.report(
-          `❓ Sub-room "${link.childName}" (roomId: ${link.childRoomId}) — @${personaId} asks:\n\n` +
+          `❓ Sub-room "${link.childName}" (roomId: ${link.childRoomId}) — @${idOf()} asks:\n\n` +
             `${params.question}\n\n` +
             `The sub-room is paused on this question. Answer with ` +
             `answer_room({ roomId: "${link.childRoomId}", text: "..." }) — your answer resumes it. ` +

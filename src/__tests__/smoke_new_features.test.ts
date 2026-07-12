@@ -34,7 +34,10 @@ describe('New features smoke test', () => {
     expect(source).toContain('async sendCustomMessage(')
     expect(source).toContain('exportToJsonl()')
     expect(source).toContain('getLastAssistantText()')
-    expect(source).toContain('setSessionName(')
+    // Session construction (and naming) moved to the SeatRuntime — the seat
+    // owns the pi session, participants are hat handles (fused seats phase 1).
+    const seatSource = fs.readFileSync(path.resolve(__dirname, '../seat-runtime.ts'), 'utf8')
+    expect(seatSource).toContain('setSessionName(')
   })
 
   it('server.ts has JSONL endpoint and compactionInstructions validation', () => {

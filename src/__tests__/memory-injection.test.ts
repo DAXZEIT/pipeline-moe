@@ -113,8 +113,10 @@ describe("memory injection", () => {
   })
 
   it("ROOM_NOTE mentions agent memory", () => {
-    const participantPath = join(__dirname, "..", "participant.ts")
-    const content = readFileSync(participantPath, "utf-8")
+    // ROOM_NOTE and the memory/logbook injection moved to seat-runtime.ts —
+    // the SeatRuntime owns session construction (fused seats phase 1).
+    const seatRuntimePath = join(__dirname, "..", "seat-runtime.ts")
+    const content = readFileSync(seatRuntimePath, "utf-8")
     expect(content).toContain("agent_memory")
     expect(content).toContain("your_id")
     expect(content).toContain("compaction")

@@ -15,6 +15,7 @@ import type { SseHub, SseEventName } from "./sse.js"
 import type { LocalModelLock } from "./local-model-lock.js"
 import { goalDispatchRetryPrompt, goalEvalPrompt, goalVerdictRetryPrompt } from "./personas.js"
 import { findPlanById, nextStepOwner, planAdoptionId } from "./plan-routing.js"
+import { hatSwitchSuffix } from "./seats.js"
 import { runSupervisorDecision, type SupervisorOutcome } from "./route-supervisor.js"
 import { TaskBoard } from "./task-board.js"
 import type {
@@ -1680,8 +1681,12 @@ export class Room {
     switch (cmd) {
       case "/kick":
         if (id && this.registry.has(id)) {
-          this.registry.kick(id)
-          this.notice(`Kicked @${id}.`)
+          // Async (refcounted seat rebuild) — the notice follows the actual
+          // removal; a failure surfaces as an error notice, never silence.
+          // Promise.resolve: test doubles implement kick synchronously.
+          void Promise.resolve(this.registry.kick(id))
+            .then(() => this.notice(`Kicked @${id}.`))
+            .catch((err) => this.notice(`/kick @${id} failed: ${err instanceof Error ? err.message : String(err)}`, "error"))
         } else this.notice(`/kick: unknown participant "${rawTarget ?? ""}".`, "error")
         return true
       case "/deactivate":
@@ -1953,7 +1958,7 @@ export class Room {
       if (this.routingMode === "supervised") {
         for (const p of mentioned) {
           if (target.includes(p)) {
-            this.post("system", "Routing", `≡ @${fromId} → @${p.persona.id} — already queued — handoff coalesced (not supervised)`)
+            this.post("system", "Routing", `≡ @${fromId} → @${p.persona.id}${this.seatSuffix(fromId, p.persona.id)} — already queued — handoff coalesced (not supervised)`)
           }
         }
       }
@@ -2258,7 +2263,7 @@ export class Room {
     const supervisor = supId ? this.registry.get(supId) : undefined
     if (!supervisor || !supervisor.active) {
       this.notice("supervised routing: no active supervisor — hop degraded to auto", "info")
-      const setLabel = fresh.map((p) => `@${p.fromId} → @${p.target.persona.id}`).join(", ")
+      const setLabel = fresh.map((p) => `@${p.fromId} → @${p.target.persona.id}${this.seatSuffix(p.fromId, p.target.persona.id)}`).join(", ")
       this.post("system", "Routing", `⚠ ${setLabel} — no active supervisor — dispatched as proposed`)
       enqueue(fresh.map((p) => p.target), null)
       return false
@@ -2309,6 +2314,16 @@ export class Room {
     })()
   }
 
+  /** Fused seats: the cause-neutral trace suffix for an intra-seat hop —
+   *  " — hat switch (<seat> seat, context carried)" when from and to share a
+   *  seat, empty otherwise. No new glyph on purpose: the glyph encodes the
+   *  decision's authority, which a hat switch does not change (décision actée
+   *  2026-07-12); the suffix states the topological fact and is the grep
+   *  anchor for the re-derivation metric. */
+  private seatSuffix(fromId: string, toId: string): string {
+    return hatSwitchSuffix(fromId, toId, (id) => this.registry.seatOf?.(id) ?? id)
+  }
+
   /** Apply a supervisor outcome to the pending set. accept/transfer reuse
    *  processRouteDecision verbatim (approve/redirect); refuse is the new
    *  return-to-sender branch; a non-decision degrades to approve — dispatch,
@@ -2316,7 +2331,7 @@ export class Room {
    *  supervisor (observability-before-behavior invariant). */
   private async applySupervisorOutcome(pr: PendingRoute, outcome: SupervisorOutcome, supervisor: Participant): Promise<void> {
     const supId = supervisor.persona.id
-    const setLabel = pr.proposals.map((p) => `@${p.fromId} → @${p.target.persona.id}`).join(", ")
+    const setLabel = pr.proposals.map((p) => `@${p.fromId} → @${p.target.persona.id}${this.seatSuffix(p.fromId, p.target.persona.id)}`).join(", ")
     const d = outcome.decision
     if (!d) {
       const cause = outcome.degraded ?? "no decision"

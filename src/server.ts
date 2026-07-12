@@ -1135,13 +1135,13 @@ async function main(): Promise<void> {
     }
   })
 
-  app.delete("/api/participants/:id", (req, res) => {
+  app.delete("/api/participants/:id", async (req, res) => {
     const { id } = req.params
     if (!registry.has(id)) {
       res.status(404).json({ error: `unknown participant "${id}"` })
       return
     }
-    registry.kick(id)
+    await registry.kick(id)
     res.status(204).end()
   })
 
@@ -1830,14 +1830,14 @@ async function main(): Promise<void> {
     }
   })
 
-  roomRouter.delete("/participants/:id", (req, res) => {
+  roomRouter.delete("/participants/:id", async (req, res) => {
     const reg = roomOf(req).getRegistry()
     const { id } = req.params
     if (!reg.has(id)) {
       res.status(404).json({ error: `unknown participant "${id}"` })
       return
     }
-    reg.kick(id)
+    await reg.kick(id)
     res.status(204).end()
   })
 

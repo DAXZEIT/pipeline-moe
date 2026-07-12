@@ -133,6 +133,37 @@ describe("renderStrip", () => {
     expect(sub).toContain("…")
   })
 
+  it("fused seat: hats join with the ┈ gutter, one spanning labeled gauge, rows stay aligned", () => {
+    const usage2 = { tokens: 42_000, contextWindow: 200_000, percent: 21 } as RosterItem["contextUsage"]
+    const cells = stripCells(
+      [
+        agent({ id: "builder", name: "builder", icon: "🔨", seat: "maker", contextUsage: usage2, model: "local/qwopus" }),
+        agent({ id: "tester", name: "tester", icon: "🧪", seat: "maker", contextUsage: usage2, model: "local/qwopus" }),
+        agent({ id: "planner", name: "planner", contextUsage: usage, model: "local/qwopus" }),
+      ],
+      null,
+      140,
+    )
+    expect(cells[0].seat).toBe("maker")
+    const rows = renderStrip(cells).map(plain)
+    // Fused gutter INSIDE the seat, wall between seats.
+    expect(rows[0]).toContain("builder ┈ ")
+    expect(rows[0]).toContain("tester │ ")
+    // One spanning usage entry labeled with the seat — not one gauge per hat.
+    expect(rows[2]).toContain("⌐maker: 42K/200K")
+    expect(rows[2].match(/42K\/200K/g)).toHaveLength(1)
+    expect(rows[2]).toContain("220K/1000K") // the singleton keeps its own
+    // All rows keep the exact same printed width.
+    for (const r of rows.slice(1)) expect(stringWidth(r)).toBe(stringWidth(rows[0]))
+  })
+
+  it("singleton-only rosters render exactly as before (no seat → no fusion)", () => {
+    const cells = stripCells([agent({}), agent({ id: "b", name: "b" })], null, 120)
+    const rows = renderStrip(cells).map(plain)
+    expect(rows[0]).not.toContain("┈")
+    expect(rows[0]).toContain(" │ ")
+  })
+
   it("hot usage paints yellow", async () => {
     // chalk auto-detects no color under vitest — force it for this assertion
     const { default: chalk } = await import("chalk")

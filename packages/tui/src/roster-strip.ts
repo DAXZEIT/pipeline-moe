@@ -25,6 +25,10 @@ export const STATUS_GLYPH: Record<RosterItem["status"], string> = {
 
 export type StripCell = {
   id: string
+  /** Fused seats: seat id when this agent shares a context. Adjacent cells of
+   *  the same seat render as ONE group — fused separator, a single spanning
+   *  model/usage entry (two identical gauges would be lying by redundancy). */
+  seat?: string
   text: string
   /** Model row text under the cell (name tier): the agent's pinned model or
    *  the room default, prettified — "default" only when the server doesn't
@@ -80,6 +84,7 @@ export function stripCells(
   const build = (tier: "name" | "icon") =>
     roster.map((r) => ({
       id: r.id,
+      ...(r.seat ? { seat: r.seat } : {}),
       text: cellText(r, tier, tier === "name" && usageRow),
       ...(tier === "name" && modelRow
         ? { sub: r.model ? prettyModel(r.model) : defaultModel ? prettyModel(defaultModel) : "default" }
@@ -128,30 +133,63 @@ function truncToWidth(text: string, width: number): string {
   return out + "…"
 }
 
+/** Adjacent cells sharing a fused seat, grouped. Non-adjacent same-seat cells
+ *  fall into separate runs (the strip honors roster order — presets that fuse
+ *  keep their hats adjacent naturally). */
+type SeatRun = { cells: StripCell[]; seat?: string }
+
+function runsOf(cells: StripCell[]): SeatRun[] {
+  const runs: SeatRun[] = []
+  for (const c of cells) {
+    const last = runs[runs.length - 1]
+    if (last && last.seat !== undefined && c.seat === last.seat) last.cells.push(c)
+    else runs.push({ cells: [c], seat: c.seat })
+  }
+  return runs
+}
+
 /** Paint the cells into flat ANSI strings (one per row) for single <Text>s —
  *  same idiom as the Transcript's pre-rendered markdown lines: one string,
  *  one yoga node, wrap="truncate-end" owns the width. Keeps the strip's
  *  height provably its row count without trusting how Ink measures a tree of
  *  nested colored <Text> cells. Under-rows pad every entry to its cell's
- *  exact printed width so the " │ " gutters line up across all rows. */
+ *  exact printed width so the " │ " gutters line up across all rows.
+ *  Fused seats: hats of one seat join with a fused "┈" gutter instead of the
+ *  "│" wall, and their model/usage under-entries SPAN the whole group — one
+ *  seat, one context, one gauge (labeled "⌐<seat>"). */
 export function renderStrip(cells: StripCell[]): string[] {
   const sep = chalk.dim(" │ ")
+  const fusedSep = chalk.dim(" ┈ ")
   const cellWidth = (c: StripCell) => stringWidth(c.text) + (c.running ? 2 : 0)
+  const runs = runsOf(cells)
+  const runWidth = (r: SeatRun) => r.cells.reduce((n, c) => n + cellWidth(c), 0) + (r.cells.length - 1) * 3
+  const pad = (paint: ChalkInstance, text: string, width: number) => {
+    const t = truncToWidth(text, width)
+    return paint(t + " ".repeat(Math.max(0, width - stringWidth(t))))
+  }
   const underRow = (text: (c: StripCell) => string | undefined, paint: (c: StripCell) => ChalkInstance) =>
-    cells
-      .map((c) => {
-        const t = truncToWidth(text(c) ?? "", cellWidth(c))
-        return paint(c)(t + " ".repeat(Math.max(0, cellWidth(c) - stringWidth(t))))
+    runs
+      .map((r) => {
+        if (r.cells.length === 1) return pad(paint(r.cells[0]), text(r.cells[0]) ?? "", cellWidth(r.cells[0]))
+        // Spanning entry for the fused group — first cell carrying data wins
+        // (the values cannot differ: same session behind every hat).
+        const first = r.cells.find((c) => text(c) !== undefined) ?? r.cells[0]
+        const label = r.seat ? `⌐${r.seat}: ` : ""
+        return pad(paint(first), `${label}${text(first) ?? ""}`, runWidth(r))
       })
       .join(sep)
 
   const rows = [
-    cells
-      .map((c) => {
-        let paint = paintFor(c)
-        if (c.running) paint = paint.inverse.bold
-        return paint(c.running ? ` ${c.text} ` : c.text)
-      })
+    runs
+      .map((r) =>
+        r.cells
+          .map((c) => {
+            let paint = paintFor(c)
+            if (c.running) paint = paint.inverse.bold
+            return paint(c.running ? ` ${c.text} ` : c.text)
+          })
+          .join(fusedSep),
+      )
       .join(sep),
   ]
   if (cells.some((c) => c.sub !== undefined)) rows.push(underRow((c) => c.sub, (c) => paintFor(c).dim))

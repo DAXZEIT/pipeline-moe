@@ -1,29 +1,18 @@
-// A Participant wraps one pi AgentSession (one persona) and exposes a simple
-// run()/dispose() lifecycle. Its session keeps its own conversation memory
-// across turns (stateful). The shared room transcript is threaded in by Room.
+// A Participant is a HAT HANDLE: one persona's identity, status, buffers and
+// per-turn logic, borrowing its SEAT's pi session for each turn (fused seats,
+// docs/fused-seats.md — "le Seat possède la session, les chapeaux
+// l'empruntent"). Session construction and ownership live in SeatRuntime;
+// a singleton seat (seat == persona) reproduces the pre-feature behavior
+// exactly. The shared room transcript is threaded in by Room.
 
-import {
-  createAgentSession,
-  DefaultResourceLoader,
-  getAgentDir,
-  SessionManager,
-  SettingsManager,
-  type AgentSession,
-  type AgentSessionEvent,
-} from "@earendil-works/pi-coding-agent"
-import { mkdirSync, readFileSync } from "node:fs"
-import { access, readFile } from "node:fs/promises"
-import { constants } from "node:fs"
+import type { AgentSession, AgentSessionEvent } from "@earendil-works/pi-coding-agent"
+import { readFileSync } from "node:fs"
 import { join } from "node:path"
 import { config } from "./config.js"
-import { installBatchTerminateGuard, type BatchTerminateGuard } from "./batch-terminate-guard.js"
 import { ReasoningBudget, reasoningBudgetFor, exhaustedTrace } from "./reasoning-budget.js"
-import { buildConfinedTools } from "./sandbox-tools.js"
-import { buildCustomTools } from "./custom-tools/index.js"
-import { resolveModelRef, type ResolvedModel } from "./model.js"
-import type { ParentLink, RoomOrchestrator } from "./orchestrator.js"
-import type { TaskBoard } from "./task-board.js"
-import type { GoalVerdictSink, HandoffSink, Persona, ParticipantStatus, ToolActivity } from "./types.js"
+import { buildHatHeader } from "./seats.js"
+import { SeatRuntime, type ThinkingLevel } from "./seat-runtime.js"
+import type { HandoffSink, Persona, ParticipantStatus, ToolActivity } from "./types.js"
 
 /** Cap a tool result/arg to keep SSE frames and persisted transcripts small. */
 function clip(value: unknown, max = 2000): string {
@@ -38,34 +27,6 @@ function clip(value: unknown, max = 2000): string {
   }
   return s.length > max ? `${s.slice(0, max)}… (+${s.length - max} chars)` : s
 }
-
-/** The workspace-scope note, parameterised by the room's actual root directory.
- *  A room scoped to the pipeline workspace gets the shared-workspace wording;
- *  a room scoped elsewhere (e.g. another project, or the machine root) is told
- *  exactly which directory its file tools are confined to. */
-function workspaceNote(root: string): string {
-  return (
-    `Your working directory is ${root}. Use paths relative to it ` +
-    "(e.g. `notes.md`, `src/app.ts`). Never read or write outside it — absolute paths " +
-    "pointing outside this root are denied."
-  )
-}
-
-const ROOM_NOTE =
-  "You are one agent in a shared multi-agent chat room. Other agents (e.g. scout, builder, " +
-  "auditor, scribe, tester) are referred to by their lowercase id. To pass your turn to another " +
-  "agent, call the handoff tool with their id — that is the ONLY way to hand off. Writing " +
-  "'@name' or their name in your reply does NOTHING — there is no text-based routing anymore. " +
-  "You can freely discuss, quote, or refer to other agents by name in your reply (e.g. 'the " +
-  "builder said...', or narrating what @tester did earlier) without triggering anything — only " +
-  "the handoff tool call routes. If you don't call handoff, your turn ends and control returns " +
-  "to the human — that is a valid, normal ending, not an error.\n" +
-  "If you need information only the user can provide (preferences, credentials, context), " +
-  "use the ask_user tool — it will pause the pipeline and wait for their response. Do NOT " +
-  "use it for rhetorical questions or self-clarification.\n" +
-  "Your personal memory lives at agent_memory/<your_id>.md (e.g. agent_memory/builder.md). " +
-  "Read it at the start of a task to recall prior context. The scribe updates these files. " +
-  "After a compaction, your memory is refreshed automatically."
 
 export type Emit = (event: "token" | "status" | "activity" | "reasoning", data: unknown) => void
 
@@ -147,24 +108,43 @@ function extractAbnormalStop(
 
 export class Participant {
   readonly persona: Persona
+  /** The seat whose session this hat borrows. A singleton seat (seat id ==
+   *  persona id) is the pre-feature behavior. */
+  readonly seat: SeatRuntime
   active = true
-  /** When true, may run concurrently with adjacent parallel-flagged agents. */
+  /** When true, may run concurrently with adjacent parallel-flagged agents.
+   *  Meaningless WITHIN a seat — the seat's turn lock serializes its hats. */
   parallel = false
   status: ParticipantStatus = "idle"
-  /** Index of the next room transcript entry this participant has NOT yet seen. */
-  cursor = 0
-  /** True when the pi session was reopened from disk with prior conversation
-   *  memory — the caller may then restore a saved cursor instead of replaying
-   *  the whole room transcript on top of the restored context. */
-  resumed = false
-  /** On-disk pi session directory, when persistence is enabled. The registry
-   *  removes it when the participant is kicked so a future agent with the same
-   *  id does not inherit this one's memory. */
-  sessionDir?: string
 
-  private session!: AgentSession
-  private terminateGuard: BatchTerminateGuard | null = null
-  private unsubscribe: (() => void) | null = null
+  /** Index of the next room transcript entry this participant has NOT yet
+   *  seen. SEAT-level state: the session is one context, so replaying an
+   *  entry once per hat would inject it twice — every hat reads/writes the
+   *  seat's cursor (docs/fused-seats.md §3, the re-derivation tax). */
+  get cursor(): number {
+    return this.seat.cursor
+  }
+  set cursor(value: number) {
+    this.seat.cursor = value
+  }
+
+  /** True when the seat's pi session was reopened from disk with prior
+   *  conversation memory — the caller may then restore a saved cursor instead
+   *  of replaying the whole room transcript on top of the restored context. */
+  get resumed(): boolean {
+    return this.seat.resumed
+  }
+
+  /** On-disk pi session directory of the SEAT, when persistence is enabled.
+   *  Lifecycle (including deletion on last-hat kick) is owned by the
+   *  Registry's seat map — refcounted, never per-hat. */
+  get sessionDir(): string | undefined {
+    return this.seat.sessionDir
+  }
+
+  private get session(): AgentSession {
+    return this.seat.session
+  }
   private buffer = ""
   /** Tool calls made during the current turn, keyed for start/end matching. */
   private activity = new Map<string, ToolActivity>()
@@ -181,8 +161,6 @@ export class Participant {
    *  Fresh instance per turn (see promptRounds); the thinking-delta watchdog
    *  consumes into it and aborts the generation on breach. */
   private budget: ReasoningBudget | null = null
-  /** Resolved "provider/id" this seat runs — decides budget applicability. */
-  private modelRef: string | null = null
   /** Set by abort() — distinguishes a user/room stop from the budget
    *  watchdog's breach-abort, so promptRounds never re-prompts over an Esc. */
   private externallyAborted = false
@@ -192,146 +170,30 @@ export class Participant {
   /** The directory this participant's file tools are confined to. */
   private readonly workspaceDir: string
 
-  private constructor(persona: Persona, emit: Emit, workspaceDir: string) {
+  private constructor(persona: Persona, seat: SeatRuntime, emit: Emit, workspaceDir: string) {
     this.persona = persona
+    this.seat = seat
     this.emit = emit
     this.workspaceDir = workspaceDir
   }
 
-  static async create(
+  /** Attach a hat handle to its seat's session. Session construction lives in
+   *  SeatRuntime.create (the Registry resolves persona → seat and owns the
+   *  seat map); this only wires the hat's event handler and turn-time state.
+   *  Synchronous — there is nothing to await anymore. */
+  static attach(
     persona: Persona,
-    resolved: ResolvedModel,
+    seat: SeatRuntime,
     emit: Emit,
     workspaceDir: string = config.workspaceDir,
-    orchestrator?: RoomOrchestrator,
-    defaultThinkingLevel: "off" | "minimal" | "low" | "medium" | "high" | "xhigh" = config.thinkingLevel,
-    allowCloud: boolean = config.allowCloud,
-    compactionReserveTokens: number = 38000,
-    /** Directory for the on-disk pi session (one per persona per conversation).
-     *  Undefined → in-memory session, the pre-persistence behavior (tests). */
-    sessionDir?: string,
-    /** The room's shared task board. When present, every agent gets the
-     *  task_create/task_update/task_list tools. */
-    taskBoard?: TaskBoard,
-    /** Id of the room this participant lives in — recorded by spawn_room as
-     *  the parent of any sub-room it creates. */
-    roomId?: string,
-    /** Link to the parent room, present only in spawned sub-rooms — grants
-     *  the ask_orchestrator escalation tool. */
-    parentLink?: ParentLink,
-    /** The room's live roster capability for the handoff tool. Present for
-     *  every room (Registry implements it); the tool itself is only granted
-     *  when at least one other active agent exists to hand off to. */
+    /** For the 🧠 checkpoint traces (postSystemNote capability). */
     handoffSink?: HandoffSink,
-    /** Goal-verdict capability (Registry implements this too). The
-     *  goal_verdict tool is granted to the room's evaluator seat only. */
-    goalVerdictSink?: GoalVerdictSink,
-  ): Promise<Participant> {
-    const p = new Participant(persona, emit, workspaceDir)
-
-    // Read agent memory (if it exists) — injected after the persona prompt.
-    // Capped at 4KB to avoid consuming excessive context tokens.
-    const memoryPath = join(workspaceDir, "agent_memory", `${persona.id}.md`)
-    let memoryNote = ""
-    try {
-      await access(memoryPath, constants.R_OK)
-      const raw = await readFile(memoryPath, "utf-8")
-      const content = raw.length > 4096 ? raw.slice(0, 4096) + "… (truncated)" : raw
-      memoryNote = `\nYOUR MEMORY (agent_memory/${persona.id}.md):\n${content}\n` +
-        "---\n(End of memory — updated by the scribe. After compaction, this is refreshed.)\n"
-    } catch {
-      // No memory file — fine, first run or not yet populated.
-    }
-
-    // Persona-scoped Agent Skills: each name resolves to a skill root under
-    // config.skillsDir. The loader injects name+description into the system
-    // prompt; the agent reads the SKILL.md body on demand, so the read tool
-    // must be granted these dirs too (read-only) — see buildConfinedTools.
-    const skillRoots = (persona.skills ?? []).map((s) => join(config.skillsDir, s))
-
-    // Roster awareness (docs/roster-awareness.md): who is in the room, on
-    // what brain, with what hands. Injected at birth; incremental changes
-    // arrive as hidden roster_update notes from the registry. Optional
-    // capability — test doubles without describeRoster inject nothing.
-    const rosterNote = handoffSink?.describeRoster?.(persona.id) ?? null
-
-    const loader = new DefaultResourceLoader({
-      cwd: workspaceDir,
-      agentDir: getAgentDir(),
-      ...(skillRoots.length > 0 ? { additionalSkillPaths: skillRoots } : {}),
-      // Append the persona to pi's default prompt so we keep tool-usage guidance.
-      appendSystemPromptOverride: (base: string[]) => [
-        ...base,
-        persona.systemPrompt,
-        workspaceNote(workspaceDir),
-        ROOM_NOTE,
-        ...(rosterNote ? [rosterNote] : []),
-        ...(memoryNote ? [memoryNote] : []),
-      ],
-    })
-    await loader.reload()
-
-    // Each persona may pin its own model ("provider/id"); undefined → default.
-    const model = resolveModelRef(resolved, allowCloud, persona.model)
-
-    // Reasoning budget (ROADMAP #9): the model ref decides at turn time —
-    // local seats get the checkpoint budget (the overthink attractor lives
-    // there, and the seat contends for the one GPU slot); cloud reasoners
-    // spend legitimately, no budget. Resolved here, built fresh per turn.
-    const effectiveModel = model ?? resolved.model
-    p.modelRef = effectiveModel ? `${effectiveModel.provider}/${effectiveModel.id}` : null
+  ): Participant {
+    const p = new Participant(persona, seat, emit, workspaceDir)
     p.checkpointSink = handoffSink?.postSystemNote ? (text) => handoffSink.postSystemNote!(text) : null
-
-    // Auto-compaction: trigger when context exceeds 90K tokens.
-    // reserveTokens = contextWindow - threshold. For 128K ctx: 128000 - 90000 = 38000.
-    const settings = SettingsManager.inMemory({
-      compaction: { enabled: true, reserveTokens: compactionReserveTokens },
-    })
-
-    // Disk-backed session when a sessionDir is given: reopen the most recent
-    // session file in it (or start one), so the agent's private context —
-    // thinking, tool results, compaction — survives restarts and room resume.
-    let sessionManager: SessionManager
-    if (sessionDir) {
-      mkdirSync(sessionDir, { recursive: true })
-      sessionManager = SessionManager.continueRecent(workspaceDir, sessionDir)
-      p.resumed = sessionManager.buildSessionContext().messages.length > 0
-      p.sessionDir = sessionDir
-    } else {
-      sessionManager = SessionManager.inMemory(workspaceDir)
-    }
-
-    const { session } = await createAgentSession({
-      cwd: workspaceDir,
-      // Disable built-in file tools and supply workspace-confined replacements,
-      // gated to this persona's allowlist. Keeps all file work inside the workspace.
-      noTools: "builtin",
-      customTools: (() => {
-        const confined = buildConfinedTools(workspaceDir, persona.tools, skillRoots)
-        const custom = buildCustomTools(persona.tools, { orchestrator, taskBoard, personaId: persona.id, roomId, parentLink, handoffSink, goalVerdictSink })
-        return [...confined, ...custom]
-      })(),
-      thinkingLevel: persona.thinkingLevel ?? defaultThinkingLevel,
-      resourceLoader: loader,
-      sessionManager,
-      settingsManager: settings,
-      authStorage: resolved.authStorage,
-      modelRegistry: resolved.modelRegistry,
-      ...(model ? { model } : {}),
-    })
-    // Enable auto-compaction on the session (triggers compact() automatically
-    // when context tokens exceed the threshold after each turn).
-    session.setAutoCompactionEnabled(true)
-    // Name the session after the persona for debug visibility.
-    session.setSessionName(persona.id)
-    p.session = session
-    // Batch-terminate guard: once a turn-control tool (handoff/ask_user/
-    // ask_orchestrator) finalizes with terminate: true, force it onto every
-    // later tool result of the same run so the batch actually ends the turn
-    // (pi-agent-core requires EVERY result in a batch to set it). See
-    // batch-terminate-guard.ts for why this can't go through the extension seam.
-    p.terminateGuard = installBatchTerminateGuard(session.agent)
-    p.unsubscribe = session.subscribe((ev) => p.onEvent(ev))
+    // The seat fans its single session subscription out to the hat holding
+    // the turn — this handler only fires while p wears the seat.
+    seat.setHandler(persona.id, (ev) => p.onEvent(ev))
     return p
   }
 
@@ -417,7 +279,7 @@ export class Participant {
    *  abort WITHOUT a breach is external (user Esc, room stop) — return as-is.
    *  Buffers accumulate across rounds: the TurnResult carries all of it. */
   private async promptRounds(first: () => Promise<void>): Promise<unknown> {
-    this.budget = reasoningBudgetFor(this.modelRef, config.reasoningBudgetChars, config.reasoningBudgetContinues)
+    this.budget = reasoningBudgetFor(this.seat.modelRef, config.reasoningBudgetChars, config.reasoningBudgetContinues)
     this.externallyAborted = false
     let call = first
     try {
@@ -448,18 +310,31 @@ export class Participant {
     }
   }
 
+  /** Prefix the hat header on a fused seat (grilling Q3: the thin per-turn
+   *  switch — the hat is part of the turn, atomically). Singleton seats pass
+   *  the prompt through untouched: byte-compat with the pre-feature turn. */
+  private withHatHeader(promptText: string): string {
+    if (!this.seat.fused()) return promptText
+    return `${buildHatHeader(this.persona, this.seat.seatId, this.seat.hats)}\n\n${promptText}`
+  }
+
   /** Run one turn with the given prompt text. Optionally pass image paths
    *  (workspace-relative, e.g. "media/abc.png") for vision support. */
   async run(promptText: string, imagePaths?: string[]): Promise<TurnResult> {
+    // Borrow the seat: serialize intra-seat, set the current hat (event
+    // routing + tool attribution + allowlist gate), apply this hat's
+    // thinking level. A singleton seat resolves immediately.
+    const release = await this.seat.acquireTurn(this.persona.id, this.persona.thinkingLevel)
     this.buffer = ""
     this.reasoningBuffer = ""
     this.activity.clear()
-    this.terminateGuard?.reset()
+    this.seat.resetGuard()
     this.setStatus("active")
     try {
       const images = await this.resolveImages(imagePaths)
+      const prompt = this.withHatHeader(promptText)
       const thrown = await this.promptRounds(() =>
-        this.session.prompt(promptText, images.length > 0 ? { images } : undefined),
+        this.session.prompt(prompt, images.length > 0 ? { images } : undefined),
       )
       const result: TurnResult = {
         text: this.buffer.trim(),
@@ -493,6 +368,7 @@ export class Participant {
       return result
     } finally {
       this.setStatus("idle")
+      release()
     }
   }
 
@@ -522,9 +398,12 @@ export class Participant {
     await this.session.abort()
   }
 
-  /** Compact the agent's session context (summarize old turns to free tokens). */
+  /** Compact the SEAT's session context (summarize old turns to free tokens).
+   *  Instructions are the seat's — verbatim for a singleton, the labeled
+   *  union for a fused seat, so one hat's "Discard" never throws away another
+   *  hat's living state (grilling Q4). */
   async compact(): Promise<{ summary: string; tokensBefore: number }> {
-    const result = await this.session.compact(this.persona.compactionInstructions)
+    const result = await this.session.compact(this.seat.compactionInstructions())
     return { summary: result.summary, tokensBefore: result.tokensBefore }
   }
 
@@ -538,9 +417,14 @@ export class Participant {
     return this.session.getContextUsage()
   }
 
-  /** Set thinking level in-place — no session recreation needed. */
-  async setThinkingLevel(level: "off" | "minimal" | "low" | "medium" | "high" | "xhigh"): Promise<void> {
-    await this.session.setThinkingLevel(level)
+  /** Set thinking level in-place — no session recreation needed. On a fused
+   *  seat the session-level change waits for this hat's next turn
+   *  (acquireTurn applies it); mutating it now would hijack another hat's
+   *  level mid-flight. */
+  async setThinkingLevel(level: ThinkingLevel): Promise<void> {
+    if (!this.seat.fused()) {
+      await this.session.setThinkingLevel(level)
+    }
     this.persona.thinkingLevel = level
   }
 
@@ -587,10 +471,15 @@ export class Participant {
    *  processes. Used for self-chaining (e.g., delivering an ask_user answer
    *  directly to the agent that asked it). */
   async followUp(text: string, imagePaths?: string[]): Promise<TurnResult> {
+    // Mid-stream follow-up into our own running turn keeps the lock the
+    // running call already holds (acquiring would deadlock on ourselves);
+    // an idle-session follow-up borrows the seat like a normal turn.
+    const mine = this.session.isStreaming && this.seat.currentHatId === this.persona.id
+    const release = mine ? null : await this.seat.acquireTurn(this.persona.id, this.persona.thinkingLevel)
     this.buffer = ""
     this.reasoningBuffer = ""
     this.activity.clear()
-    this.terminateGuard?.reset()
+    this.seat.resetGuard()
     this.setStatus("active")
     try {
       const images = await this.resolveImages(imagePaths)
@@ -598,9 +487,10 @@ export class Participant {
       // After ask_user (terminate=true) the session is idle — the followUp message
       // would be queued but never processed. Use prompt() for idle sessions instead.
       // Budget-checkpointed like run(): a resumed turn can overthink too.
+      const prompt = this.withHatHeader(text)
       const thrown = await this.promptRounds(() =>
         !this.session.isStreaming
-          ? this.session.prompt(text, images.length > 0 ? { images } : undefined)
+          ? this.session.prompt(prompt, images.length > 0 ? { images } : undefined)
           : this.session.followUp(text, images.length > 0 ? images : undefined),
       )
       const result: TurnResult = {
@@ -632,11 +522,14 @@ export class Participant {
       return result
     } finally {
       this.setStatus("idle")
+      release?.()
     }
   }
 
   /** Inject a custom message into the agent's context (invisible in the transcript).
-   *  Used for structured signals like work receipts between agents. */
+   *  Used for structured signals like work receipts between agents. On a
+   *  fused seat this reaches the SHARED session — the Registry dedups
+   *  broadcasts (e.g. roster_update) to one per seat. */
   async sendCustomMessage(message: {
     customType: string
     content: string
@@ -645,9 +538,10 @@ export class Participant {
     await this.session.sendCustomMessage(message, options)
   }
 
+  /** Detach this hat from its seat. The SESSION's lifecycle belongs to the
+   *  Registry's seat map (refcounted kick — grilling Q7): the seat survives
+   *  while another hat lives on it, and only the registry disposes it. */
   dispose(): void {
-    this.unsubscribe?.()
-    this.unsubscribe = null
-    this.session.dispose()
+    this.seat.removeHandler(this.persona.id)
   }
 }

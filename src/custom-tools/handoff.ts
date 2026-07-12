@@ -19,13 +19,27 @@ import { Type } from "typebox"
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent"
 import type { HandoffSink } from "../types.js"
 
-export function createHandoffToolDefinition(sink: HandoffSink, personaId: string): ToolDefinition<any, undefined> {
+export function createHandoffToolDefinition(
+  sink: HandoffSink,
+  /** The calling agent — a plain id for a singleton, or a resolver for a
+   *  fused seat, where the same session serves several hats and "who is
+   *  handing off" is a per-turn fact (the current hat), not a build-time
+   *  constant. */
+  caller: string | (() => string),
+  /** Ids excluded from the build-time menu. Defaults to the caller itself
+   *  for a singleton; a fused seat passes [] — its seat-mates are legitimate
+   *  targets (the hat switch) and "self" varies per turn, so self-exclusion
+   *  is enforced at execution instead. */
+  menuExclude?: string[],
+): ToolDefinition<any, undefined> {
+  const hatOf = typeof caller === "function" ? caller : () => caller
   // Snapshot at build time (session creation) — this is the menu shown to the
   // model in the tool schema. Execution re-checks the LIVE roster via
   // sink.activeIds() again, so if the roster changed since this tool was
   // built (an agent kicked, deactivated, or never present), the call is
   // rejected with a correctable error rather than silently misrouting.
-  const candidates = sink.activeIds().filter((id) => id !== personaId)
+  const excluded = new Set(menuExclude ?? (typeof caller === "string" ? [caller] : []))
+  const candidates = sink.activeIds().filter((id) => !excluded.has(id))
 
   // NOTE on typing: `candidates` is a runtime string[] (dynamic length, not a
   // tuple), so `Type.Union(candidates.map(Type.Literal))` produces a JSON
@@ -61,6 +75,7 @@ export function createHandoffToolDefinition(sink: HandoffSink, personaId: string
       "the last thing you do in your reply.",
     parameters: schema,
     execute: async (_toolCallId: string, params: { to: string }) => {
+      const personaId = hatOf()
       // One handoff per turn. A model that batches two handoff calls in a
       // single reply used to have the second silently overwrite the first
       // (observed live 2026-07-10: planner registered @tester twice, both

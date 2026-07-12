@@ -35,6 +35,15 @@ export interface ToolContext {
   taskBoard?: TaskBoard
   /** Id of the persona these tools are being built for (task attribution). */
   personaId?: string
+  /** Fused seats (docs/fused-seats.md): resolves the hat wearing the CURRENT
+   *  turn. When present, attribution-sensitive tools (handoff, task_create,
+   *  ask_orchestrator, spawn_room) resolve their caller at execution time
+   *  instead of baking personaId. Absent → singleton, personaId is the truth. */
+  hatOf?: () => string
+  /** All hats sharing the session these tools are built for. Defaults to
+   *  [personaId]. Drives the handoff menu (a fused seat keeps its seat-mates
+   *  in the enum — the hat switch) and the goal_verdict grant (any hat). */
+  hatIds?: string[]
   /** Id of the room these tools run in — spawn_room records it as the parent. */
   roomId?: string
   /** Link back to the parent room, present only in spawned sub-rooms. */
@@ -70,6 +79,10 @@ const TOOLS: Array<{ name: string; factory: () => unknown }> = [
 export function buildCustomTools(toolNames: string[], ctx?: ToolContext): ToolDefinition[] {
   const wanted = new Set(toolNames)
   const tools: ToolDefinition[] = []
+  // Caller identity: static for a singleton, the current hat on a fused seat.
+  const hatOf = ctx?.hatOf ?? (() => ctx?.personaId ?? "unknown")
+  const hatIds = ctx?.hatIds ?? (ctx?.personaId ? [ctx.personaId] : [])
+  const fused = hatIds.length > 1
 
   for (const { name, factory } of TOOLS) {
     if (wanted.has(name)) {
@@ -83,8 +96,10 @@ export function buildCustomTools(toolNames: string[], ctx?: ToolContext): ToolDe
   if (ctx?.orchestrator) {
     const orch = ctx.orchestrator
     // Spawner identity: recorded on spawned rooms so they report back (goal
-    // resolution + ask_orchestrator) instead of being fire-and-forget.
-    const spawnedBy = ctx.roomId && ctx.personaId ? { roomId: ctx.roomId, agentId: ctx.personaId } : undefined
+    // resolution + ask_orchestrator) instead of being fire-and-forget. The
+    // agent id resolves at execution time — on a fused seat the spawner is
+    // whichever hat wears the turn.
+    const spawnedBy = ctx.roomId && ctx.personaId ? { roomId: ctx.roomId, agentId: hatOf } : undefined
     if (wanted.has("spawn_room")) tools.push(createSpawnRoomToolDefinition(orch, spawnedBy) as ToolDefinition)
     if (wanted.has("check_room")) tools.push(createCheckRoomToolDefinition(orch) as ToolDefinition)
     if (wanted.has("stop_room")) tools.push(createStopRoomToolDefinition(orch) as ToolDefinition)
@@ -95,7 +110,7 @@ export function buildCustomTools(toolNames: string[], ctx?: ToolContext): ToolDe
   // ask_orchestrator — context-gated on the parent link, NOT on the persona
   // allowlist: every agent of a spawned sub-room can escalate to its spawner.
   if (ctx?.parentLink) {
-    tools.push(createAskOrchestratorToolDefinition(ctx.parentLink, ctx.personaId ?? "unknown") as ToolDefinition)
+    tools.push(createAskOrchestratorToolDefinition(ctx.parentLink, hatOf) as ToolDefinition)
   }
 
   // Task-board tools — context-gated like orchestration tools, but NOT gated
@@ -103,7 +118,7 @@ export function buildCustomTools(toolNames: string[], ctx?: ToolContext): ToolDe
   // (coordination primitive, not a privilege — and personas persisted before
   // this feature would otherwise never receive them).
   if (ctx?.taskBoard) {
-    tools.push(createTaskCreateToolDefinition(ctx.taskBoard, ctx.personaId ?? "unknown") as ToolDefinition)
+    tools.push(createTaskCreateToolDefinition(ctx.taskBoard, hatOf) as ToolDefinition)
     tools.push(createTaskUpdateToolDefinition(ctx.taskBoard) as ToolDefinition)
     tools.push(createTaskListToolDefinition(ctx.taskBoard) as ToolDefinition)
   }
@@ -114,10 +129,13 @@ export function buildCustomTools(toolNames: string[], ctx?: ToolContext): ToolDe
   // so the tool would offer an empty enum — omit it entirely rather than
   // build a tool that can never succeed.
   if (ctx?.handoffSink) {
-    const personaId = ctx.personaId ?? "unknown"
-    const others = ctx.handoffSink.activeIds().filter((id) => id !== personaId)
-    if (others.length > 0) {
-      tools.push(createHandoffToolDefinition(ctx.handoffSink, personaId) as ToolDefinition)
+    const others = ctx.handoffSink.activeIds().filter((id) => !hatIds.includes(id))
+    // A fused seat gets the tool even with no OUTSIDE target: the hat switch
+    // between seat-mates is itself a legitimate handoff. Its menu keeps the
+    // seat-mates in ("self" varies per turn — enforced at execution); a
+    // singleton's menu excludes itself as before.
+    if (others.length > 0 || fused) {
+      tools.push(createHandoffToolDefinition(ctx.handoffSink, hatOf, fused ? [] : hatIds) as ToolDefinition)
     }
   }
 
@@ -129,8 +147,12 @@ export function buildCustomTools(toolNames: string[], ctx?: ToolContext): ToolDe
   // their schemas entirely. A goal submitted later with a different evaluator
   // leaves that seat tool-less — the eval loop's GOAL_MET token fallback and
   // format-repair retry still carry that case.
-  if (ctx?.goalVerdictSink && ctx.personaId && ctx.goalVerdictSink.goalEvaluatorId() === ctx.personaId) {
-    tools.push(createGoalVerdictToolDefinition(ctx.goalVerdictSink, ctx.personaId) as ToolDefinition)
+  // On a fused seat: granted when ANY hat is the evaluator (the verdict is
+  // attributed to that hat — during an eval pass the evaluator hat is the one
+  // dispatched, and execution still re-checks the live eval gate).
+  const evaluatorHat = ctx?.goalVerdictSink ? hatIds.find((id) => ctx.goalVerdictSink!.goalEvaluatorId() === id) : undefined
+  if (ctx?.goalVerdictSink && evaluatorHat) {
+    tools.push(createGoalVerdictToolDefinition(ctx.goalVerdictSink, evaluatorHat) as ToolDefinition)
   }
 
   return tools

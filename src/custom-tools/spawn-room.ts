@@ -57,9 +57,18 @@ const spawnRoomSchema = Type.Object({
 export function createSpawnRoomToolDefinition(
   orchestrator: RoomOrchestrator,
   /** The spawning room + agent. When present, the sub-room reports back here
-   *  when its goal resolves, and its agents can ask_orchestrator mid-goal. */
-  spawnedBy?: { roomId: string; agentId: string },
+   *  when its goal resolves, and its agents can ask_orchestrator mid-goal.
+   *  agentId resolves at execution time when a function (fused seats: the
+   *  spawner is the hat wearing the current turn). */
+  spawnedByRef?: { roomId: string; agentId: string | (() => string) },
 ): ToolDefinition<typeof spawnRoomSchema, undefined> {
+  const spawnedByNow = (): { roomId: string; agentId: string } | undefined =>
+    spawnedByRef
+      ? {
+          roomId: spawnedByRef.roomId,
+          agentId: typeof spawnedByRef.agentId === "function" ? spawnedByRef.agentId() : spawnedByRef.agentId,
+        }
+      : undefined
   return {
     name: "spawn_room",
     label: "Spawn Sub-Room",
@@ -75,6 +84,7 @@ export function createSpawnRoomToolDefinition(
     parameters: spawnRoomSchema,
     execute: async (_toolCallId, params) => {
       try {
+        const spawnedBy = spawnedByNow()
         const r = await orchestrator.spawnRoom({
           name: params.name,
           goal: params.goal,

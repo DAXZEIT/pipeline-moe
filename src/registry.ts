@@ -5,9 +5,11 @@ import { rmSync } from "node:fs"
 import { resolve } from "node:path"
 import { config } from "./config.js"
 import { checkHandoffGates } from "./handoff-gates.js"
-import { describeRosterBlock, type RosterSeatInfo } from "./roster-awareness.js"
+import { describeRosterBlock, type RosterMemberInfo } from "./roster-awareness.js"
 import { isAllowedModel as isAllowedModel_ } from "./model.js"
 import { Participant } from "./participant.js"
+import { SeatRuntime, type SeatDeps } from "./seat-runtime.js"
+import { clusterBySeat, seatIdOf, validateSeatModels } from "./seats.js"
 import type { ResolvedModel } from "./model.js"
 import type { ParentLink, RoomOrchestrator } from "./orchestrator.js"
 import type { TaskBoard } from "./task-board.js"
@@ -30,6 +32,10 @@ export interface RosterItem {
   vision?: boolean
   /** May run concurrently with adjacent parallel-flagged agents. */
   parallel: boolean
+  /** Fused seats: resolved seat id when this member shares a context with
+   *  others (the UI groups the hats and shows ONE gauge per seat). Absent →
+   *  singleton, render as before. */
+  seat?: string
   /** Context token usage — populated after each turn. */
   contextUsage?: { tokens: number | null; contextWindow: number; percent: number | null }
   /** Session stats — populated after each turn. */
@@ -45,6 +51,15 @@ export interface RosterItem {
 
 export class Registry implements HandoffSink, GoalVerdictSink {
   private participants = new Map<string, Participant>()
+  /** Fused seats: seat id → the SeatRuntime that OWNS the pi session. Every
+   *  participant belongs to exactly one (singleton seats included — one code
+   *  path). Lifecycle is refcounted here: a seat's session and its on-disk
+   *  dir survive until its LAST hat is kicked (grilling Q7). */
+  private seats = new Map<string, SeatRuntime>()
+  /** Seats defused by the one-seat-one-modelRef invariant during the last
+   *  batch load — their members run as singletons (loud fallback, never a
+   *  lying fusion). Recomputed by reset(). */
+  private defusedSeats = new Set<string>()
   /** Fired after any roster mutation (create/activate/kick). Used for autosave. */
   onChange: (() => void) | null = null
   /** Room-assigned hook: post a system-authored note to the transcript.
@@ -176,30 +191,40 @@ export class Registry implements HandoffSink, GoalVerdictSink {
    *  active seat with the RESOLVED model (pin ?? room default) and a compact
    *  tool summary. During a reset() batch, reads the incoming states so the
    *  first-created persona still sees the whole team. */
-  describeRoster(selfId: string): string | null {
+  describeRoster(self: string | string[]): string | null {
     const fallback = this.defaultModelRef() ?? null
-    let seats: RosterSeatInfo[]
+    let members: RosterMemberInfo[]
     if (this.pendingRosterStates) {
-      seats = this.pendingRosterStates
-        .filter((st) => st.active)
-        .map((st) => ({
-          id: st.id,
-          name: st.name,
-          modelRef: st.model ?? fallback,
-          tools: st.tools,
-          vision: st.vision,
-        }))
+      const states = this.pendingRosterStates.filter((st) => st.active)
+      // Seat clusters from the incoming states (the seat runtimes are still
+      // being built) — defused seats read as singletons.
+      const mates = new Map<string, string[]>()
+      for (const [seatId, hats] of clusterBySeat(states)) {
+        if (this.defusedSeats.has(seatId) || hats.length < 2) continue
+        for (const h of hats) mates.set(h.id, hats.filter((o) => o.id !== h.id).map((o) => o.id))
+      }
+      members = states.map((st) => ({
+        id: st.id,
+        name: st.name,
+        modelRef: st.model ?? fallback,
+        tools: st.tools,
+        vision: st.vision,
+        ...(mates.has(st.id) ? { seatId: seatIdOf(st), seatMates: mates.get(st.id) } : {}),
+      }))
     } else {
-      seats = this.activeParticipants().map((p) => ({
+      members = this.activeParticipants().map((p) => ({
         id: p.persona.id,
         name: p.persona.name,
         modelRef: p.persona.model ?? fallback,
         tools: p.persona.tools,
         vision: p.persona.vision,
+        ...(p.seat.fused()
+          ? { seatId: p.seat.seatId, seatMates: p.seat.hatIds().filter((id) => id !== p.persona.id) }
+          : {}),
       }))
     }
-    if (seats.length === 0) return null
-    return describeRosterBlock(seats, selfId)
+    if (members.length === 0) return null
+    return describeRosterBlock(members, self)
   }
 
   /** Push a fresh roster block (+ a one-line reason) to every active agent
@@ -210,8 +235,13 @@ export class Registry implements HandoffSink, GoalVerdictSink {
    *  never block the mutation that triggered it. */
   private notifyRosterChange(reason: string): void {
     if (this.pendingRosterStates) return
+    // One note per SEAT, not per participant — a fused seat is one session,
+    // and two copies of the same block would just burn its shared context.
+    const notified = new Set<SeatRuntime>()
     for (const p of this.activeParticipants()) {
-      const block = this.describeRoster(p.persona.id)
+      if (notified.has(p.seat)) continue
+      notified.add(p.seat)
+      const block = this.describeRoster(p.seat.fused() ? p.seat.hatIds() : p.persona.id)
       if (!block) continue
       void p
         .sendCustomMessage(
@@ -253,8 +283,46 @@ export class Registry implements HandoffSink, GoalVerdictSink {
     this.sessionRoot = root
   }
 
-  private sessionDirFor(personaId: string): string | undefined {
-    return this.sessionRoot ? resolve(this.sessionRoot, personaId) : undefined
+  private sessionDirFor(seatId: string): string | undefined {
+    return this.sessionRoot ? resolve(this.sessionRoot, seatId) : undefined
+  }
+
+  /** Resolved seat id for a persona, honoring defusions (a defused seat's
+   *  members run as singletons). */
+  private effectiveSeatId(persona: Persona): string {
+    const seatId = seatIdOf(persona)
+    return this.defusedSeats.has(seatId) ? persona.id : seatId
+  }
+
+  /** The dependency bundle a SeatRuntime builds its session from. */
+  private seatDeps(seatId: string): SeatDeps {
+    return {
+      resolved: this.resolved,
+      workspaceDir: this.workspaceDir,
+      orchestrator: this.orchestrator,
+      defaultThinkingLevel: this.defaultThinkingLevel,
+      allowCloud: this.allowCloud,
+      compactionReserveTokens: this.compactionReserveTokens,
+      sessionDir: this.sessionDirFor(seatId),
+      taskBoard: this.taskBoard,
+      roomId: this.roomId,
+      parentLink: this.parentLink,
+      handoffSink: this,
+      goalVerdictSink: this,
+    }
+  }
+
+  /** Seat id a live participant's context runs on (room traces — the
+   *  hat-switch suffix — and the UI read this). */
+  seatOf(id: string): string | undefined {
+    return this.participants.get(id)?.seat.seatId
+  }
+
+  /** Loud surface for seat warnings: the room transcript when wired, the
+   *  server log always. */
+  private warnSeat(message: string): void {
+    console.warn(`[seats] ${message}`)
+    this.onSystemNote?.(`⚠ ${message}`)
   }
 
   constructor(
@@ -370,6 +438,7 @@ export class Registry implements HandoffSink, GoalVerdictSink {
         vision: p.persona.vision,
         parallel: p.parallel,
       }
+      if (p.seat.fused()) item.seat = p.seat.seatId
       const usage = p.getContextUsage?.()
       if (usage) item.contextUsage = usage
       const stats = p.getSessionStats?.()
@@ -386,27 +455,49 @@ export class Registry implements HandoffSink, GoalVerdictSink {
     if (this.participants.has(persona.id)) {
       throw new Error(`participant "${persona.id}" already exists`)
     }
-    const participant = await Participant.create(
+    let seatId = this.effectiveSeatId(persona)
+    let seat = this.seats.get(seatId)
+    if (seat) {
+      // One seat = one modelRef: a newcomer pinning a DIFFERENT model than the
+      // live seat defuses ITSELF into a singleton (the existing seat keeps its
+      // context — less disruptive than splitting a lived-in session; whole-seat
+      // defusion applies at batch load, see reset()). DECLARED refs on purpose,
+      // same universe as validateSeatModels: resolution varies by environment
+      // (a missing GGUF falls back to the default model) and must not silently
+      // fuse contexts the preset meant to keep on different brains.
+      const seatRef = seat.hats[0]?.model ?? this.defaultModelRef() ?? "(process default)"
+      const newRef = persona.model ?? this.defaultModelRef() ?? "(process default)"
+      if (newRef !== seatRef) {
+        this.warnSeat(
+          `@${persona.id} declares seat "${seatId}" but runs ${newRef} while the seat runs ${seatRef} — ` +
+            `joining as its own context instead (seat == persona).`,
+        )
+        seatId = persona.id
+        seat = this.seats.get(seatId)
+      }
+    }
+    if (!seat) {
+      seat = await SeatRuntime.create(seatId, [persona], this.seatDeps(seatId))
+      this.seats.set(seatId, seat)
+    } else {
+      // Mid-conversation join: the newcomer opens its eyes in the seat's
+      // living context (grilling Q2 — this is the feature).
+      await seat.addHat(persona)
+    }
+    const participant = Participant.attach(
       persona,
-      this.resolved,
+      seat,
       (event, data) => this.hub.broadcast(event, data, this.roomId),
       this.workspaceDir,
-      this.orchestrator,
-      this.defaultThinkingLevel,
-      this.allowCloud,
-      this.compactionReserveTokens,
-      this.sessionDirFor(persona.id),
-      this.taskBoard,
-      this.roomId,
-      this.parentLink,
-      this,
       this,
     )
     // A resumed on-disk session already holds everything up to the saved
     // cursor — restoring it avoids replaying that context a second time. A
     // fresh session ignores the saved value and catches up on the whole
-    // transcript before its first turn.
-    participant.cursor = participant.resumed ? (savedCursor ?? 0) : 0
+    // transcript before its first turn. Seat-level: hats of a fused seat
+    // persist the same value; max() keeps the furthest-seen entry when a
+    // batch restores them one by one.
+    participant.cursor = participant.resumed ? Math.max(seat.cursor, savedCursor ?? 0) : 0
     participant.active = active
     participant.parallel = parallel
     this.participants.set(persona.id, participant)
@@ -425,6 +516,7 @@ export class Registry implements HandoffSink, GoalVerdictSink {
     if (!existing) throw new Error(`unknown participant "${id}"`)
     const order = [...this.participants.keys()]
     const wasActive = existing.active
+    const wasParallel = existing.parallel
     const persona: Persona = { ...existing.persona, ...patch, id }
 
     // The pi session is rebuilt rather than mutated in place: pi reconstructs
@@ -434,24 +526,41 @@ export class Registry implements HandoffSink, GoalVerdictSink {
     // (cursor=0, replay the transcript) apply.
     const cursorBefore = existing.cursor
     existing.dispose()
-    const replacement = await Participant.create(
+    let seat = existing.seat
+    // Declared refs, same universe as create()'s join check and
+    // validateSeatModels — never the environment-dependent resolved ref.
+    const seatRef = seat.hats.find((h) => h.id !== id)?.model ?? this.defaultModelRef() ?? "(process default)"
+    const newRef = persona.model ?? this.defaultModelRef() ?? "(process default)"
+    if (seat.fused() && newRef !== seatRef) {
+      // Model edit breaking the one-seat-one-modelRef invariant: the edited
+      // hat defuses into a singleton (fresh context — the orphaning semantics
+      // of grilling Q2), the rest of the seat lives on. Loud, never silent.
+      this.warnSeat(
+        `@${id} now runs ${newRef} while its "${seat.seatId}" seat runs ${seatRef} — ` +
+          `detached to its own context (seat == persona).`,
+      )
+      await seat.removeHat(id)
+      const soloId = persona.id
+      const solo = await SeatRuntime.create(soloId, [persona], this.seatDeps(soloId))
+      this.seats.set(soloId, solo)
+      seat = solo
+    } else {
+      await seat.replaceHat(persona)
+    }
+    const replacement = Participant.attach(
       persona,
-      this.resolved,
+      seat,
       (event, data) => this.hub.broadcast(event, data, this.roomId),
       this.workspaceDir,
-      this.orchestrator,
-      this.defaultThinkingLevel,
-      this.allowCloud,
-      this.compactionReserveTokens,
-      this.sessionDirFor(id),
-      this.taskBoard,
-      this.roomId,
-      this.parentLink,
-      this,
       this,
     )
-    replacement.cursor = replacement.resumed ? cursorBefore : 0
+    if (replacement.resumed) {
+      replacement.cursor = Math.max(seat.cursor, cursorBefore)
+    } else {
+      replacement.cursor = 0
+    }
     replacement.active = wasActive
+    replacement.parallel = wasParallel
 
     // Rebuild the Map in the original order (a plain set() would move it last,
     // reordering @all / first-active routing).
@@ -471,41 +580,18 @@ export class Registry implements HandoffSink, GoalVerdictSink {
     return replacement
   }
 
-  /** After a transcript rollback to `keep` entries: rebuild — from scratch,
-   *  on-disk session wiped — every participant whose cursor advanced past the
-   *  cut, because its private pi context literally contains the removed
-   *  messages. cursor=0 → it replays the kept transcript on its next turn.
-   *  Participants still at or behind the cut are left untouched. */
+  /** After a transcript rollback to `keep` entries: wipe — from scratch,
+   *  on-disk session deleted — every SEAT whose cursor advanced past the cut,
+   *  because its private pi context literally contains the removed messages.
+   *  cursor=0 → the seat replays the kept transcript on its next turn. Seats
+   *  still at or behind the cut are left untouched. The SeatRuntime objects
+   *  survive (participants keep their references); only sessions rebuild. */
   async rollbackSessions(keep: number): Promise<void> {
-    const order = [...this.participants.keys()]
     let changed = false
-    for (const id of order) {
-      const p = this.participants.get(id)!
-      if (p.cursor <= keep) continue
+    for (const seat of new Set([...this.participants.values()].map((p) => p.seat))) {
+      if (seat.cursor <= keep) continue
       changed = true
-      const { active, parallel, persona } = { active: p.active, parallel: p.parallel, persona: p.persona }
-      p.dispose()
-      if (p.sessionDir) rmSync(p.sessionDir, { recursive: true, force: true })
-      const fresh = await Participant.create(
-        persona,
-        this.resolved,
-        (event, data) => this.hub.broadcast(event, data, this.roomId),
-        this.workspaceDir,
-        this.orchestrator,
-        this.defaultThinkingLevel,
-        this.allowCloud,
-        this.compactionReserveTokens,
-        this.sessionDirFor(id),
-        this.taskBoard,
-        this.roomId,
-        this.parentLink,
-        this,
-        this,
-      )
-      fresh.cursor = 0
-      fresh.active = active
-      fresh.parallel = parallel
-      this.participants.set(id, fresh) // same key → map order preserved
+      await seat.wipe()
     }
     if (changed) {
       this.broadcastRoster()
@@ -582,14 +668,22 @@ export class Registry implements HandoffSink, GoalVerdictSink {
     return p
   }
 
-  kick(id: string): void {
+  /** Refcounted kick (grilling Q7): the hat leaves; the seat's session and
+   *  its on-disk dir survive while another hat lives there, and are dropped
+   *  only with the LAST hat — a future agent created with the same id must
+   *  not wake up with this seat's memory. */
+  async kick(id: string): Promise<void> {
     const p = this.participants.get(id)
     if (!p) throw new Error(`unknown participant "${id}"`)
+    const seat = p.seat
+    const dir = seat.sessionDir
     p.dispose()
-    // Drop the on-disk session too — a future agent created with the same id
-    // must not wake up with this one's memory.
-    if (p.sessionDir) rmSync(p.sessionDir, { recursive: true, force: true })
     this.participants.delete(id)
+    const empty = await seat.removeHat(id)
+    if (empty) {
+      this.seats.delete(seat.seatId)
+      if (dir) rmSync(dir, { recursive: true, force: true })
+    }
     this.notifyRosterChange(`@${id} left the room`)
     this.broadcastRoster()
     this.onChange?.()
@@ -611,6 +705,14 @@ export class Registry implements HandoffSink, GoalVerdictSink {
     try {
       for (const p of this.participants.values()) p.dispose()
       this.participants.clear()
+      for (const seat of this.seats.values()) seat.dispose()
+      this.seats.clear()
+      // One-seat-one-modelRef, validated batch-wide: violating seats defuse
+      // WHOLE (each member its own context) with a loud warning — a
+      // deterministic fallback, never an arbitrary winner.
+      const { warnings, defused } = validateSeatModels(states, (s) => s.model ?? this.defaultModelRef())
+      this.defusedSeats = defused
+      for (const w of warnings) this.warnSeat(w)
       for (const s of states) {
         const { active, parallel, cursor, ...persona } = s
         await this.create(persona, active, parallel ?? false, cursor)
@@ -626,6 +728,8 @@ export class Registry implements HandoffSink, GoalVerdictSink {
   disposeAll(): void {
     for (const p of this.participants.values()) p.dispose()
     this.participants.clear()
+    for (const seat of this.seats.values()) seat.dispose()
+    this.seats.clear()
   }
 
   /** True if a "provider/id" ref is a model the UI is allowed to assign. */

@@ -31,6 +31,16 @@ export interface Persona {
    *  description into the system prompt and the agent reads the body on
    *  demand — procedural playbooks stay out of the always-on prompt. */
   skills?: string[]
+  /** Fused seats (docs/fused-seats.md): id of the shared context this persona's
+   *  turns run in. Personas declaring the same seat share ONE pi session — the
+   *  persona becomes a per-turn hat (role prompt + tool allowlist) on it.
+   *  Absent/blank → the persona is its own singleton seat (pre-feature
+   *  behavior, zero migration). Opt-in: seed personas never declare one; the
+   *  preset is the model line-up, so fusion granularity follows the model
+   *  (a 9B line-up keeps one role per context; a 27B/frontier one fuses).
+   *  Invariant: every hat of a seat resolves to the same modelRef — violations
+   *  defuse the whole seat loudly (src/seats.ts validateSeatModels). */
+  seat?: string
 }
 
 export type ParticipantStatus = "idle" | "active" | "thinking" | "working" | "compacting" | "retrying"
@@ -161,11 +171,13 @@ export interface HandoffSink {
    *  Returns a correctable error message when a gate blocks it, null when
    *  allowed. Optional — absent means no gates are enforced. */
   checkGate?(from: string, to: string): string | null
-  /** Roster-awareness block for `selfId`'s system prompt: one line per
-   *  active seat (id, name, resolved model + local/cloud tag, tool summary,
-   *  vision) — see docs/roster-awareness.md. Optional so lightweight test
-   *  doubles keep compiling; absent → no block injected. */
-  describeRoster?(selfId: string): string | null
+  /** Roster-awareness block for `self`'s system prompt: one line per active
+   *  member (id, name, resolved model + local/cloud tag, tool summary, vision,
+   *  fused-seat annotation) — see docs/roster-awareness.md. `self` is a string
+   *  for a singleton, or every hat of a fused seat (the shared session reads
+   *  the block once, so all of its hats are "you"). Optional so lightweight
+   *  test doubles keep compiling; absent → no block injected. */
+  describeRoster?(self: string | string[]): string | null
   /** Post a system-authored note to the room transcript (the 🧠 reasoning-
    *  checkpoint traces — zero silent burn, same invariant as zero silent
    *  hop). Optional so lightweight test doubles keep compiling; absent →
