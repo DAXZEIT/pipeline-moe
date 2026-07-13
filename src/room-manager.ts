@@ -19,7 +19,7 @@ import type { RoomMount } from "./sshfs.js"
 import type { ResolvedModel } from "./model.js"
 import type { ParentLink } from "./orchestrator.js"
 import type { RoomOrchestrator } from "./orchestrator.js"
-import type { Persona } from "./types.js"
+import type { Persona, PersonaState } from "./types.js"
 
 export interface RoomSummary {
   roomId: string
@@ -95,6 +95,10 @@ export class RoomManager {
    *  Passed to each room's Registry so orchestrator personas get the tools.
    *  Must be set before createRoom() is called for the tools to be available. */
   private orchestrator?: RoomOrchestrator
+  /** Reads a preset document (rehydrated personas) so a room can rebuild its
+   *  drift baseline after a reboot. Injected by the server, which owns preset
+   *  file IO. Wired onto every room at createRoom time. */
+  private presetReader?: (name: string) => Promise<PersonaState[] | null>
   /** Serializes manifest writes so concurrent room mutations never interleave
    *  two writeFile-to-tmp operations. Each write snapshots the current Map. */
   private saveQueue: Promise<void> = Promise.resolve()
@@ -109,6 +113,12 @@ export class RoomManager {
   /** Inject the sub-room orchestrator. Call once at startup, before createRoom. */
   setOrchestrator(orchestrator: RoomOrchestrator): void {
     this.orchestrator = orchestrator
+  }
+
+  /** Inject the preset-document reader for drift baselines. Call once at startup,
+   *  before createRoom, so every room can rebuild its baseline on reboot. */
+  setPresetReader(fn: (name: string) => Promise<PersonaState[] | null>): void {
+    this.presetReader = fn
   }
 
   /**
@@ -174,6 +184,7 @@ export class RoomManager {
       !!(mount || sshTarget), // remote (sshfs) → skip per-turn full-tree snapshots
       taskBoard,
     )
+    if (this.presetReader) room.setPresetReader(this.presetReader)
 
     this.rooms.set(roomId, {
       room,

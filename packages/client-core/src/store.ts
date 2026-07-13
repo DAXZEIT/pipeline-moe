@@ -156,6 +156,8 @@ export function createRoomStore(opts: RoomStoreOptions) {
       if (s.defaultModel !== undefined) next.defaultModel = s.defaultModel
       if (s.maxRooms !== undefined) next.maxRooms = s.maxRooms
       if (s.handoffGates !== undefined) next.handoffGates = s.handoffGates
+      next.drift = s.drift ?? null
+      next.roomUsage = s.roomUsage ?? null
       next.pendingRoute = s.pendingRoute ? s.pendingRoute.proposals : null
       patch(next)
     }).catch(() => {})
@@ -255,6 +257,20 @@ export function createRoomStore(opts: RoomStoreOptions) {
 
     applyPreset: (name: string) =>
       rApi.applyPreset(name).catch((err) => {
+        fail(err)
+        throw err
+      }),
+
+    // /preset pull = re-apply the source preset (restore); /preset push = save
+    // the live roster back onto it. Both clear drift server-side.
+    pullPreset: (name: string) =>
+      rApi.applyPreset(name).catch((err) => {
+        fail(err)
+        throw err
+      }),
+
+    pushPreset: (name: string) =>
+      rApi.pushPreset(name).catch((err) => {
         fail(err)
         throw err
       }),

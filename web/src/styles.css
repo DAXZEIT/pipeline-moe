@@ -67,6 +67,34 @@ body {
   align-items: center;
   gap: 6px;
 }
+.roster-preset {
+  color: var(--muted);
+  font-size: 11px;
+  margin-top: 3px;
+  opacity: 0.8;
+}
+.roster-preset-drift {
+  color: var(--warning, #d9a441);
+  font-weight: 700;
+  margin-left: 1px;
+}
+.preset-drift-section {
+  border-bottom: 1px solid var(--border);
+}
+.preset-drift-star {
+  color: var(--warning, #d9a441);
+  font-weight: 700;
+  margin-left: 2px;
+}
+.preset-drift-note {
+  color: var(--muted);
+  font-size: 11px;
+  margin: 4px 0 6px;
+}
+.preset-drift-actions {
+  display: flex;
+  gap: 6px;
+}
 .dot {
   width: 7px;
   height: 7px;
@@ -433,6 +461,16 @@ body {
 .topbar-sub {
   color: var(--muted);
   font-size: 11px;
+}
+.topbar-ctx {
+  color: var(--muted);
+  font-size: 11px;
+  margin-left: 10px;
+  font-variant-numeric: tabular-nums;
+}
+.topbar-ctx-hot {
+  color: var(--warning, #d9a441);
+  font-weight: 600;
 }
 .chain-toggle {
   margin-left: auto;

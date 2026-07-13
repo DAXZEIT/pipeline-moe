@@ -536,6 +536,8 @@ export function App({
         routingMode={state.routingMode}
         roomId={store.roomId}
         messageCount={state.messages.length}
+        drift={state.drift}
+        roomUsage={state.roomUsage}
       />
       <CommandLine
         roster={state.roster}

@@ -269,6 +269,10 @@ export interface Conversation {
   compactionReserveTokens?: number
   /** Declarative handoff gates enforced in this discussion. Absent → none. */
   handoffGates?: HandoffGate[]
+  /** Name of the preset this discussion was born from (loadPreset/applyPreset).
+   *  Absent for ad-hoc rooms — drift tracking stays dormant (no badge, no line).
+   *  Provenance for the « line-up ≠ preset » drift notice + /preset pull|push. */
+  sourcePreset?: string
   /** The roster (personas + active flags) this discussion ran with. */
   personas: PersonaState[]
   transcript: TranscriptEntry[]

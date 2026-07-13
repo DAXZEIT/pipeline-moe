@@ -782,14 +782,29 @@ export const COMMANDS: Command[] = [
   },
   {
     name: "preset",
-    summary: "Save, load, or compose a room preset",
-    usage: "save <name> | load | new [from <name>] | edit <name>",
+    summary: "Save, load, pull/push, or compose a room preset",
+    usage: "save <name> | load | pull | push | new [from <name>] | edit <name>",
     run: async (ctx, args) => {
       const { target: sub, rest } = splitTarget(args)
       if (sub === "save") {
         const name = rest.trim()
         if (!name) return ctx.notify("Usage: /preset save <name>", "error")
         ctx.store.actions.savePreset(name).then(() => ctx.notify(`Preset "${name}" saved.`)).catch(() => {})
+        return
+      }
+      // pull/push act on the preset this room was born from (state.drift.preset).
+      if (sub === "pull" || sub === "push") {
+        const source = ctx.state.drift?.preset
+        if (!source) return ctx.notify("This room isn't from a preset — nothing to pull/push.", "error")
+        if (sub === "pull") {
+          ctx.store.actions.pullPreset(source)
+            .then(() => ctx.notify(`Restored roster from preset "${source}".`))
+            .catch(() => {})
+        } else {
+          ctx.store.actions.pushPreset(source)
+            .then(() => ctx.notify(`Saved current roster to preset "${source}".`))
+            .catch(() => {})
+        }
         return
       }
       if (sub === "load" || sub === "") {
@@ -816,7 +831,7 @@ export const COMMANDS: Command[] = [
         ctx.openOverlay({ kind: "presetComposer", initial: source, isNew: false })
         return
       }
-      ctx.notify("Usage: /preset save <name> | load | new [from <name>] | edit <name>", "error")
+      ctx.notify("Usage: /preset save <name> | load | pull | push | new [from <name>] | edit <name>", "error")
     },
   },
 ]

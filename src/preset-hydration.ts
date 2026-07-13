@@ -12,6 +12,11 @@
 import { SEED_PERSONAS } from "./personas.js"
 import type { Persona, PersonaState } from "./types.js"
 
+/** Runtime-only persona fields that a preset DOCUMENT never carries, so they
+ *  must be dropped before a live roster is compared against a preset — else
+ *  every room reads as drifted the moment an agent advances its cursor. */
+const RUNTIME_ONLY_FIELDS = ["cursor"] as const
+
 /** A persona as persisted in a preset file — systemPrompt is optional since
  *  seed personas rehydrate from SEED_PERSONAS at load time. */
 export interface PresetPersona extends Omit<PersonaState, "systemPrompt"> {
@@ -79,6 +84,58 @@ export function stripSeedFields(
  *  in-room file work), so silent inheritance would violate that intent — and it
  *  could not fix a present-but-incomplete list anyway. Tool additions stay a
  *  manual preset edit. */
+/** Order-independent, key-stable canonical form of a value, so two personas
+ *  that differ only in object-key or skills-array ORDER compare equal. */
+function canonicalize(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(canonicalize)
+  if (value && typeof value === "object") {
+    const obj = value as Record<string, unknown>
+    const out: Record<string, unknown> = {}
+    for (const k of Object.keys(obj).sort()) out[k] = canonicalize(obj[k])
+    return out
+  }
+  return value
+}
+
+/** Stable signature of a single persona for drift comparison: seed-owned fields
+ *  stripped (so a seed-inherited roster matches the stripped preset on disk),
+ *  runtime-only fields dropped, skills order-normalized, keys sorted. */
+function personaSignature(p: PresetPersona): string {
+  const clone = { ...p } as Record<string, unknown>
+  for (const f of RUNTIME_ONLY_FIELDS) delete clone[f]
+  if (Array.isArray(clone.skills)) clone.skills = [...(clone.skills as string[])].sort()
+  return JSON.stringify(canonicalize(clone))
+}
+
+/** True when the LIVE roster deviates from the preset DOCUMENT it was born from.
+ *
+ *  Both sides are normalized through `stripSeedFields` first — this is the
+ *  anti-false-positive invariant the whole feature turns on: a roster loaded
+ *  from a preset and never edited strips back to exactly the on-disk document,
+ *  so a pure seed inheritance reads as ZERO drift. Only a real edit (fused
+ *  seat, swapped model, added/removed agent, toggled active) moves a signature.
+ *
+ *  Comparison is by persona id, order-independent. A differing id SET (agent
+ *  added or removed) is drift; a differing signature for a shared id is drift. */
+export function rosterDeviatesFromPreset(
+  current: (PersonaState | PresetPersona)[],
+  preset: (PersonaState | PresetPersona)[],
+  seedPersonas: readonly Persona[] = SEED_PERSONAS,
+): boolean {
+  const sign = (list: (PersonaState | PresetPersona)[]): Map<string, string> => {
+    const map = new Map<string, string>()
+    for (const p of stripSeedFields(list, seedPersonas)) map.set(p.id, personaSignature(p))
+    return map
+  }
+  const a = sign(current)
+  const b = sign(preset)
+  if (a.size !== b.size) return true
+  for (const [id, sig] of a) {
+    if (b.get(id) !== sig) return true
+  }
+  return false
+}
+
 export function rehydrateSeedFields(
   personas: PresetPersona[],
   seedPersonas: readonly Persona[] = SEED_PERSONAS,

@@ -186,6 +186,32 @@ turns) — but the room total shrinks (no duplication), and the supervisor
 Fewer, bigger, better-instrumented contexts are exactly what a
 compaction-ordering supervisor wants to see.
 
+**Rendu concret (livré #12, 2026-07-12) :** la jauge `ctx:180K·78%` de la
+status bar EST ce « 2-3 jauges au lieu de 7 » rendu visible — `roomUsage`
+agrège les tokens **par siège distinct** (un maker seat compté une fois),
+couleur pilotée par le siège le plus chaud. La moitié profonde du #12
+(compaction au niveau room du transcript partagé) reste un chantier gaté
+sur son propre grilling : « qu'est-ce qui est *important* au niveau room »
+(décisions, receipts, board) vs ce qui se recompacte par siège.
+
+### 6. Persister l'arrangement de sièges — preset drift (livré #11)
+
+`/seats fuse` mute le roster VIVANT d'une room — un créateur de drift
+typique : l'utilisateur invente un arrangement de sièges qui n'existe dans
+aucun preset, et le perd au prochain preset load sans avertissement. Le
+compagnon de persistance est **preset drift** (ROADMAP #11, plan
+`.pi/plans/preset-drift.md`, livré + live-vérifié 2026-07-12), découplé
+exprès de la phase 1 mais né du même grilling (Q2).
+
+La room retient sa provenance (`sourcePreset`) ; dès que le roster vivant
+dévie du document preset — diff **normalisé via `stripSeedFields`** pour ne
+pas confondre héritage de SEED et vraie déviation — un badge `*` discret
+apparaît (StatusBar TUI, `roster-head` web) et une seule ligne system
+rappelle les deux sorties, vocabulaire git : `/preset pull` restaure le
+document, `/preset push` sauve l'arrangement vivant dans le preset. Ainsi
+la fusion de sièges bricolée à la volée devient un état qu'on peut graver
+ou jeter, jamais perdre en silence.
+
 ## Phase 2 — weights, only if measured, and only as LoRA
 
 - **Full merges are out on this hardware**: two 27B Q4 GGUFs ≈ 16 GB

@@ -2,6 +2,7 @@ import { useEffect, useState } from "react"
 import { Box, Text } from "ink"
 import type { RosterItem, RoutingMode } from "@pipeline-moe/client-core"
 import { ROUTING_COLOR } from "../input-mode"
+import { fmt } from "../roster-stats"
 import { fmtDuration } from "../transcript-format"
 
 /** Re-render once a second while a start time is set, and return the elapsed
@@ -31,6 +32,8 @@ export function StatusBar({
   routingMode,
   roomId,
   messageCount,
+  drift,
+  roomUsage,
   draftTargets,
 }: {
   connection: "connecting" | "connected" | "reconnecting"
@@ -43,6 +46,12 @@ export function StatusBar({
   routingMode: RoutingMode
   roomId: string
   messageCount: number
+  /** Preset provenance + drift. null when the room isn't from a preset. The
+   *  `*` (buffer-modified style) shows when the live roster deviates. */
+  drift?: { preset: string; deviates: boolean } | null
+  /** Room-level context load: tokens over DISTINCT seats + hottest seat %.
+   *  null before the first turn reports usage — the gauge stays hidden. */
+  roomUsage?: { tokens: number; hotPercent: number | null } | null
   /** Explicit routing of the CURRENT draft (t: will run, d: ignored dud
    *  mentions) — pasted transcripts quoting @handles route for real, so the
    *  bar says who runs BEFORE the user hits ⏎. Null when the draft routes
@@ -90,6 +99,27 @@ export function StatusBar({
         {"  "}room:{roomId}
         {"  "}msgs:{messageCount}
       </Text>
+      {drift ? (
+        <Text dimColor>
+          {"  "}preset:{drift.preset}
+          {drift.deviates ? <Text color="yellow">*</Text> : null}
+        </Text>
+      ) : null}
+      {roomUsage ? (
+        <Text>
+          <Text dimColor>{"  "}ctx:</Text>
+          {/* Tokens of the SHARED transcript (the GROUP context), counted once —
+              NOT a sum of per-seat personal contexts. Absolute in v1; hotPercent
+              is null until room compaction defines a threshold, so the color
+              stays neutral and no `·%` is appended. */}
+          <Text
+            color={roomUsage.hotPercent != null && roomUsage.hotPercent >= 80 ? "yellow" : "gray"}
+          >
+            {fmt(roomUsage.tokens)}
+            {roomUsage.hotPercent != null ? `·${Math.round(roomUsage.hotPercent)}%` : ""}
+          </Text>
+        </Text>
+      ) : null}
       {draftTargets ? (
         <Text>
           <Text dimColor>{"   "}⏎⇒ </Text>

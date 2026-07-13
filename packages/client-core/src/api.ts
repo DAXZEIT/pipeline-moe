@@ -75,6 +75,13 @@ export function createApi(API_BASE: string) {
         fetch(`${base}/presets/${name}/apply`, { method: "POST" }).then((r) =>
           json<{ ok: boolean; conversation: ConversationMeta; downgraded?: Array<{ agent: string; model: string }> }>(r),
         ),
+
+      // /preset push: save the live roster back onto its source preset and clear
+      // the drift badge. /preset pull is applyPreset(drift.preset) — no new verb.
+      pushPreset: (name: string) =>
+        fetch(`${base}/presets/${name}/push`, { method: "POST" }).then((r) =>
+          json<{ ok: boolean; preset: PresetFile }>(r),
+        ),
       transcript: () => fetch(`${base}/transcript`).then((r) => json<Message[]>(r)),
       workspace: () => fetch(`${base}/workspace`).then((r) => json<WorkspaceFile[]>(r)),
       tasks: () => fetch(`${base}/tasks`).then((r) => json<RoomTask[]>(r)),

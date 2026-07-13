@@ -221,6 +221,12 @@ export interface RoomSettings {
   pendingRoute: { proposals: RouteProposal[] } | null
   /** Review gates on agent handoffs. Absent on older servers. */
   handoffGates?: HandoffGate[]
+  /** Preset drift: live roster vs the preset it was born from. null/absent when
+   *  dormant (ad-hoc room or no baseline). Drives the `*` badge. */
+  drift?: { preset: string; deviates: boolean } | null
+  /** Room-level context load: tokens over DISTINCT seats + hottest seat %.
+   *  null/absent before the first turn reports usage. Drives the ctx gauge. */
+  roomUsage?: { tokens: number; hotPercent: number | null } | null
 }
 
 /** A built-in persona template (GET /api/persona-templates) for the Add-agent picker. */

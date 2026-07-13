@@ -4,18 +4,26 @@ import type { PresetFile } from "../types"
 
 interface Props {
   turnActive: boolean
+  /** Preset provenance + drift. null when the room isn't from a preset — the
+   *  Restore/Save-back controls stay hidden. */
+  drift?: { preset: string; deviates: boolean } | null
   onSave: (name: string) => Promise<unknown>
   onLoad: (name: string) => Promise<unknown>
   onApply: (name: string) => Promise<unknown>
+  /** /preset pull — re-apply the source preset (restore the born-with roster). */
+  onPull: (name: string) => Promise<unknown>
+  /** /preset push — save the live roster back onto the source preset. */
+  onPush: (name: string) => Promise<unknown>
 }
 
-export function PresetMenu({ turnActive, onSave, onLoad, onApply }: Props) {
+export function PresetMenu({ turnActive, drift, onSave, onLoad, onApply, onPull, onPush }: Props) {
   const [open, setOpen] = useState(false)
   const [presets, setPresets] = useState<PresetFile[]>([])
   const [savingName, setSavingName] = useState("")
   const [confirmId, setConfirmId] = useState<string | null>(null)
   const [loadingName, setLoadingName] = useState<string | null>(null)
   const [applyingName, setApplyingName] = useState<string | null>(null)
+  const [driftBusy, setDriftBusy] = useState<"pull" | "push" | null>(null)
   const wrapRef = useRef<HTMLDivElement>(null)
 
   // Fetch presets on open.
@@ -89,6 +97,32 @@ export function PresetMenu({ turnActive, onSave, onLoad, onApply }: Props) {
     })
   }
 
+  // Restore (pull) / Save-back (push) target the source preset EXCLUSIVELY —
+  // never a name typed elsewhere. Server enforces name === sourcePreset too.
+  const handlePull = () => {
+    if (!drift) return
+    setDriftBusy("pull")
+    onPull(drift.preset).then(() => {
+      setDriftBusy(null)
+      setOpen(false)
+    }).catch((err) => {
+      setDriftBusy(null)
+      alert(String(err.message ?? err))
+    })
+  }
+
+  const handlePush = () => {
+    if (!drift) return
+    setDriftBusy("push")
+    onPush(drift.preset).then(() => {
+      setDriftBusy(null)
+      refresh()
+    }).catch((err) => {
+      setDriftBusy(null)
+      alert(String(err.message ?? err))
+    })
+  }
+
   const hasCloud = (p: PresetFile) => p.personas.some((pp) => pp.model && !pp.model.startsWith("local/"))
 
   return (
@@ -103,6 +137,39 @@ export function PresetMenu({ turnActive, onSave, onLoad, onApply }: Props) {
 
       {open && (
         <div className="preset-menu">
+          {drift && (
+            <div className="preset-section preset-drift-section">
+              <label className="preset-label">
+                From preset “{drift.preset}”
+                {drift.deviates && <span className="preset-drift-star" title="Live roster deviates from this preset">*</span>}
+              </label>
+              {drift.deviates ? (
+                <>
+                  <div className="preset-drift-note">The live roster deviates from this preset.</div>
+                  <div className="preset-drift-actions">
+                    <button
+                      className="preset-save-btn"
+                      title={`Restore the roster saved in preset "${drift.preset}"`}
+                      disabled={turnActive || driftBusy !== null}
+                      onClick={handlePull}
+                    >
+                      {driftBusy === "pull" ? "restoring…" : "Restore"}
+                    </button>
+                    <button
+                      className="preset-save-btn"
+                      title={`Save the live roster back onto preset "${drift.preset}"`}
+                      disabled={turnActive || driftBusy !== null}
+                      onClick={handlePush}
+                    >
+                      {driftBusy === "push" ? "saving…" : "Save to preset"}
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <div className="preset-drift-note">Roster matches the preset.</div>
+              )}
+            </div>
+          )}
           <div className="preset-section">
             <label className="preset-label">Save current roster</label>
             <div className="preset-save-row">

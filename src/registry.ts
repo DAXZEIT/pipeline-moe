@@ -451,6 +451,12 @@ export class Registry implements HandoffSink, GoalVerdictSink {
     this.hub.broadcast("roster", this.roster(), this.roomId)
   }
 
+  // NOTE: the room gauge no longer sums per-seat context here. `ctx:` now counts
+  // the SHARED transcript once (Room.getRoomUsage → roomTranscriptTokens), the
+  // GROUP context — summing seats double-counted the shared log once per seat
+  // (dax, 2026-07-13). Per-seat PERSONAL context stays visible per-agent in the
+  // roster (item.contextUsage). The old `roomContextUsage()` seat-sum is gone.
+
   async create(persona: Persona, active = true, parallel = false, savedCursor?: number): Promise<Participant> {
     if (this.participants.has(persona.id)) {
       throw new Error(`participant "${persona.id}" already exists`)

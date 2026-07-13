@@ -13,6 +13,12 @@ import { SidePanel } from "./SidePanel"
 import type { RoomSummary } from "../types"
 import { useRoom } from "../useRoom"
 
+/** Compact token count for the room-level ctx gauge: "180K", "1.8K", "420". */
+function fmtTokens(n: number): string {
+  if (n >= 1000) return `${(n / 1000).toFixed(n >= 10000 ? 0 : 1)}K`
+  return String(n)
+}
+
 interface Props {
   /** The room this view is bound to. App keeps every open room's RoomView
    *  mounted (only the active one is shown), each with its own useRoom instance
@@ -53,6 +59,7 @@ export function RoomView({
         <Roster
           roster={room.roster}
           connected={room.connected}
+          drift={room.drift}
           defaultAgent={room.defaultAgent}
           turnActive={room.turnActive}
           onSetActive={room.setActive}
@@ -102,9 +109,12 @@ export function RoomView({
           />
           <PresetMenu
             turnActive={room.turnActive}
+            drift={room.drift}
             onSave={room.savePreset}
             onLoad={room.loadPreset}
             onApply={room.applyPreset}
+            onPull={room.pullPreset}
+            onPush={room.pushPreset}
           />
           <span className="topbar-sub">
             {room.paused
@@ -113,6 +123,15 @@ export function RoomView({
                 ? "agents running…"
                 : "ready"}
           </span>
+          {room.roomUsage ? (
+            <span
+              className={`topbar-ctx${room.roomUsage.hotPercent != null && room.roomUsage.hotPercent >= 80 ? " topbar-ctx-hot" : ""}`}
+              title="Shared room context — tokens of the group transcript, counted once (not a sum of per-seat contexts). Unchanged by /compact of an agent."
+            >
+              ctx:{fmtTokens(room.roomUsage.tokens)}
+              {room.roomUsage.hotPercent != null ? `·${Math.round(room.roomUsage.hotPercent)}%` : ""}
+            </span>
+          ) : null}
           <div className="topbar-routing">
           <div
             className="mode-select"

@@ -20,6 +20,9 @@ async function downloadAgent(id: string, kind: "html" | "jsonl"): Promise<void> 
 interface Props {
   roster: RosterItem[]
   connected: boolean
+  /** Preset provenance + drift. null when the room isn't from a preset. The
+   *  `*` (modified-buffer style) shows when the live roster deviates. */
+  drift?: { preset: string; deviates: boolean } | null
   defaultAgent: string | null
   turnActive: boolean
   onSetActive: (id: string, active: boolean) => void
@@ -89,6 +92,7 @@ function statsLabel(s: { tokens: { input: number; output: number; cacheRead: num
 export function Roster({
   roster,
   connected,
+  drift,
   defaultAgent,
   turnActive,
   onSetActive,
@@ -131,6 +135,19 @@ export function Roster({
           <span className={`dot ${connected ? "dot-on" : "dot-off"}`} />
           roster {activeCount}/{roster.length}
         </div>
+        {drift ? (
+          <div
+            className="roster-preset"
+            title={
+              drift.deviates
+                ? `Live roster deviates from preset "${drift.preset}" — use the 🎯 preset menu to Restore or Save to preset`
+                : `From preset "${drift.preset}"`
+            }
+          >
+            preset:{drift.preset}
+            {drift.deviates ? <span className="roster-preset-drift">*</span> : null}
+          </div>
+        ) : null}
       </div>
 
       <div className="roster-list">

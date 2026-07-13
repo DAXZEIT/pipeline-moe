@@ -6,6 +6,7 @@ import type { Persona } from "../types.js"
 import {
   type PresetPersona,
   rehydrateSeedFields,
+  rosterDeviatesFromPreset,
   stripSeedFields,
 } from "../preset-hydration.js"
 
@@ -152,5 +153,72 @@ describe("delivered presets — planner gets the orchestrator skill after hydrat
       // planner must come out orchestrator-capable.
       expect(planner.skills, `${f} planner skills`).toEqual(["orchestrator"])
     }
+  })
+})
+
+// ── Drift detection: live roster vs preset document ─────────────────────────
+
+describe("rosterDeviatesFromPreset — the anti-false-positive invariant", () => {
+  test("a roster loaded straight from a preset (seed inheritance) is ZERO drift", () => {
+    // The preset on disk stores planner stripped (no systemPrompt, no skills).
+    const presetDoc = [mk({ id: "planner", tools: ["read", "grep", "find", "ls"] })]
+    // The LIVE roster is the rehydrated form: systemPrompt + skills filled in.
+    const liveRoster = rehydrateSeedFields(presetDoc)
+    expect(rosterDeviatesFromPreset(liveRoster, presetDoc)).toBe(false)
+  })
+
+  test("a cursor advancing on the live roster is NOT drift (runtime-only field)", () => {
+    const presetDoc = [mk({ id: "planner" })]
+    const live = rehydrateSeedFields(presetDoc).map((p) => ({ ...p, cursor: 42 }))
+    expect(rosterDeviatesFromPreset(live, presetDoc)).toBe(false)
+  })
+
+  test("fusing a seat on the live roster IS drift", () => {
+    const presetDoc = [mk({ id: "planner" }), mk({ id: "scribe" })]
+    const live = rehydrateSeedFields(presetDoc)
+    live[0] = { ...live[0], seat: "shared" }
+    expect(rosterDeviatesFromPreset(live, presetDoc)).toBe(true)
+  })
+
+  test("swapping a model IS drift", () => {
+    const presetDoc = [mk({ id: "builder", model: "local/qwen" })]
+    const live = rehydrateSeedFields(presetDoc).map((p) => ({ ...p, model: "anthropic/opus" }))
+    expect(rosterDeviatesFromPreset(live, presetDoc)).toBe(true)
+  })
+
+  test("adding an agent IS drift", () => {
+    const presetDoc = [mk({ id: "planner" })]
+    const live = [...rehydrateSeedFields(presetDoc), mk({ id: "builder2" })]
+    expect(rosterDeviatesFromPreset(live, presetDoc)).toBe(true)
+  })
+
+  test("removing an agent IS drift", () => {
+    const presetDoc = [mk({ id: "planner" }), mk({ id: "builder" })]
+    const live = rehydrateSeedFields(presetDoc).filter((p) => p.id !== "builder")
+    expect(rosterDeviatesFromPreset(live, presetDoc)).toBe(true)
+  })
+
+  test("toggling active IS drift", () => {
+    const presetDoc = [mk({ id: "planner", active: true })]
+    const live = rehydrateSeedFields(presetDoc).map((p) => ({ ...p, active: false }))
+    expect(rosterDeviatesFromPreset(live, presetDoc)).toBe(true)
+  })
+
+  test("persona ORDER alone is not drift", () => {
+    const presetDoc = [mk({ id: "planner" }), mk({ id: "builder" })]
+    const live = rehydrateSeedFields(presetDoc).reverse()
+    expect(rosterDeviatesFromPreset(live, presetDoc)).toBe(false)
+  })
+
+  test("skills-array order alone is not drift (non-seed persona)", () => {
+    const presetDoc = [mk({ id: "custom", skills: ["a", "b", "c"] })]
+    const live = [mk({ id: "custom", skills: ["c", "a", "b"] })]
+    expect(rosterDeviatesFromPreset(live, presetDoc)).toBe(false)
+  })
+
+  test("a non-seed customized systemPrompt IS compared (drift when it differs)", () => {
+    const presetDoc = [mk({ id: "custom", systemPrompt: "original" })]
+    const live = [mk({ id: "custom", systemPrompt: "edited" })]
+    expect(rosterDeviatesFromPreset(live, presetDoc)).toBe(true)
   })
 })

@@ -5,6 +5,7 @@
 import { execFile, type ExecFileOptionsWithStringEncoding } from "node:child_process"
 import { rm } from "node:fs/promises"
 import { resolve } from "node:path"
+import { estimateTokens } from "@earendil-works/pi-coding-agent"
 import { config } from "./config.js"
 import { diffSnapshots, listWorkspace, receiptFromActivity, receiptHasChanges, snapshot } from "./receipts.js"
 import type { Registry } from "./registry.js"
@@ -15,6 +16,7 @@ import type { SseHub, SseEventName } from "./sse.js"
 import type { LocalModelLock } from "./local-model-lock.js"
 import { goalDispatchRetryPrompt, goalEvalPrompt, goalVerdictRetryPrompt } from "./personas.js"
 import { findPlanById, nextStepOwner, planAdoptionId } from "./plan-routing.js"
+import { rosterDeviatesFromPreset } from "./preset-hydration.js"
 import { hatSwitchSuffix } from "./seats.js"
 import { runSupervisorDecision, type SupervisorOutcome } from "./route-supervisor.js"
 import { TaskBoard } from "./task-board.js"
@@ -23,6 +25,7 @@ import type {
   ConversationMeta,
   HandoffGate,
   Persona,
+  PersonaState,
   RoomTask,
   RouteDecision,
   RoutingMode,
@@ -232,6 +235,23 @@ export class Room {
   private convTitle = "Discussion 1"
   private convCreatedAt = Date.now()
   private saveTimer: ReturnType<typeof setTimeout> | null = null
+
+  // ── Preset provenance & drift (« line-up ≠ preset ») ────────────────────────
+  /** Name of the preset the live conversation was born from. Undefined → ad-hoc
+   *  room, drift tracking dormant. Persisted as `sourcePreset` on the Conversation. */
+  private convSourcePreset: string | undefined
+  /** In-memory normalized snapshot of the preset DOCUMENT to diff the live roster
+   *  against. Set from the personas at load/apply/push; reloaded from disk on
+   *  reboot via `presetReader`. Undefined → no baseline → drift dormant. */
+  private presetBaseline: PersonaState[] | undefined
+  /** Whether the single deviation notice has already fired for the CURRENT drift.
+   *  Latch: one line per false→true transition, re-armed when the roster returns
+   *  to the preset (pull/push). Prevents a per-turn spam of the same notice. */
+  private driftLatched = false
+  /** Injected file-IO bridge so the room can re-read a preset document (rehydrated)
+   *  to rebuild `presetBaseline` after a reboot. Server wires it; absent in tests
+   *  → drift stays dormant until the next in-session load/apply. */
+  private presetReader?: (name: string) => Promise<PersonaState[] | null>
 
   constructor(
     private readonly registry: Registry,
@@ -518,10 +538,184 @@ export class Room {
       compactionReserveTokens: this.compactionReserveTokens,
       defaultModel: this.getDefaultModel(),
       handoffGates: this.handoffGates,
+      drift: this.computeDrift(),
+      roomUsage: this.getRoomUsage(),
     })
   }
 
+  /** Tokens of the SHARED room transcript — the GROUP context, counted once,
+   *  independent of any session. NOT the sum of per-seat personal contexts:
+   *  each seat's session carries its own copy of the conversation, so summing
+   *  seats counts the shared log once per seat (dax, 2026-07-13: "une addition
+   *  de chaque contexte n'a aucun but"). Measured with pi's OWN `estimateTokens`
+   *  (the same char/4 estimate that drives `shouldCompact`), so this number is
+   *  consistent with the eventual room-compaction threshold. Role-agnostic:
+   *  estimateTokens is chars/4 for every role, so wrapping each entry's textual
+   *  content as a user message gives the same count its true role would. Images
+   *  are passed as image blocks so estimateTokens weighs each at pi's own
+   *  ESTIMATED_IMAGE_CHARS (~1200 tokens) — the same weight `shouldCompact`
+   *  uses; text-only wrapping would silently undercount a transcript that
+   *  carries screenshots (auditor, 2026-07-13).
+   *
+   *  Cost gate (plan asked to measure before shipping a full rescan): direct
+   *  recompute benchmarked at 0.6 ms / 2000 entries, 1.2 ms / 10000 entries —
+   *  a 30-hop chain's worth of broadcasts is 18–37 ms total, negligible against
+   *  seconds-per-hop inference. So NO incremental accumulator: caching a total
+   *  maintained from N transcript-write sites (post/startFresh/applyConversation/
+   *  load) would trade this project's recurring N-seam divergence risk for a
+   *  ~1 ms saving. Direct calc, measured, is the honest choice. */
+  private roomTranscriptTokens(): number {
+    let total = 0
+    for (const e of this.transcript) {
+      let text = e.text ?? ""
+      if (e.reasoning) text += e.reasoning
+      if (e.activity) for (const a of e.activity) text += a.toolName + JSON.stringify(a.args ?? {})
+      if (e.question) text += e.question
+      const imageCount = e.images?.length ?? 0
+      if (text.length === 0 && imageCount === 0) continue
+      const content: Array<{ type: "text"; text: string } | { type: "image" }> = []
+      if (text.length > 0) content.push({ type: "text", text })
+      for (let i = 0; i < imageCount; i++) content.push({ type: "image" })
+      total += estimateTokens({ role: "user", content } as never)
+    }
+    return total
+  }
+
+  /** Room-level GROUP context: tokens of the shared transcript, counted once.
+   *  `hotPercent` stays null in v1 — the transcript has no window of its own; a
+   *  percent only becomes meaningful once room compaction defines the threshold.
+   *  Deliberately does NOT move on `/compact @agent`: compacting a seat's
+   *  personal session leaves the shared transcript unchanged (dax, 2026-07-13).
+   *  Null (dormant) when the transcript is empty. */
+  getRoomUsage(): { tokens: number; hotPercent: number | null } | null {
+    const tokens = this.roomTranscriptTokens()
+    return tokens > 0 ? { tokens, hotPercent: null } : null
+  }
+
+  /** The ONE compaction entry point. Every door — the internal `/compact`
+   *  slash command AND the two REST endpoints the TUI/Web actually call — routes
+   *  here, so the refresh seam (`broadcastSettings()` after a successful compact)
+   *  can't be present on one path and missing on another. That divergence was
+   *  exactly dax's `353K`-stuck bug: the slash handler broadcast, the REST
+   *  endpoints didn't, and the clients use REST (auditor, 2026-07-12).
+   *  Broadcasts ONLY on success — a sub-floor/no-op or errored compaction changed
+   *  nothing, so it must not emit a spurious refresh. `onStart` fires after
+   *  validation passes, before the (slow) compaction, for caller-side feedback. */
+  async compactParticipant(
+    id: string,
+    onStart?: () => void,
+  ): Promise<
+    | { ok: true; result: { summary: string; tokensBefore: number } }
+    | { ok: false; reason: "unknown" | "generating" | "error"; message: string }
+  > {
+    const target = this.registry.get(id)
+    if (!target) return { ok: false, reason: "unknown", message: `unknown participant "${id}"` }
+    // isGenerating, not isBusy: an ask_user pause holds pendingQuestion but the
+    // room is quiescent — that's a safe (and useful) moment to compact.
+    if (this.isGenerating()) {
+      return { ok: false, reason: "generating", message: "agents are generating — press Stop or wait before compacting" }
+    }
+    onStart?.()
+    try {
+      const result = await target.compact()
+      // Compaction shrank this seat's PERSONAL context (its session) — refresh
+      // the per-agent roster gauge, which carries per-seat contextUsage. It does
+      // NOT touch the room gauge: that counts the shared TRANSCRIPT, which a
+      // seat compaction leaves untouched (dax, 2026-07-13 — personal ≠ group).
+      // So broadcastRoster, not broadcastSettings: the room `ctx:` stays put.
+      this.registry.broadcastRoster()
+      return { ok: true, result }
+    } catch (err) {
+      return { ok: false, reason: "error", message: err instanceof Error ? err.message : String(err) }
+    }
+  }
+
+  /** Wire the preset-document reader so drift survives a reboot. */
+  setPresetReader(fn: (name: string) => Promise<PersonaState[] | null>): void {
+    this.presetReader = fn
+  }
+
+  /** Public drift snapshot for the REST settings payload. Null when dormant. */
+  getDrift(): { preset: string; deviates: boolean } | null {
+    return this.computeDrift() ?? null
+  }
+
+  /** The preset this room was born from, or null when ad-hoc. Lets the server
+   *  reject a /preset push aimed at anything other than the true source. */
+  getSourcePreset(): string | null {
+    return this.convSourcePreset ?? null
+  }
+
+  /** Adopt the LIVE roster as the new drift baseline after it was saved back to
+   *  its source preset (/preset push). Drift clears, the latch re-arms, and the
+   *  conversation is persisted immediately so a reboot re-reads the SAVED preset
+   *  as baseline (no phantom drift). No-op for an ad-hoc room. */
+  async rebaselineToCurrentRoster(): Promise<void> {
+    if (!this.convSourcePreset) return
+    this.presetBaseline = this.registry.personaStates()
+    this.driftLatched = false
+    this.broadcastSettings()
+    await this.saveCurrent()
+  }
+
+  /** Stamp preset provenance onto a freshly-initialized room born from a preset
+   *  (provisionRoom → createRoom → init, whose startFresh cleared it). The drift
+   *  baseline is the born-with roster; persisted so badge/pull/push survive a
+   *  reboot. Distinct from loadPreset (which starts a NEW discussion in an
+   *  EXISTING room) — here the room itself is new and already initialized. */
+  async adoptPresetProvenance(presetName: string, baseline: PersonaState[]): Promise<void> {
+    this.convSourcePreset = presetName
+    this.presetBaseline = baseline
+    this.driftLatched = false
+    this.broadcastSettings()
+    await this.saveCurrent()
+  }
+
+  /** Current drift state, or undefined when dormant (ad-hoc room, or no baseline
+   *  yet). `deviates` is a pure diff of the live roster vs the preset document,
+   *  both normalized so a seed-inherited roster reads as zero drift. */
+  private computeDrift(): { preset: string; deviates: boolean } | undefined {
+    if (!this.convSourcePreset || !this.presetBaseline) return undefined
+    const deviates = rosterDeviatesFromPreset(this.registry.personaStates(), this.presetBaseline)
+    return { preset: this.convSourcePreset, deviates }
+  }
+
+  /** Re-evaluate drift on a roster change: fire the ONE deviation notice on the
+   *  false→true edge, re-arm the latch when the roster returns to the preset,
+   *  and push the refreshed drift bit so the badge tracks live. */
+  private evaluateDrift(): void {
+    const drift = this.computeDrift()
+    if (!drift) {
+      this.driftLatched = false
+      return
+    }
+    if (drift.deviates && !this.driftLatched) {
+      this.driftLatched = true
+      this.post(
+        "system",
+        "Preset",
+        `line-up deviates from preset "${drift.preset}" — /preset pull to restore it, /preset push to save it`,
+      )
+    } else if (!drift.deviates) {
+      this.driftLatched = false
+    }
+    // NB: no broadcast here. The sole caller (registry.onChange) owns the
+    // settings broadcast so EVERY roster/seat mutation refreshes the room-level
+    // aggregate (roomUsage) too — not just drift. Broadcasting here would both
+    // double-fire and, for an ad-hoc room (early return above), skip the refresh
+    // the gauge needs after a kick/fuse/solo (auditor, 2026-07-12).
+  }
+
   // ── Conversation lifecycle ──────────────────────────────────────────────────
+
+  /** The room's seed roster as a fresh-start line-up. For the default room the
+   *  seed is `Persona[]` (no `active`) so everyone defaults active; for a
+   *  preset-BORN room the seed IS the preset's `PersonaState[]`, so its own
+   *  `active` flags are honored — force-activating them made a preset with an
+   *  inactive agent read as instant drift at birth (tester, 2026-07-12). */
+  private seedRoster(): PersonaState[] {
+    return this.seedPersonas.map((p) => ({ ...p, active: (p as PersonaState).active ?? true }))
+  }
 
   /** Load the most recent saved conversation, or seed a fresh one. Wires autosave. */
   async init(): Promise<void> {
@@ -531,13 +725,21 @@ export class Room {
     if (latest) {
       await this.applyConversation(latest)
     } else {
-      await this.startFresh(
-        "Discussion 1",
-        this.seedPersonas.map((p) => ({ ...p, active: true })),
-      )
+      await this.startFresh("Discussion 1", this.seedRoster())
     }
-    // From now on, any roster change autosaves the current conversation.
-    this.registry.onChange = () => this.scheduleSave()
+    // From now on, any roster change autosaves the current conversation AND
+    // re-evaluates preset drift (fires the one-shot deviation notice, updates
+    // the badge bit) — a fused/defused seat is exactly such a change.
+    this.registry.onChange = () => {
+      // Any roster/seat mutation (kick, activate, model edit, fuse/solo) lands
+      // here. Recompute the drift latch, then broadcast settings UNCONDITIONALLY
+      // so the room-level context gauge tracks the live seat topology — a fuse
+      // changes the number of distinct seats, so the aggregate must refresh even
+      // when there's no preset drift to report.
+      this.evaluateDrift()
+      this.broadcastSettings()
+      this.scheduleSave()
+    }
     // 🧠 reasoning-checkpoint traces (src/reasoning-budget.ts) land in the
     // transcript live — zero silent burn, same invariant as zero silent hop.
     this.registry.onSystemNote = (text) => this.post("system", "Budget", text)
@@ -559,6 +761,7 @@ export class Room {
       allowCloud: this.allowCloud,
       compactionReserveTokens: this.compactionReserveTokens,
       ...(this.handoffGates.length > 0 ? { handoffGates: this.handoffGates } : {}),
+      ...(this.convSourcePreset ? { sourcePreset: this.convSourcePreset } : {}),
       personas: this.registry.personaStates(),
       transcript: this.transcript,
       tasks: this.taskBoard.serialize(),
@@ -674,6 +877,12 @@ export class Room {
     this.convId = newConvId()
     this.convTitle = title
     this.convCreatedAt = Date.now()
+    // Fresh discussion → no provenance until loadPreset re-stamps it (it calls
+    // startFresh then sets convSourcePreset). newConversation leaves it cleared:
+    // an inherited roster starts ad-hoc, drift dormant.
+    this.convSourcePreset = undefined
+    this.presetBaseline = undefined
+    this.driftLatched = false
     this.transcript = []
     this.taskBoard.load([]) // fresh discussion → empty board
     this.broadcastTasks()
@@ -694,6 +903,12 @@ export class Room {
     this.convId = conv.id
     this.convTitle = conv.title
     this.convCreatedAt = conv.createdAt
+    // Restore preset provenance. The baseline (preset document) can't be read
+    // from here — file IO lives behind presetReader — so it's reloaded below
+    // after the roster is in place. Until then drift stays dormant.
+    this.convSourcePreset = conv.sourcePreset
+    this.presetBaseline = undefined
+    this.driftLatched = false
     this.registry.setSessionRoot?.(this.agentSessionRoot(conv.id))
     this.routingMode = conv.routingMode ?? (conv.chaining ? "auto" : "manual")
     this.defaultAgentId = conv.defaultAgent ?? null
@@ -727,7 +942,7 @@ export class Room {
     let healed = false
     let personas = conv.personas
     if (personas.length === 0) {
-      personas = this.seedPersonas.map((p) => ({ ...p, active: true }))
+      personas = this.seedRoster()
       healed = true
     }
     await this.registry.reset(personas)
@@ -736,6 +951,22 @@ export class Room {
     // cursor=0 and catch up on the whole transcript on their next turn.
     this.transcript = conv.transcript.map((e) => ({ ...e }))
     this.taskBoard.load(conv.tasks ?? []) // back-compat: older saves have no board
+    // Rebuild the drift baseline from the preset document on disk (reboot/switch
+    // path). Best-effort: a since-deleted preset or an unwired reader leaves
+    // drift dormant rather than crashing the load. Compare AFTER the roster is
+    // live so an already-deviated saved room re-latches correctly.
+    if (this.convSourcePreset && this.presetReader) {
+      try {
+        const baseline = await this.presetReader(this.convSourcePreset)
+        if (baseline) {
+          this.presetBaseline = baseline
+          const drift = this.computeDrift()
+          this.driftLatched = drift?.deviates ?? false
+        }
+      } catch {
+        // Unreadable preset → leave drift dormant.
+      }
+    }
     this.broadcastSettings()
     this.emit("transcript", this.transcript)
     this.broadcastTasks()
@@ -757,19 +988,46 @@ export class Room {
   }
 
   /** Start a new discussion with a preset roster. Returns its metadata. */
-  async loadPreset(personas: Conversation["personas"], title?: string): Promise<ConversationMeta> {
+  async loadPreset(
+    personas: Conversation["personas"],
+    title?: string,
+    presetName?: string,
+  ): Promise<ConversationMeta> {
     this.ensureIdle()
     await this.saveCurrent()
     const count = (await this.store.list()).length
     await this.startFresh(title?.trim() || `Discussion ${count + 1}`, personas)
+    // Stamp provenance AFTER startFresh (which clears it). A freshly loaded
+    // preset is by definition not deviated → baseline = the loaded personas,
+    // latch disarmed.
+    if (presetName) {
+      this.convSourcePreset = presetName
+      this.presetBaseline = personas
+      this.driftLatched = false
+      this.broadcastSettings()
+      // Persist SYNCHRONOUSLY before returning: startFresh's save ran BEFORE the
+      // stamp, so this second write is the only snapshot carrying sourcePreset.
+      // Without awaiting, the HTTP 200 could precede it (setHandoffGates only
+      // does void saveCurrent()) and a crash restores the room as ad-hoc — the
+      // same write-then-persist invariant the other three provenance paths hold.
+      await this.saveCurrent()
+    }
     return conversationMeta(this.buildConversation())
   }
 
   /** Apply a preset roster to the current room — replaces agents in-place without
    *  changing the conversation id, title, or transcript. Persists immediately so
    *  the roster survives reboot. */
-  async applyPreset(personas: Conversation["personas"]): Promise<ConversationMeta> {
+  async applyPreset(
+    personas: Conversation["personas"],
+    presetName?: string,
+  ): Promise<ConversationMeta> {
     this.ensureIdle()
+    // Stamp provenance BEFORE reset so the onChange fired by reset already sees
+    // the fresh baseline (roster==preset → no spurious deviation notice).
+    this.convSourcePreset = presetName
+    this.presetBaseline = presetName ? personas : undefined
+    this.driftLatched = false
     // A preset replaces the roster wholesale — wipe this conversation's agent
     // sessions so a same-id persona doesn't wake up with the old one's memory.
     const root = this.agentSessionRoot(this.convId)
@@ -818,11 +1076,7 @@ export class Room {
       const metas = await this.store.list()
       const next = metas[0] ? await this.store.read(metas[0].id) : null
       if (next) await this.applyConversation(next)
-      else
-        await this.startFresh(
-          "Discussion 1",
-          this.seedPersonas.map((p) => ({ ...p, active: true })),
-        )
+      else await this.startFresh("Discussion 1", this.seedRoster())
     } else {
       await this.broadcastConversations()
     }
@@ -1623,6 +1877,13 @@ export class Room {
         if (stats) payload.sessionStats = stats
         this.emit("status", payload)
       }
+      // A turn appended to the shared transcript — refresh the room gauge so
+      // `ctx:` tracks the transcript that just grew. UNCONDITIONAL: the refresh
+      // must not hinge on this agent's per-seat `usage` being present (a turn
+      // that auto-compacted mid-generation can report tokens:null), because the
+      // room gauge counts the TRANSCRIPT, not this seat. Always broadcast at run
+      // end; getRoomUsage() recomputes from the transcript.
+      this.broadcastSettings()
 
       return {
         target,
@@ -1766,23 +2027,19 @@ export class Room {
           this.notice(`/compact: usage — /compact @agent`, "error")
           return true
         }
-        const target = this.registry.get(id)
-        if (!target) {
+        // Route through the shared op so this path and the REST endpoints share
+        // ONE compact-then-broadcast contract (see compactParticipant).
+        const outcome = await this.compactParticipant(id, () =>
+          this.notice(`Compacting @${id}'s context…`),
+        )
+        if (outcome.ok) {
+          this.notice(`@${id} compacted: ${outcome.result.tokensBefore} tokens before → summary generated.`)
+        } else if (outcome.reason === "unknown") {
           this.notice(`/compact: unknown participant "${rawTarget ?? ""}".`, "error")
-          return true
-        }
-        // isGenerating, not isBusy: an ask_user pause is a quiescent room —
-        // compacting there is safe and it's exactly when you want the headroom.
-        if (this.isGenerating()) {
+        } else if (outcome.reason === "generating") {
           this.notice(`/compact: agents are generating — wait or press Stop first.`, "error")
-          return true
-        }
-        this.notice(`Compacting @${id}'s context…`)
-        try {
-          const result = await target.compact()
-          this.notice(`@${id} compacted: ${result.tokensBefore} tokens before → summary generated.`)
-        } catch (err) {
-          this.notice(`/compact @${id} failed: ${err instanceof Error ? err.message : String(err)}`, "error")
+        } else {
+          this.notice(`/compact @${id} failed: ${outcome.message}`, "error")
         }
         return true
       }

@@ -300,6 +300,12 @@ async function main(): Promise<void> {
   const explicitlyEnabledProviders = new Set<string>()
 
   const roomManager = new RoomManager(resolved, hub, explicitlyEnabledProviders, SEED_PERSONAS)
+  // Let every room rebuild its drift baseline after a reboot by re-reading the
+  // preset document (rehydrated, as loadPreset saw it). Server owns preset IO.
+  roomManager.setPresetReader(async (name) => {
+    const preset = await readPreset(name)
+    return preset ? rehydrateSeedFields(preset.personas) : null
+  })
 
   // Preset loads downgrade unavailable models (stale cloud id, swapped local
   // quant…) to the process default instead of blocking the whole load.
@@ -411,6 +417,12 @@ async function main(): Promise<void> {
 
       const newRoom = roomManager.createRoom(roomId, name, overridePersonas, effectiveWorkspaceDir, mount, undefined, parentLink)
       await newRoom.init()
+      // init() startFresh'd the roster and cleared provenance. A room BORN from
+      // a preset must carry it: stamp {sourcePreset, baseline} so the badge shows
+      // and /preset pull|push work. The baseline is the born-with roster.
+      if (presetName && overridePersonas) {
+        await newRoom.adoptPresetProvenance(presetName, overridePersonas)
+      }
 
       // Close the spawn loop: when the sub-room's goal resolves, wake the
       // spawner with a report (status + transcript tail) instead of making it
@@ -604,6 +616,47 @@ async function main(): Promise<void> {
     }
   }
 
+  // /preset push: snapshot the LIVE roster back onto its source preset, then
+  // re-baseline the room so drift clears and the badge/latch reset. Distinct
+  // from POST /api/presets (arbitrary save) by that re-baseline step — this is
+  // the drift-clearing save.
+  const doPushPreset = async (r: Room, name: string, res: express.Response): Promise<void> => {
+    if (!name) {
+      res.status(400).json({ error: "`name` is required" })
+      return
+    }
+    // Push clears drift by re-baselining THIS room against the preset it was
+    // born from. Writing an arbitrary `name` would rebaseline against a file
+    // that isn't the room's source: the badge would clear locally while
+    // sourcePreset still points elsewhere, and a reboot re-reads the OLD
+    // baseline — the drift reappears. Refuse anything but the true source.
+    const source = r.getSourcePreset()
+    if (!source) {
+      res.status(409).json({ error: "this room isn't from a preset — nothing to push" })
+      return
+    }
+    if (name !== source) {
+      res.status(409).json({ error: `push targets the room's source preset "${source}", not "${name}"` })
+      return
+    }
+    if (r.isBusy()) {
+      res.status(409).json({ error: "a turn is running — press Stop before pushing a preset" })
+      return
+    }
+    try {
+      const personas = stripSeedFields(r.getRegistry().personaStates())
+      const gates = r.getHandoffGates()
+      const preset: PresetFile = { name, personas, ...(gates.length > 0 ? { handoffGates: gates } : {}) }
+      await writePreset(preset)
+      // Rebaseline persists the conversation snapshot before we answer, so the
+      // HTTP success never precedes the save (no reboot-drift race).
+      await r.rebaselineToCurrentRoster()
+      res.json({ ok: true, preset })
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : String(err) })
+    }
+  }
+
   const doLoadPreset = async (r: Room, name: string, res: express.Response): Promise<void> => {
     if (r.isBusy()) {
       res.status(409).json({ error: "a turn is running — press Stop before loading a preset" })
@@ -623,7 +676,7 @@ async function main(): Promise<void> {
       // Unavailable models (stale cloud id, swapped local quant…) fall back to the
       // default instead of blocking the whole preset — the human is told which.
       const downgraded = downgradeModels(personas)
-      const meta = await r.loadPreset(personas, `${name} — ${new Date().toLocaleTimeString()}`)
+      const meta = await r.loadPreset(personas, `${name} — ${new Date().toLocaleTimeString()}`, name)
       r.setHandoffGates(preset.handoffGates ?? [])
       res.json({ ok: true, conversation: meta, downgraded })
     } catch (err) {
@@ -649,7 +702,7 @@ async function main(): Promise<void> {
         return
       }
       const downgraded = downgradeModels(personas)
-      const meta = await r.applyPreset(personas)
+      const meta = await r.applyPreset(personas, name)
       r.setHandoffGates(preset.handoffGates ?? [])
       res.json({ ok: true, conversation: meta, downgraded })
     } catch (err) {
@@ -703,6 +756,7 @@ async function main(): Promise<void> {
   // ── Apply preset roster to current room (in-place, no new conversation) ──
 
   app.post("/api/presets/:name/apply", (req, res) => doApplyPreset(room, req.params.name, res))
+  app.post("/api/presets/:name/push", (req, res) => doPushPreset(room, req.params.name, res))
 
   // Serve saved images from the media directory.
   app.get("/api/media/:filename", async (req, res) => {
@@ -1219,6 +1273,8 @@ async function main(): Promise<void> {
     maxRooms: config.maxRooms,
     pendingRoute: r.getPendingRoute(),
     handoffGates: r.getHandoffGates(),
+    drift: r.getDrift(),
+    roomUsage: r.getRoomUsage(),
   })
 
   const parseRouteDecision = (body: Record<string, unknown>): RouteDecision | null => {
@@ -1441,26 +1497,15 @@ async function main(): Promise<void> {
     }
   })
 
-  // Compact a specific agent's session context.
+  // Compact a specific agent's session context. Routes through the shared Room
+  // op so this endpoint (the one the TUI/Web actually call) gets the same
+  // compact-then-broadcastSettings contract as the internal /compact command.
   app.post("/api/participants/:id/compact", async (req, res) => {
-    const { id } = req.params
-    const p = registry.get(id)
-    if (!p) {
-      res.status(404).json({ error: `unknown participant "${id}"` })
-      return
-    }
-    // isGenerating, not isBusy: an ask_user pause holds pendingQuestion but the
-    // room is quiescent — that's a safe (and useful) moment to compact.
-    if (room.isGenerating()) {
-      res.status(409).json({ error: "agents are generating — press Stop or wait before compacting" })
-      return
-    }
-    try {
-      const result = await p.compact()
-      res.json(result)
-    } catch (err) {
-      res.status(500).json({ error: err instanceof Error ? err.message : String(err) })
-    }
+    const outcome = await room.compactParticipant(req.params.id)
+    if (outcome.ok) res.json(outcome.result)
+    else if (outcome.reason === "unknown") res.status(404).json({ error: outcome.message })
+    else if (outcome.reason === "generating") res.status(409).json({ error: outcome.message })
+    else res.status(500).json({ error: outcome.message })
   })
 
   // Export agent's session as self-contained HTML.
@@ -1977,6 +2022,7 @@ async function main(): Promise<void> {
   })
   roomRouter.post("/presets/:name/load", (req, res) => doLoadPreset(roomOf(req), req.params.name, res))
   roomRouter.post("/presets/:name/apply", (req, res) => doApplyPreset(roomOf(req), req.params.name, res))
+  roomRouter.post("/presets/:name/push", (req, res) => doPushPreset(roomOf(req), req.params.name, res))
 
   roomRouter.post("/messages", rateLimit({ windowMs: 60_000, max: 60, standardHeaders: true, legacyHeaders: false }), async (req, res) => {
     const text = String(req.body?.text ?? "").trim()
@@ -2048,24 +2094,11 @@ async function main(): Promise<void> {
   })
 
   roomRouter.post("/participants/:id/compact", async (req, res) => {
-    const r = roomOf(req)
-    const p = r.getRegistry().get(req.params.id)
-    if (!p) {
-      res.status(404).json({ error: `unknown participant "${req.params.id}"` })
-      return
-    }
-    // isGenerating, not isBusy: an ask_user pause holds pendingQuestion but the
-    // room is quiescent — that's a safe (and useful) moment to compact.
-    if (r.isGenerating()) {
-      res.status(409).json({ error: "agents are generating — press Stop or wait before compacting" })
-      return
-    }
-    try {
-      const result = await p.compact()
-      res.json(result)
-    } catch (err) {
-      res.status(500).json({ error: err instanceof Error ? err.message : String(err) })
-    }
+    const outcome = await roomOf(req).compactParticipant(req.params.id)
+    if (outcome.ok) res.json(outcome.result)
+    else if (outcome.reason === "unknown") res.status(404).json({ error: outcome.message })
+    else if (outcome.reason === "generating") res.status(409).json({ error: outcome.message })
+    else res.status(500).json({ error: outcome.message })
   })
 
   roomRouter.get("/participants/:id/export", async (req, res) => {

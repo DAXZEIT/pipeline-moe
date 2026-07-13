@@ -80,6 +80,13 @@ export interface RoomState {
   defaultModel: string | null
   /** Review gates on agent handoffs (empty when the room enforces none). */
   handoffGates: HandoffGate[]
+  /** Preset drift: the live roster deviates from the preset it was born from.
+   *  null when dormant — ad-hoc room, or no drift baseline. Drives the `*` badge. */
+  drift: { preset: string; deviates: boolean } | null
+  /** Room-level context load: tokens summed over DISTINCT seats (a fused seat
+   *  counted once), hotPercent = the hottest seat's %. null before the first
+   *  turn reports usage. Drives the status-bar `ctx:180K·78%` gauge. */
+  roomUsage: { tokens: number; hotPercent: number | null } | null
   pendingRoute: RouteProposal[] | null
   maxRooms: number
   conversations: ConversationMeta[]
@@ -122,6 +129,8 @@ export const initialRoomState: RoomState = {
   compactionReserveTokens: 38000,
   defaultModel: null,
   handoffGates: [],
+  drift: null,
+  roomUsage: null,
   pendingRoute: null,
   maxRooms: 8,
   conversations: [],
@@ -392,6 +401,8 @@ export function reduce(state: RoomState, event: SseEvent): ReduceResult {
         compactionReserveTokens?: number
         defaultModel?: string | null
         handoffGates?: HandoffGate[]
+        drift?: { preset: string; deviates: boolean } | null
+        roomUsage?: { tokens: number; hotPercent: number | null } | null
       }
       const next: RoomState = { ...state, chaining: d.chaining }
       if (d.routingMode !== undefined) next.routingMode = d.routingMode
@@ -404,6 +415,10 @@ export function reduce(state: RoomState, event: SseEvent): ReduceResult {
       if (d.compactionReserveTokens !== undefined) next.compactionReserveTokens = d.compactionReserveTokens
       if (d.defaultModel !== undefined) next.defaultModel = d.defaultModel
       if (d.handoffGates !== undefined) next.handoffGates = d.handoffGates
+      // Settings always carries the drift bit (undefined → dormant → null).
+      next.drift = d.drift ?? null
+      // …and the room-level context aggregate (undefined → dormant → null).
+      next.roomUsage = d.roomUsage ?? null
       return noEffects(next)
     }
 
