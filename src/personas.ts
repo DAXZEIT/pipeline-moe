@@ -597,6 +597,31 @@ export const SEED_PERSONAS: Persona[] = [
   },
 ]
 
+// ─── Solo mode ─────────────────────────────────────────────────────────────
+
+/** The /solo persona: a bare hat that layers NOTHING on top of pi's own
+ *  system prompt (~/.pi/agent/SYSTEM.md + skills). The empty systemPrompt is
+ *  the whole point — combined with the lone-agent auto-degrade in
+ *  seat-runtime (no ROOM_NOTE, no roster block, no handoff tool), the room
+ *  runs an unmodified pi with the pipeline's infrastructure around it:
+ *  workspace confinement, transcript, presets-free lifecycle, gauges. Full
+ *  hands on purpose — this IS pi, not a role. Never part of SEED_PERSONAS;
+ *  built on demand by provisionRoom({solo}). */
+export function soloPersona(model?: string): Persona {
+  return {
+    id: "pi",
+    name: "pi",
+    color: "#B48EAD",
+    icon: "π",
+    tools: [
+      "read", "bash", "edit", "write", "grep", "find", "ls",
+      "web_search", "web_read", "youtube_transcript", "arxiv_search", "youcom_search",
+    ],
+    systemPrompt: "",
+    ...(model ? { model } : {}),
+  }
+}
+
 // ─── Re-exported overlays (used by server.ts for cloud-sprint preset) ──────
 
 export { PLANNER_OVERLAY }

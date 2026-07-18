@@ -552,6 +552,52 @@ export const COMMANDS: Command[] = [
     },
   },
   {
+    name: "solo",
+    summary: "Open a solo room: a bare pi (no team scaffolding) on a model of your choice",
+    usage: "[model]",
+    run: async (ctx, args) => {
+      const create = (ref?: string) => {
+        ctx.api
+          .createRoom({ name: "", solo: true, ...(ref ? { model: ref } : {}) })
+          .then((room) => {
+            ctx.switchRoom(room.roomId)
+            ctx.notify(`Solo room "${room.name}" — pure pi on ${ref ? shortModel(ref) : "the default model"}.`)
+          })
+          .catch((err) =>
+            ctx.notify(`Failed to create solo room${err instanceof Error ? `: ${err.message}` : "."}`, "error"),
+          )
+      }
+      try {
+        const { models } = await ctx.api.models()
+        const wanted = args.trim().toLowerCase()
+        if (wanted) {
+          // "/solo fable" resolves against refs and display names, exact ref first.
+          const m =
+            models.find((m) => m.ref.toLowerCase() === wanted) ??
+            models.find((m) => m.name.toLowerCase().includes(wanted) || m.ref.toLowerCase().includes(wanted))
+          if (!m) return ctx.notify(`No model matches "${args.trim()}".`, "error")
+          return create(m.ref)
+        }
+        ctx.openOverlay({
+          kind: "select",
+          title: "Solo room — pick its brain",
+          items: [
+            { id: "", label: "  Room default", hint: "the server's default model" },
+            ...models.map((m) => ({
+              id: m.ref,
+              label: `  ${m.local ? "🖥 " : "☁ "}${m.name}`,
+              hint: m.provider,
+            })),
+          ],
+          emptyText: "No models reported by the server.",
+          onSelect: (ref) => create(ref || undefined),
+        })
+      } catch {
+        ctx.notify("Failed to load models.", "error")
+      }
+    },
+  },
+  {
     name: "lineup",
     summary: "Edit the room line-up (reorder, pause, add, kick)",
     run: (ctx) => ctx.openOverlay({ kind: "lineup" }),

@@ -449,7 +449,18 @@ export function createApi(API_BASE: string) {
         json<{ aborted: boolean }>(r),
       ),
 
-    createRoom: (body: { name: string; roomId?: string; preset?: string; goal?: string; workspaceDir?: string }) =>
+    createRoom: (body: {
+      name: string
+      roomId?: string
+      preset?: string
+      goal?: string
+      workspaceDir?: string
+      /** Solo mode: a one-persona room running a bare pi on `model` (or the
+       *  process default). Server derives the name ("solo/<model>") when
+       *  `name` is empty. Mutually exclusive with `preset`. */
+      solo?: boolean
+      model?: string
+    }) =>
       fetch(`${API_BASE}/api/rooms`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },

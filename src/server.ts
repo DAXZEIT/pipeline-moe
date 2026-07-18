@@ -71,7 +71,7 @@ function printBanner(): void {
 }
 import { downgradeUnavailableModels, isAllowedModel, listModels, resolveModel, type ResolvedModel } from "./model.js"
 import { listWorkspace } from "./receipts.js"
-import { BASE_PROMPT, BUILDER_OVERLAY, PLANNER_OVERLAY, SEED_PERSONAS } from "./personas.js"
+import { BASE_PROMPT, BUILDER_OVERLAY, PLANNER_OVERLAY, SEED_PERSONAS, soloPersona } from "./personas.js"
 import { type PresetPersona, stripSeedFields, rehydrateSeedFields } from "./preset-hydration.js"
 import { Room } from "./room.js"
 import { RoomManager, type RoomDetails } from "./room-manager.js"
@@ -312,6 +312,12 @@ async function main(): Promise<void> {
   const downgradeModels = (personas: Array<{ name: string; model?: string }>) =>
     downgradeUnavailableModels(personas, (m) => registry.isAllowedModel(m))
 
+  /** Display form of a model ref for room names: "anthropic/claude-fable-5" →
+   *  "claude-fable-5", "local/GRM.gguf" → "GRM". Undefined → the process
+   *  default is in play. */
+  const shortModelName = (ref: string | undefined): string =>
+    ref ? (ref.split("/").pop() ?? ref).replace(/\.gguf$/i, "") : "default"
+
   // Shared room-provisioning path used by both the POST /api/rooms route and the
   // sub-room orchestrator (spawn_room tool). Single source of truth so the two
   // entry points cannot drift on validation, mounting, preset resolution, or
@@ -325,15 +331,37 @@ async function main(): Promise<void> {
     goalMode?: "auto" | "eval"
     goalEvaluator?: string
     maxGoalIterations?: number
+    /** Solo mode (/solo): a one-persona room running a BARE pi — empty persona
+     *  prompt, full tools, no team scaffolding (the lone-agent auto-degrade in
+     *  seat-runtime does the rest). `model` pins the persona; absent → process
+     *  default. Mutually exclusive with `preset`. */
+    solo?: boolean
+    model?: string
     /** Agent that spawned this room (spawn_room). Wires the return path:
      *  goal-resolution report + ask_orchestrator into the parent room. */
     spawnedBy?: { roomId: string; agentId: string }
   }): Promise<RoomDetails> {
-    const name = opts.name.trim()
+    // Solo personas resolve early: the model must be validated (an explicitly
+    // picked model is never silently downgraded — that's the room's identity)
+    // and the default room name derives from it.
+    let soloPersonas: PersonaState[] | undefined
+    if (opts.solo) {
+      if (opts.preset?.trim()) {
+        throw new RoomProvisionError(400, "`solo` and `preset` are mutually exclusive")
+      }
+      const modelRef = opts.model?.trim() || undefined
+      if (modelRef && !registry.isAllowedModel(modelRef)) {
+        throw new RoomProvisionError(400, `model "${modelRef}" is not available`)
+      }
+      soloPersonas = [{ ...soloPersona(modelRef), active: true, parallel: false }]
+    }
+    const name =
+      opts.name.trim() ||
+      (soloPersonas ? `solo/${shortModelName(soloPersonas[0].model ?? registry.defaultModelRef())}` : "")
     if (!name) throw new RoomProvisionError(400, "`name` is required")
 
     const rawId = (opts.roomId ?? "").trim().replace(/[^a-zA-Z0-9_-]/g, "")
-    const roomId = rawId || `room-${Date.now().toString(36)}`
+    const roomId = rawId || `${opts.solo ? "solo" : "room"}-${Date.now().toString(36)}`
     // Reject a duplicate roomId *before* any sshfs mount. The mountpoint is
     // derived from roomId, so mounting for a duplicate would collide with the
     // existing room's mountpoint and leak. Fail fast here instead.
@@ -385,8 +413,8 @@ async function main(): Promise<void> {
     }
 
     try {
-      // Resolve preset roster if requested.
-      let overridePersonas: PersonaState[] | undefined
+      // Resolve preset roster if requested (solo already resolved its own).
+      let overridePersonas: PersonaState[] | undefined = soloPersonas
       if (presetName) {
         const presetFile = await readPreset(presetName)
         if (!presetFile) throw new RoomProvisionError(404, `preset "${presetName}" not found`)
@@ -1640,6 +1668,8 @@ async function main(): Promise<void> {
         goalMode: req.body?.goalMode === "eval" ? "eval" : undefined,
         goalEvaluator: req.body?.goalEvaluator ? String(req.body.goalEvaluator).trim() : undefined,
         maxGoalIterations: typeof req.body?.maxGoalIterations === "number" ? req.body.maxGoalIterations : undefined,
+        solo: req.body?.solo === true,
+        model: req.body?.model ? String(req.body.model).trim() : undefined,
       })
       res.status(201).json(summary)
     } catch (err) {
