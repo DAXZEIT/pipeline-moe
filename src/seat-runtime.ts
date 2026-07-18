@@ -279,19 +279,33 @@ export class SeatRuntime {
       ]
     }
 
+    // One seat = one modelRef (validated upstream; hats[0] is representative).
+    // Resolved BEFORE the loader: the base-prompt decision below reads it.
+    const model = resolveModelRef(deps.resolved, deps.allowCloud, this.hats[0].model)
+    const effectiveModel = model ?? deps.resolved.model
+    this.modelRef = effectiveModel ? `${effectiveModel.provider}/${effectiveModel.id}` : null
+
+    // The operator's personal ~/.pi/agent/SYSTEM.md is pi's OWN identity,
+    // written for the local brain. It is served ONLY to a bare solo persona
+    // (empty systemPrompt — /solo's marker) resolving to a LOCAL model: that
+    // room IS pi. Every other seat gets pi's STOCK prompt (tool-usage
+    // guidance, no operator persona): team roles carry their identity in
+    // their persona prompts and must not ride on the operator's, and a cloud
+    // solo must not be told it is a local agent on this machine's GPU
+    // (Fable-in-solo repro, 2026-07-19). Workspace context files
+    // (CLAUDE/AGENTS.md) are untouched — this gates the base prompt only.
+    const purePi = single && !this.hats[0].systemPrompt && effectiveModel?.provider === "local"
     const loader = new DefaultResourceLoader({
       cwd: deps.workspaceDir,
       agentDir: getAgentDir(),
       ...(skillRoots.length > 0 ? { additionalSkillPaths: skillRoots } : {}),
-      // Append to pi's default prompt so we keep tool-usage guidance.
+      // Returning undefined suppresses the discovered personal SYSTEM.md —
+      // the session then falls back to pi's stock prompt.
+      ...(purePi ? {} : { systemPromptOverride: () => undefined }),
+      // Append to pi's base prompt so we keep tool-usage guidance.
       appendSystemPromptOverride: (base: string[]) => [...base, ...promptParts],
     })
     await loader.reload()
-
-    // One seat = one modelRef (validated upstream; hats[0] is representative).
-    const model = resolveModelRef(deps.resolved, deps.allowCloud, this.hats[0].model)
-    const effectiveModel = model ?? deps.resolved.model
-    this.modelRef = effectiveModel ? `${effectiveModel.provider}/${effectiveModel.id}` : null
 
     // Auto-compaction: trigger when context exceeds the reserve threshold.
     const settings = SettingsManager.inMemory({

@@ -5,8 +5,8 @@
 // only), rooted in a temp dir.
 
 import { mkdtemp, rm } from "node:fs/promises"
-import { existsSync } from "node:fs"
-import { tmpdir } from "node:os"
+import { existsSync, readFileSync, writeFileSync } from "node:fs"
+import { homedir, tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest"
 import { AuthStorage, ModelRegistry } from "@earendil-works/pi-coding-agent"
@@ -260,12 +260,93 @@ describe("lone-agent framing (auto-degrade at roster==1)", () => {
     expect(tools("scout")).not.toContain("handoff")
   })
 
-  test("a bare persona (empty systemPrompt) rides on pi's own prompt — no persona layer injected", async () => {
+  test("a bare persona (empty systemPrompt) injects no persona layer", async () => {
     await registry.create(persona("pi", { systemPrompt: "" }))
     expect(prompt("pi")).toContain(LONE_AGENT_NOTE)
     // The persona layer contributed nothing: the working-directory note is the
-    // first pipeline-owned part, straight after pi's own base prompt.
+    // first pipeline-owned part, straight after the base prompt.
     expect(prompt("pi")).toContain("Your working directory is")
     expect(prompt("pi")).not.toContain("YOUR TEAM")
+  })
+})
+
+// The operator's personal ~/.pi/agent/SYSTEM.md is pi's own identity, written
+// for the LOCAL brain. Only a bare solo persona resolving to a local model
+// gets it; every other seat (team roles, cloud solo) runs on pi's STOCK
+// prompt — team agents must not ride on the operator's persona, and a cloud
+// solo must not be told it is a local agent on this machine's GPU.
+describe("personal SYSTEM.md gating (pure pi = bare persona + local brain)", () => {
+  const STOCK_MARKER = "coding assistant operating inside pi"
+  const personalSystemMd = (): string | null => {
+    const p = join(homedir(), ".pi", "agent", "SYSTEM.md")
+    return existsSync(p) ? readFileSync(p, "utf-8") : null
+  }
+  /** A distinctive line of the operator's SYSTEM.md, to assert its absence. */
+  const personalMarker = (): string | null => {
+    const md = personalSystemMd()
+    const line = md?.split("\n").find((l) => l.trim().length > 40)
+    return line?.trim() ?? null
+  }
+
+  test("team personas run on the STOCK prompt, never the personal SYSTEM.md", async () => {
+    await registry.create(persona("scout"))
+    await registry.create(persona("builder"))
+    const sp = registry.get("scout")!.seat.session.systemPrompt
+    expect(sp).toContain(STOCK_MARKER)
+    const marker = personalMarker()
+    if (marker) expect(sp).not.toContain(marker)
+  })
+
+  test("a bare persona on a NON-local (or unresolved) model gets the stock prompt too", async () => {
+    await registry.create(persona("pi", { systemPrompt: "" }))
+    const sp = registry.get("pi")!.seat.session.systemPrompt
+    expect(sp).toContain(STOCK_MARKER)
+    const marker = personalMarker()
+    if (marker) expect(sp).not.toContain(marker)
+  })
+
+  test("pure pi: a bare persona on a LOCAL brain gets the personal SYSTEM.md", async () => {
+    const marker = personalMarker()
+    if (!marker) return // machine without a personal pi identity — nothing to gate
+    // A registry whose ModelRegistry actually KNOWS a local model, so the
+    // persona's "local/…" ref resolves with provider "local".
+    const dir2 = await mkdtemp(join(tmpdir(), "pmoe-purepi-"))
+    writeFileSync(
+      join(dir2, "models.json"),
+      JSON.stringify({
+        providers: {
+          local: {
+            baseUrl: "http://localhost:9",
+            api: "openai-completions",
+            apiKey: "x",
+            models: [
+              {
+                id: "test.gguf",
+                name: "Test local",
+                reasoning: false,
+                input: ["text"],
+                contextWindow: 1000,
+                maxTokens: 100,
+                cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+              },
+            ],
+          },
+        },
+      }),
+    )
+    const authStorage = AuthStorage.create(join(dir2, "auth.json"))
+    const modelRegistry = ModelRegistry.create(authStorage, join(dir2, "models.json"))
+    const reg2 = new Registry({ authStorage, modelRegistry, model: undefined }, new SseHub(1), new Set(), dir2)
+    reg2.setSessionRoot(join(dir2, "agents"))
+    try {
+      await reg2.create(persona("pi", { systemPrompt: "", model: "local/test.gguf" }))
+      const sp = reg2.get("pi")!.seat.session.systemPrompt
+      expect(sp).toContain(marker)
+      expect(sp).not.toContain(STOCK_MARKER)
+      expect(sp).toContain(LONE_AGENT_NOTE)
+    } finally {
+      reg2.disposeAll()
+      await rm(dir2, { recursive: true, force: true })
+    }
   })
 })
