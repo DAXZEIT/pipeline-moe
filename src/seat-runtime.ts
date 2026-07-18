@@ -58,6 +58,13 @@ export function workspaceNote(root: string): string {
   )
 }
 
+/** ask_user guidance — shared verbatim between the team and lone notes so the
+ *  two can never drift on the pause semantics. */
+const ASK_USER_NOTE =
+  "If you need information only the user can provide (preferences, credentials, context), " +
+  "use the ask_user tool — it will pause the pipeline and wait for their response. Do NOT " +
+  "use it for rhetorical questions or self-clarification."
+
 export const ROOM_NOTE =
   "You are one agent in a shared multi-agent chat room. Other agents (e.g. scout, builder, " +
   "auditor, scribe, tester) are referred to by their lowercase id. To pass your turn to another " +
@@ -67,12 +74,24 @@ export const ROOM_NOTE =
   "builder said...', or narrating what @tester did earlier) without triggering anything — only " +
   "the handoff tool call routes. If you don't call handoff, your turn ends and control returns " +
   "to the human — that is a valid, normal ending, not an error.\n" +
-  "If you need information only the user can provide (preferences, credentials, context), " +
-  "use the ask_user tool — it will pause the pipeline and wait for their response. Do NOT " +
-  "use it for rhetorical questions or self-clarification.\n" +
+  ASK_USER_NOTE + "\n" +
   "Your personal memory lives at agent_memory/<your_id>.md (e.g. agent_memory/builder.md). " +
   "Read it at the start of a task to recall prior context. The scribe updates these files. " +
   "After a compaction, your memory is refreshed automatically."
+
+/** The lone-agent replacement for ROOM_NOTE: same room mechanics (ask_user
+ *  pause, agent_memory), zero team protocol. Injected when the seat is built
+ *  with no other active agent — the exact predicate under which the handoff
+ *  tool is omitted (custom-tools/index.ts), so the prompt never promises a
+ *  mechanism the toolset doesn't carry. */
+export const LONE_AGENT_NOTE =
+  "You are the only agent in this room, working directly with the human operator. When your " +
+  "turn ends, control returns to them — there is no one to hand off to and no team protocol " +
+  "to follow.\n" +
+  ASK_USER_NOTE + "\n" +
+  "Your personal memory lives at agent_memory/<your_id>.md. Read it at the start of a task " +
+  "to recall prior context; keep it updated with durable lessons. After a compaction, your " +
+  "memory is refreshed automatically."
 
 /** Read a hat's logbook (agent_memory/<id>.md), capped at 4KB to avoid
  *  consuming excessive context tokens. Empty string when absent. */
@@ -145,6 +164,10 @@ export class SeatRuntime {
   /** Resolved "provider/id" the seat runs (one per seat — invariant validated
    *  by the Registry via validateSeatModels). Null → pi's own resolution. */
   modelRef: string | null = null
+  /** True when the LAST build saw no other active agent (lone framing: no
+   *  ROOM_NOTE, no roster block — mirroring the handoff-tool omission). The
+   *  Registry compares this against the live roster to rebuild on flip. */
+  builtLone = false
 
   private guard: BatchTerminateGuard | null = null
   private unsubscribe: (() => void) | null = null
@@ -210,9 +233,22 @@ export class SeatRuntime {
     // buildConfinedTools).
     const skillRoots = [...new Set(this.hats.flatMap((h) => h.skills ?? []))].map((s) => join(config.skillsDir, s))
 
+    // Lone seat: no other ACTIVE agent exists beside this seat's hats — the
+    // same predicate under which buildCustomTools omits the handoff tool (a
+    // fused seat is never lone: the hat switch is a legitimate handoff). The
+    // prompt and the toolset must agree: a lone seat gets LONE_AGENT_NOTE and
+    // no roster block instead of team framing it cannot act on. Snapshot at
+    // build time, like the handoff enum; the Registry rebuilds the seat when
+    // the predicate flips (reconcileLoneFraming).
+    const lone =
+      single &&
+      deps.handoffSink !== undefined &&
+      deps.handoffSink.activeIds().filter((id) => !this.hatIds().includes(id)).length === 0
+    this.builtLone = lone
+
     // Roster awareness: a fused seat reads the block once — every hat is "you".
     const self = single ? this.hats[0].id : this.hatIds()
-    const rosterNote = deps.handoffSink?.describeRoster?.(self) ?? null
+    const rosterNote = lone ? null : deps.handoffSink?.describeRoster?.(self) ?? null
 
     // System prompt assembly. Singleton = the exact pre-feature layering;
     // fused = the additive multi-role seat prompt (grilling Q3).
@@ -224,9 +260,9 @@ export class SeatRuntime {
           "---\n(End of memory — updated by the scribe. After compaction, this is refreshed.)\n"
         : ""
       promptParts = [
-        this.hats[0].systemPrompt,
+        ...(this.hats[0].systemPrompt ? [this.hats[0].systemPrompt] : []),
         workspaceNote(deps.workspaceDir),
-        ROOM_NOTE,
+        lone ? LONE_AGENT_NOTE : ROOM_NOTE,
         ...(rosterNote ? [rosterNote] : []),
         ...(memoryNote ? [memoryNote] : []),
       ]

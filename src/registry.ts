@@ -256,6 +256,28 @@ export class Registry implements HandoffSink, GoalVerdictSink {
     return this.handoffGates
   }
 
+  /** Rebuild seats whose lone/team framing no longer matches the live roster
+   *  (seat-runtime builds the prompt AND the handoff-tool grant from the same
+   *  "any other active agent?" predicate, snapshotted at build time). Fired
+   *  after roster mutations: the sole agent of a room that gains a teammate
+   *  needs ROOM_NOTE + the handoff tool it was correctly built without, and a
+   *  room reduced to one agent sheds them. A rebuild over the same sessionDir
+   *  preserves conversation memory (the Registry.update idiom). Skipped during
+   *  a reset() batch (every seat is being built fresh against the incoming
+   *  roster) and for seats mid-turn (the snapshot staleness is the documented
+   *  correctable-error class; the next mutation or rebuild catches them). */
+  private async reconcileLoneFraming(): Promise<void> {
+    if (this.pendingRosterStates) return
+    for (const seat of new Set([...this.participants.values()].map((p) => p.seat))) {
+      const lone =
+        !seat.fused() &&
+        this.activeIds().filter((id) => !seat.hatIds().includes(id)).length === 0
+      if (lone === seat.builtLone) continue
+      if (seat.session.isStreaming) continue
+      await seat.rebuild()
+    }
+  }
+
   /** HandoffSink: check `from` → `to` against the room's gates, using the
    *  caller's CURRENT-turn tool activity for path arming (the handoff tool
    *  executes mid-turn, before any receipt exists). Returns a correctable
@@ -507,6 +529,7 @@ export class Registry implements HandoffSink, GoalVerdictSink {
     participant.active = active
     participant.parallel = parallel
     this.participants.set(persona.id, participant)
+    await this.reconcileLoneFraming()
     this.broadcastRoster()
     this.onChange?.()
     this.notifyRosterChange(`@${persona.id} joined the room`)
@@ -633,6 +656,10 @@ export class Registry implements HandoffSink, GoalVerdictSink {
     if (!p) throw new Error(`unknown participant "${id}"`)
     p.active = active
     p.status = "idle"
+    // Fire-and-forget on purpose: setActive is sync all the way up. The
+    // streaming guard inside makes a mid-turn flip a skipped (stale) rebuild,
+    // not a corrupted one.
+    void this.reconcileLoneFraming().catch(() => {})
     this.broadcastRoster()
     this.onChange?.()
     this.notifyRosterChange(`@${id} was ${active ? "activated" : "deactivated"}`)
@@ -795,6 +822,7 @@ export class Registry implements HandoffSink, GoalVerdictSink {
       this.seats.delete(seat.seatId)
       if (dir) rmSync(dir, { recursive: true, force: true })
     }
+    await this.reconcileLoneFraming()
     this.notifyRosterChange(`@${id} left the room`)
     this.broadcastRoster()
     this.onChange?.()

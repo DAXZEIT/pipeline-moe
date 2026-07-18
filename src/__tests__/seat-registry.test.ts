@@ -8,9 +8,10 @@ import { mkdtemp, rm } from "node:fs/promises"
 import { existsSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { afterEach, beforeEach, describe, expect, test } from "vitest"
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest"
 import { AuthStorage, ModelRegistry } from "@earendil-works/pi-coding-agent"
 import { Registry } from "../registry.js"
+import { LONE_AGENT_NOTE, ROOM_NOTE } from "../seat-runtime.js"
 import { SseHub } from "../sse.js"
 import type { Persona } from "../types.js"
 
@@ -189,5 +190,82 @@ describe("fused seats through the real Registry", () => {
 
     const again = await registry.create(persona("builder", { seat: "maker" }))
     expect(again.sessionDir).toBe(seatDir)
+  })
+})
+
+// Lone-agent framing — a room whose roster holds ONE active agent must not
+// carry team scaffolding: no ROOM_NOTE ("shared multi-agent chat room"), no
+// YOUR TEAM roster block, and (pre-existing gate in custom-tools) no handoff
+// tool. The prompt and the toolset are built from the same predicate; the
+// Registry rebuilds a seat when a roster mutation flips it.
+describe("lone-agent framing (auto-degrade at roster==1)", () => {
+  const prompt = (id: string) => registry.get(id)!.seat.session.systemPrompt
+  const tools = (id: string) => registry.get(id)!.seat.session.getActiveToolNames()
+
+  test("a lone singleton gets LONE_AGENT_NOTE — no ROOM_NOTE, no roster block, no handoff tool", async () => {
+    await registry.create(persona("scout"))
+    expect(prompt("scout")).toContain(LONE_AGENT_NOTE)
+    expect(prompt("scout")).not.toContain(ROOM_NOTE)
+    expect(prompt("scout")).not.toContain("YOUR TEAM")
+    expect(tools("scout")).not.toContain("handoff")
+  })
+
+  test("gaining a teammate rebuilds the lone seat: team framing + handoff appear", async () => {
+    await registry.create(persona("scout"))
+    await registry.create(persona("builder"))
+    for (const id of ["scout", "builder"]) {
+      expect(prompt(id)).toContain(ROOM_NOTE)
+      expect(prompt(id)).not.toContain(LONE_AGENT_NOTE)
+      expect(prompt(id)).toContain("YOUR TEAM")
+      expect(tools(id)).toContain("handoff")
+    }
+  })
+
+  test("kicked back down to one, the survivor sheds the team framing", async () => {
+    await registry.create(persona("scout"))
+    await registry.create(persona("builder"))
+    await registry.kick("builder")
+    expect(prompt("scout")).toContain(LONE_AGENT_NOTE)
+    expect(prompt("scout")).not.toContain("YOUR TEAM")
+    expect(tools("scout")).not.toContain("handoff")
+  })
+
+  test("deactivating down to one reconciles too (async — the setActive path)", async () => {
+    await registry.create(persona("scout"))
+    await registry.create(persona("builder"))
+    registry.setActive("builder", false)
+    await vi.waitFor(() => {
+      expect(prompt("scout")).toContain(LONE_AGENT_NOTE)
+      expect(tools("scout")).not.toContain("handoff")
+    })
+    registry.setActive("builder", true)
+    await vi.waitFor(() => {
+      expect(prompt("scout")).toContain(ROOM_NOTE)
+      expect(tools("scout")).toContain("handoff")
+    })
+  })
+
+  test("a fused seat alone in the room KEEPS team framing — the hat switch is a real handoff", async () => {
+    await registry.create(persona("builder", { seat: "maker" }))
+    await registry.create(persona("tester", { seat: "maker" }))
+    const seatPrompt = registry.get("builder")!.seat.session.systemPrompt
+    expect(seatPrompt).toContain(ROOM_NOTE)
+    expect(seatPrompt).not.toContain(LONE_AGENT_NOTE)
+    expect(tools("builder")).toContain("handoff")
+  })
+
+  test("a 1-persona batch load (reset) builds lone directly", async () => {
+    await registry.reset([{ ...persona("scout"), active: true }])
+    expect(prompt("scout")).toContain(LONE_AGENT_NOTE)
+    expect(tools("scout")).not.toContain("handoff")
+  })
+
+  test("a bare persona (empty systemPrompt) rides on pi's own prompt — no persona layer injected", async () => {
+    await registry.create(persona("pi", { systemPrompt: "" }))
+    expect(prompt("pi")).toContain(LONE_AGENT_NOTE)
+    // The persona layer contributed nothing: the working-directory note is the
+    // first pipeline-owned part, straight after pi's own base prompt.
+    expect(prompt("pi")).toContain("Your working directory is")
+    expect(prompt("pi")).not.toContain("YOUR TEAM")
   })
 })
