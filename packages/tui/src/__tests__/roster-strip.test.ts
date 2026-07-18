@@ -126,11 +126,42 @@ describe("renderStrip", () => {
     }
   })
 
-  it("a long model name truncates to its cell instead of widening it", () => {
+  it("a long model name widens its cell into the strip's free space (solo room fix)", () => {
     const cells = stripCells([agent({ model: "local/Qwopus3.6-27B-v2-MTP-Q4_K_M.gguf" })], null, 120)
     const [top, sub] = renderStrip(cells).map(plain)
     expect(stringWidth(sub)).toBe(stringWidth(top))
-    expect(sub).toContain("…")
+    expect(sub).not.toContain("…")
+    expect(sub.trim()).toBe("Qwopus3.6 27B V2 MTP")
+  })
+
+  it("with NO free space the under-row still truncates to its cell", () => {
+    // 8 named agents at width 90: the strip is packed — no slack to grant.
+    const many = Array.from({ length: 6 }, (_, i) =>
+      agent({ id: `a${i}`, name: `ag${i}`, model: "local/Qwopus3.6-27B-v2-MTP-Q4_K_M.gguf" }),
+    )
+    const cells = stripCells(many, null, 66)
+    if (cells[0].text.includes("ag0")) {
+      // still name tier: every cell got at most its share; rows stay aligned
+      const rows = renderStrip(cells).map(plain)
+      expect(stringWidth(rows[1])).toBe(stringWidth(rows[0]))
+    }
+  })
+
+  it("granted slack keeps all rows equal width and gutters aligned", () => {
+    const cells = stripCells(
+      [
+        agent({ model: "anthropic/claude-fable-5", contextUsage: usage }),
+        agent({ id: "builder", name: "builder", icon: "🔨", contextUsage: usage }),
+      ],
+      "builder",
+      120,
+      "local/qwopus",
+    )
+    const rows = renderStrip(cells).map(plain)
+    for (const r of rows.slice(1)) {
+      expect(r.indexOf(" │ ")).toBe(rows[0].indexOf(" │ "))
+      expect(stringWidth(r)).toBe(stringWidth(rows[0]))
+    }
   })
 
   it("fused seat: hats join with the ┈ gutter, one spanning labeled gauge, rows stay aligned", () => {

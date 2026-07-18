@@ -44,6 +44,11 @@ export type StripCell = {
   dim: boolean
   /** Context window above 80% — the usage row renders yellow. */
   warn: boolean
+  /** Extra columns granted to this cell from the strip's leftover width, so
+   *  its under-rows (model, gauge) can exceed the cell text's own width. A
+   *  solo "○ π pi" cell no longer squeezes "Fable 5" into 7 columns while the
+   *  rest of the strip sits blank. Absent → 0. */
+  pad?: number
 }
 
 function cellText(r: RosterItem, tier: "name" | "icon", hasUsageRow: boolean): string {
@@ -98,11 +103,29 @@ export function stripCells(
       dim: !r.active,
       warn: (r.contextUsage?.percent ?? 0) >= 80,
     }))
-  const fits = (cells: StripCell[]) =>
-    cells.reduce((n, c) => n + printedWidth(c.text), 0) + (cells.length - 1) * 3 + 2 <= width
+  const used = (cells: StripCell[]) =>
+    cells.reduce((n, c) => n + printedWidth(c.text), 0) + (cells.length - 1) * 3 + 2
   const named = build("name")
-  if (fits(named)) return named
+  if (used(named) <= width) return withUnderRowSlack(named, width - used(named))
   return build("icon")
+}
+
+/** Grant the strip's leftover columns to cells whose under-rows (model,
+ *  gauge) are wider than their cell text — they truncate to the cell's width
+ *  at render, which reads fine in a crowded room but starves a small roster
+ *  (a solo room showed "Fable…" with the whole strip blank to its right).
+ *  Left-to-right, capped at each cell's actual need. Fused runs: the
+ *  spanning under-entry renders over the whole run plus its gutters, so the
+ *  per-cell grant is a safe lower bound — not worth modeling run widths here. */
+function withUnderRowSlack(cells: StripCell[], slack: number): StripCell[] {
+  if (slack <= 0) return cells
+  return cells.map((c) => {
+    const need = Math.max(stringWidth(c.sub ?? ""), stringWidth(c.use ?? "")) - stringWidth(c.text)
+    if (need <= 0 || slack <= 0) return c
+    const pad = Math.min(need, slack)
+    slack -= pad
+    return { ...c, pad }
+  })
 }
 
 /** Rows the strip occupies at this width — App must reserve exactly this many
@@ -163,7 +186,7 @@ function runsOf(cells: StripCell[]): SeatRun[] {
 export function renderStrip(cells: StripCell[]): string[] {
   const sep = chalk.dim(" │ ")
   const fusedSep = chalk.dim(" ┈ ")
-  const cellWidth = (c: StripCell) => stringWidth(c.text) + (c.running ? 2 : 0)
+  const cellWidth = (c: StripCell) => stringWidth(c.text) + (c.running ? 2 : 0) + (c.pad ?? 0)
   const runs = runsOf(cells)
   const runWidth = (r: SeatRun) => r.cells.reduce((n, c) => n + cellWidth(c), 0) + (r.cells.length - 1) * 3
   const pad = (paint: ChalkInstance, text: string, width: number) => {
@@ -191,7 +214,9 @@ export function renderStrip(cells: StripCell[]): string[] {
           .map((c) => {
             let paint = paintFor(c)
             if (c.running) paint = paint.inverse.bold
-            return paint(c.running ? ` ${c.text} ` : c.text)
+            // The slack grant pads OUTSIDE the paint — an inverse cell must
+            // not smear its highlight over granted blank columns.
+            return paint(c.running ? ` ${c.text} ` : c.text) + " ".repeat(c.pad ?? 0)
           })
           .join(fusedSep),
       )
