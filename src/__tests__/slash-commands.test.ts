@@ -220,6 +220,7 @@ describe("slash commands", () => {
       expect(notice).toBeDefined()
       expect(notice!.msg).toContain("/kick")
       expect(notice!.msg).toContain("/model")
+      expect(notice!.msg).toContain("/add")
       expect(notice!.msg).toContain("/thinking")
       expect(notice!.msg).toContain("/stats")
       expect(notice!.msg).toContain("/chaining")
@@ -269,6 +270,67 @@ describe("slash commands", () => {
       const notice = events.notices.find((n) => n.msg.includes("not available"))
       expect(notice).toBeDefined()
       expect(notice!.level).toBe("error")
+    })
+  })
+
+  describe("/add (alias of /model)", () => {
+    test("changes model for an agent", async () => {
+      const agent = new MockParticipant(makePersona("builder"))
+      registry.addParticipant(agent)
+
+      room.submit("/add @builder local/qwen3.6-27b")
+      await new Promise((r) => setTimeout(r, 100))
+
+      const notice = events.notices.find((n) => n.msg.includes("model →"))
+      expect(notice).toBeDefined()
+      expect(notice!.msg).toContain("local/qwen3.6-27b")
+    })
+
+    test("errors on missing args with the invoked command name", async () => {
+      room.submit("/add")
+      await new Promise((r) => setTimeout(r, 100))
+
+      const notice = events.notices.find((n) => n.msg.includes("/add: usage"))
+      expect(notice).toBeDefined()
+      expect(notice!.level).toBe("error")
+      expect(notice!.msg).toContain("/add @agent provider/id")
+    })
+
+    test("errors on unknown agent with the invoked command name", async () => {
+      room.submit("/add @ghost local/qwen3.6-27b")
+      await new Promise((r) => setTimeout(r, 100))
+
+      const notice = events.notices.find((n) => n.msg.includes("/add: unknown participant"))
+      expect(notice).toBeDefined()
+      expect(notice!.level).toBe("error")
+    })
+
+    test("errors on disallowed model with the invoked command name", async () => {
+      const agent = new MockParticipant(makePersona("builder"))
+      registry.addParticipant(agent)
+
+      room.submit("/add @builder cloud/gpt-5")
+      await new Promise((r) => setTimeout(r, 100))
+
+      const notice = events.notices.find((n) => n.msg.includes("/add: \"cloud/gpt-5\" is not available"))
+      expect(notice).toBeDefined()
+      expect(notice!.level).toBe("error")
+    })
+
+    test("shares the same state path as /model", async () => {
+      const agent = new MockParticipant(makePersona("builder"))
+      registry.addParticipant(agent)
+
+      room.submit("/model @builder local/qwen3.6-27b")
+      await new Promise((r) => setTimeout(r, 100))
+      events.notices = []
+
+      room.submit("/add @builder local/qwopus3.6-27b")
+      await new Promise((r) => setTimeout(r, 100))
+
+      const notice = events.notices.find((n) => n.msg.includes("model →"))
+      expect(notice).toBeDefined()
+      expect(notice!.msg).toContain("local/qwopus3.6-27b")
     })
   })
 

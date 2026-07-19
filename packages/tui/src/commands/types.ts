@@ -73,5 +73,7 @@ export interface Command {
   summary: string
   /** Argument shape shown in the palette, e.g. "<auto|semi|manual>". */
   usage?: string
+  /** Alternate command heads that dispatch to this command. */
+  aliases?: string[]
   run: (ctx: CommandContext, args: string) => void | Promise<void>
 }

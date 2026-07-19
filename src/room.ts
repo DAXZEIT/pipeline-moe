@@ -2046,31 +2046,32 @@ export class Room {
       case "/help":
         this.notice(
           "Commands: /help, /kick @agent, /activate @agent, /deactivate @agent, " +
-          "/compact @agent, /model @agent provider/id, /thinking [level|@agent level], " +
+          "/compact @agent, /model @agent provider/id (alias: /add), /thinking [level|@agent level], " +
           "/stats [@agent], /chaining on|off, /default @agent|none, /fallback @agent|none, " +
           "/provider [list|add <name> <key>|remove <name>]"
         )
         return true
-      case "/model": {
+      case "/model":
+      case "/add": {
         const agentId = args[0]?.replace(/^@/, "").toLowerCase()
         const modelRef = args[1]
         if (!agentId || !modelRef) {
-          this.notice("/model: usage — /model @agent provider/id", "error")
+          this.notice(`${cmd}: usage — ${cmd} @agent provider/id`, "error")
           return true
         }
         if (!this.registry.has(agentId)) {
-          this.notice(`/model: unknown participant "@${agentId}".`, "error")
+          this.notice(`${cmd}: unknown participant "@${agentId}".`, "error")
           return true
         }
         if (!this.registry.isAllowedModel(modelRef)) {
-          this.notice(`/model: "${modelRef}" is not available. Use GET /api/models to list.`, "error")
+          this.notice(`${cmd}: "${modelRef}" is not available. Use GET /api/models to list.`, "error")
           return true
         }
         try {
           await this.registry.update(agentId, { model: modelRef })
           this.notice(`@${agentId} model → ${modelRef}`)
         } catch (err) {
-          this.notice(`/model @${agentId} failed: ${err instanceof Error ? err.message : String(err)}`, "error")
+          this.notice(`${cmd} @${agentId} failed: ${err instanceof Error ? err.message : String(err)}`, "error")
         }
         return true
       }

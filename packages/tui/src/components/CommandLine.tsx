@@ -1,6 +1,6 @@
 import { Box, Text, useInput } from "ink"
 import { useEffect, useState } from "react"
-import { matchCommands } from "../commands/registry"
+import { commandPaletteLabel, matchCommands } from "../commands/registry"
 import { shouldAbortOnEscape } from "../escape-behavior"
 import { pickerKeyAction, pickerVisible } from "../answer-picker"
 import { inputBorderColor, inputMode, inputModeHint } from "../input-mode"
@@ -183,7 +183,7 @@ export function CommandLine({
         if (text || (pendingImageCount ?? 0) > 0) {
           // While the palette is open, Enter runs the highlighted command
           // (so "/r"⏎ on ▶/resume runs /resume, not the ambiguous "/r").
-          if (matches.length > 0) onCommand("/" + matches[idx].name)
+          if (matches.length > 0) onCommand("/" + matches[idx].matched)
           else if (text.startsWith("/")) onCommand(text)
           else if (text.startsWith("!") && onShell) {
             const cmd = text.slice(1).trim()
@@ -205,7 +205,7 @@ export function CommandLine({
         return
       }
       if (matches.length > 0 && key.tab) {
-        const next = "/" + matches[idx].name + " "
+        const next = "/" + matches[idx].matched + " "
         setValue(next)
         setCursor(next.length)
         setPIndex(0)
@@ -342,13 +342,12 @@ export function CommandLine({
       ) : null}
       {matches.length > 0 ? (
         <Box flexDirection="column" borderStyle="round" borderColor="yellow" paddingX={1}>
-          {matches.map((c, i) => (
-            <Box key={c.name} justifyContent="space-between">
+          {matches.map((m, i) => (
+            <Box key={m.command.name} justifyContent="space-between">
               <Text color={i === idx ? "yellow" : undefined} inverse={i === idx}>
-                {i === idx ? "▶ " : "  "}/{c.name}
-                {c.usage ? <Text dimColor> {c.usage}</Text> : null}
+                {i === idx ? "▶ " : "  "}{commandPaletteLabel(m)}
               </Text>
-              <Text dimColor> {c.summary}</Text>
+              <Text dimColor> {m.command.summary}</Text>
             </Box>
           ))}
           <Text dimColor>↑↓ select · ⇥ complete · ⏎ run</Text>

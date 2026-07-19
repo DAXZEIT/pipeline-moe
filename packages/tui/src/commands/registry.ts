@@ -288,7 +288,7 @@ export const COMMANDS: Command[] = [
         items: COMMANDS.map((c) => ({
           id: c.name,
           label: `/${c.name}${c.usage ? " " + c.usage : ""}`,
-          hint: c.summary,
+          hint: commandHint(c),
         })),
         onSelect: () => ctx.closeOverlay(),
       })
@@ -642,6 +642,7 @@ export const COMMANDS: Command[] = [
   },
   {
     name: "model",
+    aliases: ["add"],
     summary: "Swap an agent's model, then pick its thinking level",
     usage: "[@agent]",
     run: (ctx, args) => {
@@ -905,18 +906,44 @@ export const COMMANDS: Command[] = [
   },
 ]
 
+export interface CommandMatch {
+  command: Command
+  /** The token that actually matched the typed head — canonical name or alias. */
+  matched: string
+}
+
 /** Resolve a typed command head to a single command (exact, else unique prefix). */
 export function lookup(head: string): Command | null {
   const h = head.toLowerCase()
-  const exact = COMMANDS.find((c) => c.name === h)
+  const exact = COMMANDS.find((c) => c.name === h || c.aliases?.includes(h))
   if (exact) return exact
   const matches = COMMANDS.filter((c) => c.name.startsWith(h))
   return matches.length === 1 ? matches[0] : null
 }
 
-/** Commands whose name matches the current partial head, for the palette. */
-export function matchCommands(head: string): Command[] {
+/** Commands whose name or alias matches the current partial head, for the palette. */
+export function matchCommands(head: string): CommandMatch[] {
   const h = head.toLowerCase()
-  if (!h) return COMMANDS
-  return COMMANDS.filter((c) => c.name.startsWith(h))
+  if (!h) return COMMANDS.map((c) => ({ command: c, matched: c.name }))
+  const out: CommandMatch[] = []
+  for (const c of COMMANDS) {
+    if (c.name.startsWith(h)) {
+      out.push({ command: c, matched: c.name })
+      continue
+    }
+    const aliasHit = c.aliases?.find((a) => a.startsWith(h))
+    if (aliasHit) out.push({ command: c, matched: aliasHit })
+  }
+  return out
+}
+
+export function commandPaletteLabel(m: CommandMatch): string {
+  const aliases = m.command.aliases?.map((a) => (a === m.matched ? m.command.name : a)).join(", ")
+  const aliasLabel = aliases ? `(${aliases})` : ""
+  return `/${m.matched}${aliasLabel}${m.command.usage ? " " + m.command.usage : ""}`
+}
+
+function commandHint(c: Command): string {
+  const aliases = c.aliases?.map((a) => `/${a}`).join(", ")
+  return aliases ? `${c.summary} (alias: ${aliases})` : c.summary
 }
