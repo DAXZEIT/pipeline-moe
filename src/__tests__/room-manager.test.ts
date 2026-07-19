@@ -456,6 +456,46 @@ describe("RoomManager", () => {
       expect(manager.getRoomDetails("restored")!.name).toBe("Restored Room")
     })
 
+    test("createDefaultRoom's save clobbers a multi-room manifest — the no-arg re-read loses rooms (documents the bug, tester 2026-07-13)", async () => {
+      writeFileSync(
+        manifestFile(),
+        JSON.stringify([
+          { roomId: "default", name: "main-room" },
+          { roomId: "lost", name: "Lost Room" },
+        ]),
+      )
+      manager.createDefaultRoom()
+      await manager.saveManifest() // force createDefaultRoom's {default}-only write to land
+      // The file is now raked back to default alone — this is the clobber.
+      expect(
+        (JSON.parse(readFileSync(manifestFile(), "utf8")) as { roomId: string }[]).map((e) => e.roomId),
+      ).toEqual(["default"])
+      // restoreRooms() re-reading the (now clobbered) file finds nothing to restore.
+      await manager.restoreRooms()
+      expect(manager.getRoom("lost")).toBeUndefined()
+    })
+
+    test("restoreRooms(pre-captured entries) survives the createDefaultRoom clobber — the fix (tester 2026-07-13)", async () => {
+      writeFileSync(
+        manifestFile(),
+        JSON.stringify([
+          { roomId: "default", name: "main-room" },
+          { roomId: "restored", name: "Restored Room" },
+        ]),
+      )
+      // Boot order: capture the manifest BEFORE createDefaultRoom's save clobbers it.
+      const captured = await manager.loadManifest()
+      manager.createDefaultRoom()
+      await manager.saveManifest() // clobber lands: file is now {default} only
+      expect(
+        (JSON.parse(readFileSync(manifestFile(), "utf8")) as { roomId: string }[]).map((e) => e.roomId),
+      ).toEqual(["default"])
+      // Restoring from the pre-clobber snapshot brings the +room back regardless.
+      await manager.restoreRooms(captured)
+      expect(manager.getRoom("restored")).toBeDefined()
+      expect(manager.getRoomDetails("restored")!.name).toBe("Restored Room")
+    })
+
     test("restoreRooms restores a renamed default room name", async () => {
       writeFileSync(
         manifestFile(),

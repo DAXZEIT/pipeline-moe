@@ -591,6 +591,12 @@ async function main(): Promise<void> {
   }
   roomManager.setOrchestrator(orchestrator)
 
+  // Capture the persisted room manifest BEFORE createDefaultRoom runs — its
+  // createRoom("default") fires `void saveManifest()`, which rewrites the file
+  // with only the live rooms (default alone) and would clobber a multi-room
+  // manifest before restoreRooms() reads it. restoreRooms() runs on THIS
+  // pre-clobber snapshot instead (tester repro, 2026-07-13).
+  const persistedRooms = await roomManager.loadManifest()
   const room = roomManager.createDefaultRoom()
   const registry = room.getRegistry()
 
@@ -609,7 +615,7 @@ async function main(): Promise<void> {
   // path fails with "fusermount3: … Permission denied". restoreRooms re-mounts
   // the rooms that are still valid right after.
   await cleanupStaleMounts()
-  await roomManager.restoreRooms()
+  await roomManager.restoreRooms(persistedRooms)
 
   const app = express()
   app.use(cors({ origin: config.corsOrigins }))

@@ -450,9 +450,17 @@ export class RoomManager {
    *  name. sshfs rooms are re-mounted; a mount failure degrades the room to the
    *  pipeline workspace (logged) rather than losing it. Each restored room is
    *  init()'d so its saved conversation reloads. */
-  async restoreRooms(): Promise<void> {
-    const entries = await this.loadManifest()
-    for (const entry of entries) {
+  async restoreRooms(entries?: RoomManifestEntry[]): Promise<void> {
+    // CRITICAL: callers must pass the manifest captured BEFORE createDefaultRoom
+    // ran. createDefaultRoom() → createRoom("default") → `void saveManifest()`
+    // rewrites the manifest with only the live rooms (just default), clobbering
+    // the persisted multi-room manifest before we get here. Reading it now would
+    // see that gutted {default} file and restore nothing (tester repro,
+    // 2026-07-13: 26 orphaned room dirs, every reboot raked back to default).
+    // The fallback re-read stays only for callers that have no pre-clobber
+    // snapshot (none in the boot path).
+    const list = entries ?? (await this.loadManifest())
+    for (const entry of list) {
       if (entry.roomId === "default") {
         const def = this.rooms.get("default")
         if (def && def.name !== entry.name) this.renameRoom("default", entry.name)
