@@ -28,7 +28,7 @@ export type {
   ReduceResult,
 } from "./state.js"
 
-export { createRoomStore, browserEventSourceFactory } from "./store.js"
+export { createRoomStore, preloadRoomState, browserEventSourceFactory } from "./store.js"
 export type {
   RoomStore,
   RoomStoreOptions,

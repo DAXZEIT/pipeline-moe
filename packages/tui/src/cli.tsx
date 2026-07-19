@@ -7,7 +7,8 @@
 
 import { appendFileSync, writeSync } from "node:fs"
 import { render } from "ink"
-import { createRoomStore, createApi } from "@pipeline-moe/client-core"
+import { createRoomStore, createApi, preloadRoomState } from "@pipeline-moe/client-core"
+import type { RoomState } from "@pipeline-moe/client-core"
 import { nodeEventSourceFactory } from "./nodeEventSource"
 import { App } from "./App"
 
@@ -91,8 +92,11 @@ const apiBase = arg("--server", process.env.PMOE_SERVER ?? "http://localhost:530
 const roomId = arg("--room", "default")
 
 const { api } = createApi(apiBase)
-const makeStore = (id: string) =>
-  createRoomStore({ apiBase, roomId: id, eventSourceFactory: nodeEventSourceFactory })
+const makeStore = (id: string, initialState?: Partial<RoomState>) =>
+  createRoomStore({ apiBase, roomId: id, eventSourceFactory: nodeEventSourceFactory, initialState })
+const preloadRoom = (id: string) => preloadRoomState(apiBase, id)
 
-const { waitUntilExit } = render(<App makeStore={makeStore} api={api} initialRoomId={roomId} />)
+const { waitUntilExit } = render(
+  <App makeStore={makeStore} api={api} preloadRoom={preloadRoom} initialRoomId={roomId} />,
+)
 waitUntilExit().then(() => process.exit(0))

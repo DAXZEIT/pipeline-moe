@@ -127,3 +127,50 @@ describe("createRoomStore — lifecycle & actions", () => {
     expect(store.getSnapshot().pendingRoute).toBeNull()
   })
 })
+
+describe("initialState hydration + preloadRoomState", () => {
+  it("a store created with initialState renders that state before start()", () => {
+    const { factory } = capturingFactory()
+    const roster = [
+      { id: "pi", name: "pi", icon: "π", color: "cyan", active: true, parallel: false },
+    ]
+    const store = createRoomStore({
+      apiBase: "http://test",
+      roomId: "room-x",
+      eventSourceFactory: factory,
+      initialState: { roster: roster as never, routingMode: "manual" },
+    })
+    // No start(), no fetch — the first getSnapshot already carries the preload.
+    expect(store.getSnapshot().roster).toHaveLength(1)
+    expect(store.getSnapshot().routingMode).toBe("manual")
+    // Untouched fields keep their initialRoomState defaults.
+    expect(store.getSnapshot().messages).toEqual([])
+    expect(store.getSnapshot().connected).toBe(false)
+  })
+
+  it("preloadRoomState maps roster/transcript/tasks/settings and tolerates individual failures", async () => {
+    const { preloadRoomState } = await import("../store")
+    const routes: Record<string, unknown> = {
+      "/api/rooms/room-x/participants": [{ id: "a" }],
+      "/api/rooms/room-x/transcript": [{ index: 0, authorId: "user", text: "hi" }],
+      "/api/rooms/room-x/settings": { chaining: true, routingMode: "supervised", defaultAgent: "a" },
+      // /tasks deliberately missing → that fetch rejects.
+    }
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) => {
+        const path = new URL(url).pathname
+        if (path in routes) {
+          return Promise.resolve({ ok: true, json: () => Promise.resolve(routes[path]) })
+        }
+        return Promise.reject(new Error(`no route ${path}`))
+      }),
+    )
+    const out = await preloadRoomState("http://test", "room-x")
+    expect(out.roster).toEqual([{ id: "a" }])
+    expect(out.messages).toHaveLength(1)
+    expect(out.routingMode).toBe("supervised")
+    expect(out.chaining).toBe(true)
+    expect(out.tasks).toBeUndefined() // failed piece simply absent
+  })
+})

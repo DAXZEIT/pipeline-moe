@@ -8,6 +8,7 @@
 
 import { createApi } from "./api.js"
 import type { RoomApi } from "./api.js"
+import type { RoomSettings } from "./types.js"
 import {
   initialRoomState,
   reduce,
@@ -57,9 +58,62 @@ export interface RoomStoreOptions {
   eventSourceFactory?: EventSourceFactory
   /** Notice auto-dismiss delay in ms. Defaults to 5000. */
   noticeTtlMs?: number
+  /** Pre-fetched room state to hydrate the store with (see
+   *  {@link preloadRoomState}) — the first render shows real content instead
+   *  of an empty-room flash while loadSnapshot runs. The snapshot still
+   *  reloads at start(), so stale preloads self-correct. */
+  initialState?: Partial<RoomState>
 }
 
 export type RoomStore = ReturnType<typeof createRoomStore>
+
+/** Map GET /settings onto RoomState fields — shared by the store's snapshot
+ *  load and {@link preloadRoomState}. */
+function settingsToState(s: RoomSettings): Partial<RoomState> {
+  const next: Partial<RoomState> = {
+    chaining: s.chaining,
+    routingMode: s.routingMode,
+    defaultAgent: s.defaultAgent,
+  }
+  if (s.fallbackAgent !== undefined) next.fallbackAgent = s.fallbackAgent
+  if (s.supervisorAgent !== undefined) next.supervisorAgent = s.supervisorAgent
+  if (s.maxChainHops !== undefined) next.maxChainHops = s.maxChainHops
+  if (s.defaultThinkingLevel !== undefined) next.defaultThinkingLevel = s.defaultThinkingLevel
+  if (s.allowCloud !== undefined) next.allowCloud = s.allowCloud
+  if (s.compactionReserveTokens !== undefined) next.compactionReserveTokens = s.compactionReserveTokens
+  if (s.defaultModel !== undefined) next.defaultModel = s.defaultModel
+  if (s.maxRooms !== undefined) next.maxRooms = s.maxRooms
+  if (s.handoffGates !== undefined) next.handoffGates = s.handoffGates
+  next.drift = s.drift ?? null
+  next.roomUsage = s.roomUsage ?? null
+  next.pendingRoute = s.pendingRoute ? s.pendingRoute.proposals : null
+  return next
+}
+
+/**
+ * Pre-fetch the parts of a room's state that shape the frame — roster,
+ * transcript, tasks, settings — so a client can hydrate the next room's store
+ * (via {@link RoomStoreOptions.initialState}) BEFORE swapping to it: the old
+ * room stays on screen during the fetch and the switch lands fully drawn,
+ * instead of flashing an empty room while loadSnapshot runs. Individual
+ * failures are tolerated (missing pieces load normally at start()).
+ */
+export async function preloadRoomState(apiBase: string, roomId: string): Promise<Partial<RoomState>> {
+  const prefix = roomId !== "default" ? `/api/rooms/${roomId}` : "/api"
+  const rApi = createApi(apiBase).makeRoomApi(prefix)
+  const [roster, messages, tasks, settings] = await Promise.allSettled([
+    rApi.roster(),
+    rApi.transcript(),
+    rApi.tasks(),
+    rApi.settings(),
+  ])
+  const out: Partial<RoomState> = {}
+  if (roster.status === "fulfilled") out.roster = roster.value
+  if (messages.status === "fulfilled") out.messages = messages.value
+  if (tasks.status === "fulfilled") out.tasks = tasks.value
+  if (settings.status === "fulfilled") Object.assign(out, settingsToState(settings.value))
+  return out
+}
 
 /**
  * Create a room store bound to a server and room. Call {@link RoomStore.start}
@@ -80,7 +134,7 @@ export function createRoomStore(opts: RoomStoreOptions) {
   const rApi: RoomApi = makeRoomApi(prefix)
   const sseUrl = `${opts.apiBase}/api/rooms/${roomId}/events`
 
-  let state: RoomState = initialRoomState
+  let state: RoomState = opts.initialState ? { ...initialRoomState, ...opts.initialState } : initialRoomState
   const listeners = new Set<() => void>()
   let noticeSeq = 1
   const noticeTimers = new Set<ReturnType<typeof setTimeout>>()
@@ -141,26 +195,7 @@ export function createRoomStore(opts: RoomStoreOptions) {
     rApi.workspace().then((w) => patch({ workspace: w })).catch(() => {})
     rApi.roster().then((r) => patch({ roster: r })).catch(() => {})
     rApi.tasks().then((t) => patch({ tasks: t })).catch(() => {})
-    rApi.settings().then((s) => {
-      const next: Partial<RoomState> = {
-        chaining: s.chaining,
-        routingMode: s.routingMode,
-        defaultAgent: s.defaultAgent,
-      }
-      if (s.fallbackAgent !== undefined) next.fallbackAgent = s.fallbackAgent
-      if (s.supervisorAgent !== undefined) next.supervisorAgent = s.supervisorAgent
-      if (s.maxChainHops !== undefined) next.maxChainHops = s.maxChainHops
-      if (s.defaultThinkingLevel !== undefined) next.defaultThinkingLevel = s.defaultThinkingLevel
-      if (s.allowCloud !== undefined) next.allowCloud = s.allowCloud
-      if (s.compactionReserveTokens !== undefined) next.compactionReserveTokens = s.compactionReserveTokens
-      if (s.defaultModel !== undefined) next.defaultModel = s.defaultModel
-      if (s.maxRooms !== undefined) next.maxRooms = s.maxRooms
-      if (s.handoffGates !== undefined) next.handoffGates = s.handoffGates
-      next.drift = s.drift ?? null
-      next.roomUsage = s.roomUsage ?? null
-      next.pendingRoute = s.pendingRoute ? s.pendingRoute.proposals : null
-      patch(next)
-    }).catch(() => {})
+    rApi.settings().then((s) => patch(settingsToState(s))).catch(() => {})
     rApi.conversations().then((c) => patch({ conversations: c.list, currentConversationId: c.currentId })).catch(() => {})
     api.providers().then((d) => patch({ providers: d.providers, explicitlyEnabled: d.explicitlyEnabled })).catch(() => {})
   }

@@ -4,7 +4,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { Box, useStdin } from "ink"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import type { RoomStore, Api, RoomSummary } from "@pipeline-moe/client-core"
+import type { RoomStore, Api, RoomState, RoomSummary } from "@pipeline-moe/client-core"
 import { useRoomStore } from "./useRoomStore"
 import { RosterStrip } from "./components/RosterStrip"
 import { RoomTabs } from "./components/RoomTabs"
@@ -50,16 +50,29 @@ function cleanPtyCapture(raw: string): string {
 export function App({
   makeStore,
   api,
+  preloadRoom,
   initialRoomId,
 }: {
-  makeStore: (roomId: string) => RoomStore
+  makeStore: (roomId: string, initialState?: Partial<RoomState>) => RoomStore
   api: Api
+  /** Pre-fetches a room's frame-shaping state (roster/transcript/tasks/
+   *  settings) so switchRoom can hydrate the next store BEFORE swapping —
+   *  without it a switch flashes an empty room while the snapshot loads. */
+  preloadRoom?: (roomId: string) => Promise<Partial<RoomState>>
   initialRoomId: string
 }) {
   // The active room. Switching rooms swaps the store entirely (the store is
   // bound to one roomId at construction), mirroring the web's per-room store.
   const [roomId, setRoomId] = useState(initialRoomId)
-  const store = useMemo(() => makeStore(roomId), [makeStore, roomId])
+  // Preloaded state for the room being switched to — parked here by
+  // switchRoom just before setRoomId, consumed exactly once by the store
+  // memo below.
+  const pendingInitialRef = useRef<Partial<RoomState> | undefined>(undefined)
+  const store = useMemo(() => {
+    const initial = pendingInitialRef.current
+    pendingInitialRef.current = undefined
+    return makeStore(roomId, initial)
+  }, [makeStore, roomId])
 
   // Load the snapshot + open the SSE stream when the store changes; the cleanup
   // stops the previous room's stream before the next one starts.
@@ -102,9 +115,32 @@ export function App({
   // The trailing "+ room" tab is a cursor position, not a room — selected via
   // ←/→ like the others; ⏎ on it opens the create-room form.
   const [plusSelected, setPlusSelected] = useState(false)
+  // Monotonic switch token: rapid ←/→ fires overlapping preloads, only the
+  // NEWEST may land its room (an older fetch resolving late must not yank
+  // the user back).
+  const switchSeq = useRef(0)
   const switchRoom = (id: string) => {
     setPlusSelected(false)
-    if (id !== roomId) setRoomId(id)
+    if (id === roomId) return
+    const seq = ++switchSeq.current
+    if (!preloadRoom) {
+      setRoomId(id)
+      return
+    }
+    // Hydrate-then-swap: the CURRENT room stays on screen during the fetch
+    // (~one local round-trip) and the new room's first frame is already fully
+    // drawn — no empty-room flash. On fetch failure, swap anyway; the store's
+    // own loadSnapshot is the recovery path.
+    preloadRoom(id)
+      .then((initial) => {
+        if (switchSeq.current !== seq) return
+        pendingInitialRef.current = initial
+        setRoomId(id)
+      })
+      .catch(() => {
+        if (switchSeq.current !== seq) return
+        setRoomId(id)
+      })
   }
 
   // Open-room list for the tab bar. Rooms appear/disappear outside this
@@ -134,8 +170,9 @@ export function App({
       setPlusSelected(true)
       return
     }
-    setPlusSelected(false)
-    if (ids[next] !== roomId) setRoomId(ids[next])
+    // Through switchRoom, not setRoomId — tab cycling gets the same
+    // hydrate-then-swap as every other switch path.
+    switchRoom(ids[next])
   }
 
   // ⏎ on the + tab: offer both paths — create a new room, or resume a closed
