@@ -1,4 +1,5 @@
 import { Box, Text, useInput } from "ink"
+import { appendFileSync } from "node:fs"
 import { useTerminalSize } from "../useTerminalSize"
 import { useRef, useState } from "react"
 import type { Message, Receipt, RosterItem, ToolActivity } from "@pipeline-moe/client-core"
@@ -96,6 +97,11 @@ export function Transcript({
   // Reserve rows for the status bar, command line, notices and borders so the
   // transcript never overflows its flex slot. One line is kept for the footer.
   const height = Math.max(4, rows - 8 - (reservedRows ?? 0))
+  if (process.env.PMOE_LAYOUT_LOG) {
+    try {
+      appendFileSync(process.env.PMOE_LAYOUT_LOG, `transcript rows=${rows} reserved=${reservedRows} height=${height}\n`)
+    } catch {}
+  }
   const bodyHeight = height - 1
   // Full terminal width minus padding margin (the roster is a horizontal
   // strip now, not a sidebar) — kept slightly short so Ink never re-wraps

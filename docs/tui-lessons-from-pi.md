@@ -92,5 +92,15 @@ is the strategic asset: any rendering layer can sit on it.
   empty line keeps the arrows for wheel scrolling) and paste markers
   (`paste-markers.ts` + bracketed paste mode 2004 in `cli.tsx`: 5+-line
   pastes collapse to `[#n paste +L lines]`, expand at send, atomic
-  backspace, routing preview sees the expanded text). Multiline input
-  proper stays open — it wants the scrollback architecture first.
+  backspace, routing preview sees the expanded text).
+- 2026-07-19: multiline input shipped (`multiline-input.ts`): Alt+⏎ or
+  `\`+⏎ insert a newline; ↑/↓ move between lines and only fall through to
+  history at the draft's edges (pi's arbitration); the box windows at 6
+  rows around the cursor (⋮ markers) and books its extra rows in the
+  Transcript's reservedRows. Two Ink lessons paid for en route, both
+  documented in CommandLine.tsx: (a) CommandLine→App state updates are
+  not reliably batched, so grow-vs-shrink ordering must keep any
+  intermediate frame too short rather than too tall; (b) nested <Text>
+  runs inside a flex row get fragmented widths from Yoga — compose each
+  line as one string with raw ANSI for the cursor, as Transcript already
+  does for markdown.

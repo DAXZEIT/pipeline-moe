@@ -359,6 +359,9 @@ export function App({
   // Explicit routing of the current draft, reported by CommandLine and shown
   // in the StatusBar — the paste-safety net (a quoted "@builder" routes!).
   const [draftTargets, setDraftTargets] = useState<{ t: string[]; d: string[] } | null>(null)
+  // Rows the multiline draft occupies (1..MAX_INPUT_ROWS), reported by
+  // CommandLine — the extra rows are booked in Transcript's reservedRows.
+  const [draftRows, setDraftRows] = useState(1)
   const pasteClipboard = () => {
     readClipboardImage()
       .then(async (img) => {
@@ -422,7 +425,8 @@ export function App({
               stripRowCount(state.roster, columns, state.defaultModel) +
               (state.tasks.length > 0 ? 1 : 0) +
               1 /* HeaderDivider: always-on rule under the header zone */ +
-              (state.paused && state.pausedOptions?.length ? pickerRows(state.pausedOptions.length) : 0)
+              (state.paused && state.pausedOptions?.length ? pickerRows(state.pausedOptions.length) : 0) +
+              (draftRows - 1) /* multiline draft: rows beyond the input's booked one */
             }
             isActive={!overlay && !state.oauthProgress}
             scrollRef={transcriptScrollRef}
@@ -565,6 +569,7 @@ export function App({
         pasteInsertRef={pasteInsertRef}
         pendingImageCount={pendingImages.length}
         onClearPending={() => setPendingImages([])}
+        onDraftRows={setDraftRows}
         isActive={!overlay && !state.oauthProgress}
         connected={state.connected}
       />

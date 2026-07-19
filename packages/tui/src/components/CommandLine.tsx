@@ -6,6 +6,7 @@ import { pickerKeyAction, pickerVisible } from "../answer-picker"
 import { inputBorderColor, inputMode, inputModeHint } from "../input-mode"
 import { expandPastes, isPastey, markerSpanAt, newPasteStore, stashPaste } from "../paste-markers"
 import { newPromptHistory, pushPrompt, recallNext, recallPrev } from "../prompt-history"
+import { MAX_INPUT_ROWS, cursorRowCol, lineBounds, moveVertical, visibleWindow } from "../multiline-input"
 import { previewRouting } from "@pipeline-moe/client-core"
 import type { RosterItem, RoutingMode } from "@pipeline-moe/client-core"
 
@@ -43,6 +44,7 @@ export function CommandLine({
   roster,
   defaultAgent,
   onRoutingPreview,
+  onDraftRows,
   isActive,
   connected,
 }: {
@@ -104,17 +106,16 @@ export function CommandLine({
    *  while the draft @mentions agents (or @all), null otherwise. Rendered by
    *  the parent in the StatusBar — a stable row, not a new one. */
   onRoutingPreview?: (p: { t: string[]; d: string[] } | null) => void
+  /** Reports how many rows the draft currently occupies (1..MAX_INPUT_ROWS) —
+   *  the App books the extra rows in the Transcript's reservedRows so a
+   *  growing multiline draft shrinks the conversation instead of overflowing
+   *  the fixed-height frame. */
+  onDraftRows?: (rows: number) => void
   isActive: boolean
   connected: boolean
 }) {
   const [value, setValue] = useState("")
   const [cursor, setCursor] = useState(0)
-  // The input is a single line; a raw \r or \n landing in `value` (multi-line
-  // paste via the terminal, or a fast writer whose text+Enter arrives as one
-  // stdin chunk so Ink never parses key.return) splits the rendered row and
-  // overflows the fixed-height layout — Ink's repaint then shifts rows and the
-  // input box appears mangled. Flatten to spaces at every insertion point.
-  const flatten = (s: string) => s.replace(/[\r\n]+/g, " ")
   // Large pastes collapse to a `[#n paste +L lines]` marker instead of being
   // flattened into one giant line; markers expand back at send time. The store
   // lives for the session so history recall can re-expand old markers.
@@ -138,17 +139,54 @@ export function CommandLine({
   const picker = pickerVisible({ options: answerOptions ?? null, value, dismissed: aDismissed })
   const opts = answerOptions ?? []
 
-  // Shared insertion for typed chunks and clipboard text: paste-ish content
-  // (5+ lines) becomes a marker, anything else is flattened inline. Terminals
-  // send a paste's newlines as \r — normalize before counting lines.
-  const insertAtCursor = (raw: string) => {
+  // Synchronous mirrors of value/cursor. Ink dispatches ONE useInput call per
+  // parsed key, so a multi-char stdin chunk ("zzz" from a fast typist or
+  // tmux) runs this handler several times in the same React flush — every
+  // call reading the render-scoped `value` would see the same stale draft and
+  // clobber the previous call's insert. All mutations read these refs.
+  const valueRef = useRef("")
+  const cursorRef = useRef(0)
+
+  // Every draft mutation flows through here so the refs stay current within
+  // a flush and the App's reservedRows follows the draft's height. Batching
+  // between this component's state and the App's is NOT guaranteed under
+  // Ink's reconciler, so the two commits are ORDERED such that any
+  // intermediate frame is too SHORT (a blank row — harmless) rather than too
+  // TALL (layout exceeds the screen for one frame and Ink's row diffing
+  // corrupts durably, the 2026-07-09 artifact): growing books the rows
+  // first; shrinking updates the text first. Verified live — the
+  // report-after-commit variant (an effect) corrupts reproducibly.
+  const lastRowsRef = useRef(1)
+  const setDraft = (next: string, cur: number) => {
+    valueRef.current = next
+    cursorRef.current = cur
+    const rows = next ? Math.min(next.split("\n").length, MAX_INPUT_ROWS) : 1
+    const growing = rows > lastRowsRef.current
+    lastRowsRef.current = rows
+    if (growing) onDraftRows?.(rows)
+    setValue(next)
+    setCursor(cur)
+    if (!growing) onDraftRows?.(rows)
+  }
+  /** Pure cursor moves also keep the ref current — a later insert in another
+   *  flush must not see a stale position. */
+  const setCur = (cur: number) => {
+    cursorRef.current = cur
+    setCursor(cur)
+  }
+
+  // Shared insertion for typed chunks and clipboard text: a big paste (5+
+  // lines) becomes a marker, a small one keeps its real newlines — the draft
+  // is multiline now, rendered as a windowed stack of rows below. Terminals
+  // send a paste's newlines as \r — normalize before counting lines. `prefix`
+  // carries text glued ahead of a bracketed paste in the same stdin chunk.
+  const insertAtCursor = (raw: string, prefix = "") => {
     const norm = raw.replace(/\r\n?/g, "\n")
-    const text = isPastey(norm) ? stashPaste(pastes.current, norm) : flatten(norm)
+    const text = prefix + (isPastey(norm) ? stashPaste(pastes.current, norm) : norm)
     exitHistory()
-    setValue((v) => {
-      setCursor(cursor + text.length)
-      return v.slice(0, cursor) + text + v.slice(cursor)
-    })
+    const v = valueRef.current
+    const c = cursorRef.current
+    setDraft(v.slice(0, c) + text + v.slice(c), c + text.length)
   }
 
   if (pasteInsertRef) pasteInsertRef.current = insertAtCursor
@@ -165,13 +203,12 @@ export function CommandLine({
   const isSlash = value.startsWith("/")
   const isBang = value.startsWith("!")
   const head = isSlash ? value.slice(1).split(" ")[0] : ""
-  const showPalette = isSlash && !value.includes(" ")
+  const showPalette = isSlash && !value.includes(" ") && !value.includes("\n")
   const matches = showPalette ? matchCommands(head) : []
   const idx = matches.length ? Math.min(pIndex, matches.length - 1) : 0
 
   const reset = () => {
-    setValue("")
-    setCursor(0)
+    setDraft("", 0)
     setPIndex(0)
   }
 
@@ -200,14 +237,14 @@ export function CommandLine({
         // Text typed ahead of the paste in the same chunk (minus the orphan
         // ESC that Ink left glued to it) inserts normally first.
         const before = input.slice(0, bpStart).replace(/\x1b$/, "")
-        if (before) insertAtCursor(before)
         const after = input.slice(bpStart + BP_START.length)
         const end = after.indexOf(BP_END)
         if (end === -1) {
+          if (before) insertAtCursor(before)
           pasteAccum.current = after
           return
         }
-        insertAtCursor(after.slice(0, end).replace(/\x1b$/, ""))
+        insertAtCursor(after.slice(0, end).replace(/\x1b$/, ""), before)
         return
       }
       // ⇧⇥ cycles routing anytime the command line owns the keyboard — checked
@@ -237,9 +274,20 @@ export function CommandLine({
         // passthrough: fall into the normal handlers below
       }
       if (key.return) {
+        const v = valueRef.current
+        const c = cursorRef.current
+        // Alt+⏎ (ESC CR → key.meta) inserts a newline. The other multiline
+        // gesture — a "\" right before ⏎, Claude Code's — works in terminals
+        // that swallow the Alt chord: the backslash becomes the newline.
+        if (key.meta || (c > 0 && v[c - 1] === "\\")) {
+          exitHistory()
+          const at = key.meta ? c : c - 1
+          setDraft(v.slice(0, at) + "\n" + v.slice(c), at + 1)
+          return
+        }
         // Markers expand here, at the last moment — everything downstream
         // (send, /command, !shell) sees the full pasted text.
-        const text = expandPastes(pastes.current, value).trim()
+        const text = expandPastes(pastes.current, v).trim()
         // A staged image can go out with no text at all (image-only message,
         // mirrors the web UI's Composer) — so an empty line with a pending
         // image is a send, not the "+ room" tab's onEmptyEnter.
@@ -254,7 +302,7 @@ export function CommandLine({
           } else onSend(text)
           // History stores the line as typed (markers included — the session
           // paste store outlives the send, so recall re-expands fine).
-          pushPrompt(hist.current, value.trim())
+          pushPrompt(hist.current, v.trim())
         } else if (onEmptyEnter) {
           onEmptyEnter()
         }
@@ -272,8 +320,7 @@ export function CommandLine({
       }
       if (matches.length > 0 && key.tab) {
         const next = "/" + matches[idx].matched + " "
-        setValue(next)
-        setCursor(next.length)
+        setDraft(next, next.length)
         setPIndex(0)
         return
       }
@@ -297,11 +344,15 @@ export function CommandLine({
       // can insert text).
       if (key.upArrow && !key.ctrl) {
         if (value) {
-          const recalled = recallPrev(hist.current, value)
-          if (recalled !== null) {
-            setValue(recalled)
-            setCursor(recalled.length)
+          // Inside a multiline draft the cursor moves between lines first;
+          // history only takes over from the FIRST line (pi's arbitration).
+          const moved = moveVertical(value, cursor, -1)
+          if (moved !== null) {
+            setCur(moved)
+            return
           }
+          const recalled = recallPrev(hist.current, value)
+          if (recalled !== null) setDraft(recalled, recalled.length)
           return
         }
         onScroll?.(1)
@@ -309,11 +360,13 @@ export function CommandLine({
       }
       if (key.downArrow && !key.ctrl) {
         if (value) {
-          const recalled = recallNext(hist.current)
-          if (recalled !== null) {
-            setValue(recalled)
-            setCursor(recalled.length)
+          const moved = moveVertical(value, cursor, 1)
+          if (moved !== null) {
+            setCur(moved)
+            return
           }
+          const recalled = recallNext(hist.current)
+          if (recalled !== null) setDraft(recalled, recalled.length)
           return
         }
         onScroll?.(-1)
@@ -321,20 +374,22 @@ export function CommandLine({
       }
       if (key.leftArrow) {
         if (!value && onRoomNav) return onRoomNav(-1)
-        setCursor((c) => Math.max(0, c - 1))
+        setCur(Math.max(0, cursorRef.current - 1))
         return
       }
       if (key.rightArrow) {
         if (!value && onRoomNav) return onRoomNav(1)
-        setCursor((c) => Math.min(value.length, c + 1))
+        setCur(Math.min(valueRef.current.length, cursorRef.current + 1))
         return
       }
+      // Ctrl+A/E: start/end of the CURRENT LINE (identical to whole-draft
+      // start/end while the draft is single-line).
       if (key.ctrl && input === "a") {
-        setCursor(0)
+        setCur(lineBounds(value, cursor).start)
         return
       }
       if (key.ctrl && input === "e") {
-        setCursor(value.length)
+        setCur(lineBounds(value, cursor).end)
         return
       }
       if (key.ctrl && input === "v") {
@@ -350,30 +405,32 @@ export function CommandLine({
         return
       }
       if (key.backspace) {
-        if (cursor > 0) {
+        const v = valueRef.current
+        const c = cursorRef.current
+        if (c > 0) {
           exitHistory()
           // A paste marker deletes atomically — eating it char-by-char would
           // leave a mangled literal that no longer expands.
-          const span = markerSpanAt(value, cursor, "ending")
-          const from = span ? span.start : cursor - 1
-          setValue((v) => v.slice(0, from) + v.slice(cursor))
-          setCursor(from)
+          const span = markerSpanAt(v, c, "ending")
+          const from = span ? span.start : c - 1
+          setDraft(v.slice(0, from) + v.slice(c), from)
         }
         return
       }
       if (key.delete) {
+        const v = valueRef.current
+        const c = cursorRef.current
         exitHistory()
         // Some terminals map Backspace to the Delete key; treat it as backspace
         // when there's nothing to the right, otherwise as a forward delete.
-        if (cursor < value.length) {
-          const span = markerSpanAt(value, cursor, "starting")
-          const to = span ? span.end : cursor + 1
-          setValue((v) => v.slice(0, cursor) + v.slice(to))
-        } else if (cursor > 0) {
-          const span = markerSpanAt(value, cursor, "ending")
-          const from = span ? span.start : cursor - 1
-          setValue((v) => v.slice(0, from))
-          setCursor(from)
+        if (c < v.length) {
+          const span = markerSpanAt(v, c, "starting")
+          const to = span ? span.end : c + 1
+          setDraft(v.slice(0, c) + v.slice(to), c)
+        } else if (c > 0) {
+          const span = markerSpanAt(v, c, "ending")
+          const from = span ? span.start : c - 1
+          setDraft(v.slice(0, from), from)
         }
         return
       }
@@ -384,12 +441,18 @@ export function CommandLine({
   )
 
   // The visible text drops the leading "/" or "!" (shown as a colored prompt
-  // glyph), so the cursor maps one slot left in slash/bang mode.
+  // glyph), so the cursor maps one slot left in slash/bang mode. The draft is
+  // rendered as a stack of rows, windowed around the cursor's line past
+  // MAX_INPUT_ROWS.
   const disp = isSlash || isBang ? value.slice(1) : value
   const dcur = isSlash || isBang ? Math.max(0, cursor - 1) : cursor
-  const before = disp.slice(0, dcur)
-  const atChar = disp[dcur] ?? " "
-  const after = disp.slice(dcur + 1)
+  const dLines = disp.split("\n")
+  const { row: cRow, col: cCol } = cursorRowCol(disp, dcur)
+  const win = visibleWindow(dLines.length, cRow, MAX_INPUT_ROWS)
+  const draftRows = value ? win.end - win.start : 1
+  useEffect(() => {
+    onDraftRows?.(draftRows)
+  }, [draftRows, onDraftRows])
 
   // The border speaks the mode: "/" yellow, "!" red, plain text follows the
   // routing mode (cyan auto / blue semi / gray manual). Dead input dims.
@@ -447,26 +510,54 @@ export function CommandLine({
           <Text dimColor>↑↓ select · ⇥ complete · ⏎ run</Text>
         </Box>
       ) : null}
-      <Box borderStyle="round" borderColor={border} borderDimColor={!live} paddingX={1}>
-        {pendingImageCount ? <Text color="cyan">📎 {pendingImageCount} </Text> : null}
-        <Text color={border}>{isSlash ? "/ " : isBang ? "! " : "› "}</Text>
+      <Box borderStyle="round" borderColor={border} borderDimColor={!live} paddingX={1} flexDirection="column">
         {value ? (
-          <Text>
-            {before}
-            <Text inverse>{atChar}</Text>
-            {after}
-            {modeHint ? (
-              <Text color={border} dimColor>
-                {"  "}
-                {modeHint}
-              </Text>
-            ) : null}
-            {hist.current.index !== -1 ? (
-              <Text dimColor>{`  ⟲ ${hist.current.index + 1}/${hist.current.entries.length}`}</Text>
-            ) : null}
-          </Text>
+          dLines.slice(win.start, win.end).map((line, i) => {
+            const abs = win.start + i
+            const isCursorRow = abs === cRow
+            const isLastVisible = i === win.end - win.start - 1
+            // The line body is composed as ONE string with the cursor as raw
+            // ANSI inverse (same approach as Transcript's pre-rendered
+            // markdown lines) — nested <Text> runs inside a flex row get
+            // fragmented widths from Yoga and wrap into vertical rubble.
+            const body = isCursorRow
+              ? line.slice(0, cCol) + "\x1b[7m" + (line[cCol] ?? " ") + "\x1b[27m" + line.slice(cCol + 1)
+              : line || " "
+            const trailer = isLastVisible
+              ? (modeHint ? `  ${modeHint}` : "") +
+                (hist.current.index !== -1 ? `  ⟲ ${hist.current.index + 1}/${hist.current.entries.length}` : "") +
+                (win.end < dLines.length ? `  ⋮ +${dLines.length - win.end}` : "")
+              : ""
+            return (
+              <Box key={abs}>
+                {i === 0 ? (
+                  abs === 0 ? (
+                    <>
+                      {pendingImageCount ? <Text color="cyan">📎 {pendingImageCount} </Text> : null}
+                      <Text color={border}>{isSlash ? "/ " : isBang ? "! " : "› "}</Text>
+                    </>
+                  ) : (
+                    // The window has scrolled past the first line.
+                    <Text dimColor>{"⋮ "}</Text>
+                  )
+                ) : (
+                  <Text>{"  "}</Text>
+                )}
+                <Text wrap="truncate-end">{body}</Text>
+                {trailer ? (
+                  <Text dimColor wrap="truncate-end">
+                    {trailer}
+                  </Text>
+                ) : null}
+              </Box>
+            )
+          })
         ) : (
-          <Text dimColor>Message the room · / commands · ! shell · ⇧⇥ routing · Ctrl+C quit</Text>
+          <Box>
+            {pendingImageCount ? <Text color="cyan">📎 {pendingImageCount} </Text> : null}
+            <Text color={border}>{"› "}</Text>
+            <Text dimColor>Message the room · / commands · ! shell · ⇧⇥ routing · Ctrl+C quit</Text>
+          </Box>
         )}
       </Box>
     </Box>
