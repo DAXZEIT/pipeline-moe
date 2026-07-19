@@ -4,6 +4,7 @@ import type { Api, ModelInfo, PresetFile } from "@pipeline-moe/client-core"
 import { useTerminalSize } from "../../useTerminalSize"
 import { shortModel } from "../../commands/registry"
 import { presetSummary, previewPersonas, roomFormPreviewMax } from "../../preset-picker"
+import { SelectOverlay } from "./SelectOverlay"
 
 type RowKey = "name" | "preset" | "model" | "workspaceDir" | "goal" | "create"
 type TextKey = "name" | "workspaceDir" | "goal"
@@ -51,6 +52,10 @@ export function RoomForm({
   const [models, setModels] = useState<ModelInfo[]>([])
   const [modelIdx, setModelIdx] = useState(0) // 0 = server default model
   const [focus, setFocus] = useState(0)
+  // ⏎ on the Model row swaps the form for the full /model-style picker
+  // (windowed, type-to-filter — ←→ cycling doesn't scale to 30+ models).
+  // The form and its state stay mounted underneath; Esc comes straight back.
+  const [pickingModel, setPickingModel] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const { rows } = useTerminalSize()
@@ -120,6 +125,7 @@ export function RoomForm({
       if (key.downArrow || key.tab) return setFocus((f) => Math.min(rowKeys.length - 1, f + 1))
       if (key.return) {
         if (focusKey === "create") return submit()
+        if (focusKey === "model") return setPickingModel(true)
         return setFocus((f) => f + 1)
       }
       if (focusKey === "preset") {
@@ -164,7 +170,7 @@ export function RoomForm({
         }
       }
     },
-    { isActive },
+    { isActive: isActive && !pickingModel },
   )
 
   const textRow = (rowKey: TextKey) => {
@@ -201,6 +207,33 @@ export function RoomForm({
       {trailing ? <Text dimColor> {trailing}</Text> : null}
     </Box>
   )
+
+  if (pickingModel) {
+    return (
+      <SelectOverlay
+        title="Model for the solo pi"
+        items={[
+          {
+            id: "",
+            label: `${modelIdx === 0 ? "● " : "  "}Room default`,
+            hint: "the server's default model",
+          },
+          ...models.map((m) => ({
+            id: m.ref,
+            label: `${m.ref === modelRef ? "● " : "  "}${m.local ? "🖥 " : "☁ "}${m.name}`,
+            hint: m.provider,
+          })),
+        ]}
+        emptyText="No models reported by the server."
+        onSelect={(ref) => {
+          setModelIdx(ref ? models.findIndex((m) => m.ref === ref) + 1 : 0)
+          setPickingModel(false)
+        }}
+        onCancel={() => setPickingModel(false)}
+        isActive={isActive}
+      />
+    )
+  }
 
   const presetFocused = focusKey === "preset"
   // Same per-agent preview as the Presets overlay (icon + name, model, tools)
@@ -250,8 +283,9 @@ export function RoomForm({
       </Box>
       {error ? <Text color="red">{error}</Text> : null}
       <Text dimColor>
-        {presetFocused ? "←→ roster · " : focusKey === "model" ? "←→ model · " : ""}↑↓ field · ⏎ next/create · esc
-        cancel
+        {focusKey === "model"
+          ? "⏎ pick model · ←→ cycle · ↑↓ field · esc cancel"
+          : `${presetFocused ? "←→ roster · " : ""}↑↓ field · ⏎ next/create · esc cancel`}
       </Text>
     </Box>
   )
