@@ -1,9 +1,11 @@
 import { Box, Text, useInput } from "ink"
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { commandPaletteLabel, matchCommands } from "../commands/registry"
 import { shouldAbortOnEscape } from "../escape-behavior"
 import { pickerKeyAction, pickerVisible } from "../answer-picker"
 import { inputBorderColor, inputMode, inputModeHint } from "../input-mode"
+import { expandPastes, isPastey, markerSpanAt, newPasteStore, stashPaste } from "../paste-markers"
+import { newPromptHistory, pushPrompt, recallNext, recallPrev } from "../prompt-history"
 import { previewRouting } from "@pipeline-moe/client-core"
 import type { RosterItem, RoutingMode } from "@pipeline-moe/client-core"
 
@@ -113,6 +115,17 @@ export function CommandLine({
   // overflows the fixed-height layout — Ink's repaint then shifts rows and the
   // input box appears mangled. Flatten to spaces at every insertion point.
   const flatten = (s: string) => s.replace(/[\r\n]+/g, " ")
+  // Large pastes collapse to a `[#n paste +L lines]` marker instead of being
+  // flattened into one giant line; markers expand back at send time. The store
+  // lives for the session so history recall can re-expand old markers.
+  const pastes = useRef(newPasteStore())
+  // Prompt history (↑/↓ while a draft exists — see prompt-history.ts for the
+  // arbitration with transcript scrolling on an empty line).
+  const hist = useRef(newPromptHistory())
+  const exitHistory = () => {
+    hist.current.index = -1
+    hist.current.draft = ""
+  }
   const [pIndex, setPIndex] = useState(0)
   // QCM picker state — highlight + per-question dismissal. Both reset when a
   // new question (different options array) arrives.
@@ -125,14 +138,29 @@ export function CommandLine({
   const picker = pickerVisible({ options: answerOptions ?? null, value, dismissed: aDismissed })
   const opts = answerOptions ?? []
 
-  if (pasteInsertRef)
-    pasteInsertRef.current = (raw) =>
-      setValue((v) => {
-        const text = flatten(raw)
-        const next = v.slice(0, cursor) + text + v.slice(cursor)
-        setCursor(cursor + text.length)
-        return next
-      })
+  // Shared insertion for typed chunks and clipboard text: paste-ish content
+  // (5+ lines) becomes a marker, anything else is flattened inline. Terminals
+  // send a paste's newlines as \r — normalize before counting lines.
+  const insertAtCursor = (raw: string) => {
+    const norm = raw.replace(/\r\n?/g, "\n")
+    const text = isPastey(norm) ? stashPaste(pastes.current, norm) : flatten(norm)
+    exitHistory()
+    setValue((v) => {
+      setCursor(cursor + text.length)
+      return v.slice(0, cursor) + text + v.slice(cursor)
+    })
+  }
+
+  if (pasteInsertRef) pasteInsertRef.current = insertAtCursor
+
+  // Bracketed-paste accumulator (cli.tsx enables mode 2004). The whole paste
+  // usually arrives as ONE stdin chunk `ESC[200~ … ESC[201~`; Ink strips the
+  // leading ESC, so the start marker reaches us as "[200~". A paste can still
+  // split across chunks — buffer until the end marker shows up. Non-null =
+  // currently inside a paste.
+  const pasteAccum = useRef<string | null>(null)
+  const BP_START = "[200~"
+  const BP_END = "[201~"
 
   const isSlash = value.startsWith("/")
   const isBang = value.startsWith("!")
@@ -149,6 +177,39 @@ export function CommandLine({
 
   useInput(
     (input, key) => {
+      // Bracketed paste owns the stream first: while inside a paste, every
+      // chunk is content (a chunk-boundary \r would otherwise be parsed by
+      // Ink as a spurious Enter), and a chunk carrying the start marker is
+      // split into before-text / payload / after-text.
+      if (pasteAccum.current !== null) {
+        const s = input || (key.return ? "\r" : "")
+        const end = s.indexOf(BP_END)
+        if (end === -1) {
+          pasteAccum.current += s
+          return
+        }
+        // The end marker's own ESC can sit inline in the chunk ("…q5\x1b[201~")
+        // — the "[201~" search lands after it, so strip it off the payload.
+        const payload = (pasteAccum.current + s.slice(0, end)).replace(/\x1b$/, "")
+        pasteAccum.current = null
+        insertAtCursor(payload)
+        return
+      }
+      const bpStart = input ? input.indexOf(BP_START) : -1
+      if (bpStart !== -1) {
+        // Text typed ahead of the paste in the same chunk (minus the orphan
+        // ESC that Ink left glued to it) inserts normally first.
+        const before = input.slice(0, bpStart).replace(/\x1b$/, "")
+        if (before) insertAtCursor(before)
+        const after = input.slice(bpStart + BP_START.length)
+        const end = after.indexOf(BP_END)
+        if (end === -1) {
+          pasteAccum.current = after
+          return
+        }
+        insertAtCursor(after.slice(0, end).replace(/\x1b$/, ""))
+        return
+      }
       // ⇧⇥ cycles routing anytime the command line owns the keyboard — checked
       // before the palette's plain-Tab completion, which must not swallow it.
       if (key.tab && key.shift) {
@@ -176,7 +237,9 @@ export function CommandLine({
         // passthrough: fall into the normal handlers below
       }
       if (key.return) {
-        const text = value.trim()
+        // Markers expand here, at the last moment — everything downstream
+        // (send, /command, !shell) sees the full pasted text.
+        const text = expandPastes(pastes.current, value).trim()
         // A staged image can go out with no text at all (image-only message,
         // mirrors the web UI's Composer) — so an empty line with a pending
         // image is a send, not the "+ room" tab's onEmptyEnter.
@@ -189,6 +252,9 @@ export function CommandLine({
             const cmd = text.slice(1).trim()
             if (cmd) onShell(cmd)
           } else onSend(text)
+          // History stores the line as typed (markers included — the session
+          // paste store outlives the send, so recall re-expands fine).
+          pushPrompt(hist.current, value.trim())
         } else if (onEmptyEnter) {
           onEmptyEnter()
         }
@@ -220,16 +286,36 @@ export function CommandLine({
         setPIndex((p) => (p + 1) % matches.length)
         return
       }
-      // Outside the palette, ↑/↓ scroll the transcript — this is also what the
-      // mouse wheel emits in the alt screen (alternate-scroll mode 1007).
-      // Ctrl+↑/↓ is left alone here — Transcript's own useInput claims that
-      // combo to jump to the very top/bottom (see the final ctrl/meta/tab
-      // catch-all below, which swallows it before it can insert text).
+      // Outside the palette the arrows are arbitrated by the draft: a
+      // non-empty line owns ↑/↓ for prompt history (draft parked/restored,
+      // pi's Editor behavior); an empty line keeps them for transcript
+      // scrolling — which is also what the mouse wheel emits in the alt
+      // screen (alternate-scroll mode 1007), and idle wheel-reading is the
+      // dominant empty-line case. Ctrl+↑/↓ is left alone here — Transcript's
+      // own useInput claims that combo to jump to the very top/bottom (see
+      // the final ctrl/meta/tab catch-all below, which swallows it before it
+      // can insert text).
       if (key.upArrow && !key.ctrl) {
+        if (value) {
+          const recalled = recallPrev(hist.current, value)
+          if (recalled !== null) {
+            setValue(recalled)
+            setCursor(recalled.length)
+          }
+          return
+        }
         onScroll?.(1)
         return
       }
       if (key.downArrow && !key.ctrl) {
+        if (value) {
+          const recalled = recallNext(hist.current)
+          if (recalled !== null) {
+            setValue(recalled)
+            setCursor(recalled.length)
+          }
+          return
+        }
         onScroll?.(-1)
         return
       }
@@ -265,28 +351,34 @@ export function CommandLine({
       }
       if (key.backspace) {
         if (cursor > 0) {
-          setValue((v) => v.slice(0, cursor - 1) + v.slice(cursor))
-          setCursor((c) => c - 1)
+          exitHistory()
+          // A paste marker deletes atomically — eating it char-by-char would
+          // leave a mangled literal that no longer expands.
+          const span = markerSpanAt(value, cursor, "ending")
+          const from = span ? span.start : cursor - 1
+          setValue((v) => v.slice(0, from) + v.slice(cursor))
+          setCursor(from)
         }
         return
       }
       if (key.delete) {
+        exitHistory()
         // Some terminals map Backspace to the Delete key; treat it as backspace
         // when there's nothing to the right, otherwise as a forward delete.
         if (cursor < value.length) {
-          setValue((v) => v.slice(0, cursor) + v.slice(cursor + 1))
+          const span = markerSpanAt(value, cursor, "starting")
+          const to = span ? span.end : cursor + 1
+          setValue((v) => v.slice(0, cursor) + v.slice(to))
         } else if (cursor > 0) {
-          setValue((v) => v.slice(0, cursor - 1))
-          setCursor((c) => c - 1)
+          const span = markerSpanAt(value, cursor, "ending")
+          const from = span ? span.start : cursor - 1
+          setValue((v) => v.slice(0, from))
+          setCursor(from)
         }
         return
       }
       if (key.ctrl || key.meta || key.tab) return
-      if (input) {
-        const text = flatten(input)
-        setValue((v) => v.slice(0, cursor) + text + v.slice(cursor))
-        setCursor((c) => c + text.length)
-      }
+      if (input) insertAtCursor(input)
     },
     { isActive },
   )
@@ -314,7 +406,9 @@ export function CommandLine({
   const previewKey =
     mode === "text" && value.trim() && roster && roster.length > 0
       ? (() => {
-          const p = previewRouting(value, roster, defaultAgent ?? null)
+          // Preview the EXPANDED text: a paste marker can hide @mentions, and
+          // the preview must show exactly what send will route (mrff3qwe).
+          const p = previewRouting(expandPastes(pastes.current, value), roster, defaultAgent ?? null)
           return p.kind === "mentions" || p.kind === "all"
             ? JSON.stringify({ t: p.targetIds, d: p.dropped })
             : null
@@ -366,6 +460,9 @@ export function CommandLine({
                 {"  "}
                 {modeHint}
               </Text>
+            ) : null}
+            {hist.current.index !== -1 ? (
+              <Text dimColor>{`  ⟲ ${hist.current.index + 1}/${hist.current.entries.length}`}</Text>
             ) : null}
           </Text>
         ) : (

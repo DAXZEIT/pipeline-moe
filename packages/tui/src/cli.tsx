@@ -34,7 +34,10 @@ if (process.stdout.isTTY) process.stdout.write("\x1b[<u")
 // The `!` interactive shell temporarily leaves the alt screen (see App.tsx) so
 // command output lands in the real terminal scrollback.
 if (process.stdout.isTTY) {
-  process.stdout.write("\x1b[?1049h\x1b[2J\x1b[H\x1b[?1007h")
+  // 2004 = bracketed paste: terminals wrap pastes in ESC[200~ … ESC[201~, so
+  // the CommandLine can treat a multi-line paste as ONE insert (→ paste
+  // marker) instead of a stream of fragmented keystroke chunks.
+  process.stdout.write("\x1b[?1049h\x1b[2J\x1b[H\x1b[?1007h\x1b[?2004h")
   // Restore on every exit path — including crashes — or the shell comes back
   // to a dead alt screen. writeSync bypasses the 2026 wrapper installed below
   // and is safe inside an "exit" handler (no async flush).
@@ -43,7 +46,7 @@ if (process.stdout.isTTY) {
     if (restored) return
     restored = true
     try {
-      writeSync(1, "\x1b[?1007l\x1b[?1049l")
+      writeSync(1, "\x1b[?2004l\x1b[?1007l\x1b[?1049l")
     } catch {}
   }
   process.on("exit", restoreScreen)

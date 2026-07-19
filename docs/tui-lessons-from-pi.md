@@ -86,5 +86,11 @@ is the strategic asset: any rendering layer can sit on it.
 
 ## Status
 
-- 2026-07-19: doc written from source study. Quick wins (2) and (3) planned
-  next; (1) parked pending grill.
+- 2026-07-19: doc written from source study. (1) parked pending grill.
+- 2026-07-19: quick wins (2) and (3) shipped — prompt history
+  (`prompt-history.ts`: ↑/↓ on a non-empty draft, draft parked/restored;
+  empty line keeps the arrows for wheel scrolling) and paste markers
+  (`paste-markers.ts` + bracketed paste mode 2004 in `cli.tsx`: 5+-line
+  pastes collapse to `[#n paste +L lines]`, expand at send, atomic
+  backspace, routing preview sees the expanded text). Multiline input
+  proper stays open — it wants the scrollback architecture first.
