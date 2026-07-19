@@ -519,17 +519,40 @@ export const COMMANDS: Command[] = [
                 .resumeRoom(id)
                 .then(() => {
                   ctx.switchRoom(id)
-                  ctx.notify(`Resumed room "${id}".`)
+                  ctx.notifyAfterSwitch(`Resumed room "${id}".`)
                 })
                 .catch(() => ctx.notify(`Failed to resume room "${id}".`, "error"))
             } else {
               ctx.switchRoom(id)
-              ctx.notify(`Switched to room "${id}".`)
+              ctx.notifyAfterSwitch(`Switched to room "${id}".`)
             }
           },
         })
       } catch {
         ctx.notify("Failed to load rooms.", "error")
+      }
+    },
+  },
+  {
+    // The TUI twin of the web tab bar's ✕. destroyRoom only unmounts the live
+    // room — its transcript and roster stay on disk, so /rooms (or the + tab)
+    // resumes it later.
+    name: "close",
+    summary: "Close the current room (resumable later via /rooms)",
+    run: async (ctx) => {
+      const id = ctx.store.roomId
+      if (id === "default") {
+        return ctx.notify("The default room can't be closed — it's the planner's own room.", "error")
+      }
+      try {
+        await ctx.api.destroyRoom(id)
+        // Land where the web UI lands after its ✕: the always-live default
+        // room. Switch BEFORE queueing the notice — the other way round the
+        // notice effect can fire against the store being disposed.
+        ctx.switchRoom("default")
+        ctx.notifyAfterSwitch(`Room "${id}" closed — /rooms to resume it.`)
+      } catch {
+        ctx.notify(`Failed to close room "${id}".`, "error")
       }
     },
   },
@@ -546,7 +569,7 @@ export const COMMANDS: Command[] = [
         .createRoom({ name })
         .then((room) => {
           ctx.switchRoom(room.roomId)
-          ctx.notify(`Created and switched to room "${name}".`)
+          ctx.notifyAfterSwitch(`Created and switched to room "${name}".`)
         })
         .catch(() => ctx.notify(`Failed to create room "${name}".`, "error"))
     },
@@ -561,7 +584,7 @@ export const COMMANDS: Command[] = [
           .createRoom({ name: "", solo: true, ...(ref ? { model: ref } : {}) })
           .then((room) => {
             ctx.switchRoom(room.roomId)
-            ctx.notify(`Solo room "${room.name}" — pure pi on ${ref ? shortModel(ref) : "the default model"}.`)
+            ctx.notifyAfterSwitch(`Solo room "${room.name}" — pure pi on ${ref ? shortModel(ref) : "the default model"}.`)
           })
           .catch((err) =>
             ctx.notify(`Failed to create solo room${err instanceof Error ? `: ${err.message}` : "."}`, "error"),
@@ -673,8 +696,8 @@ export const COMMANDS: Command[] = [
     run: async (ctx, args) => {
       try {
         const room = await ctx.api.forkRoom(ctx.store.roomId, args.trim() || undefined)
-        ctx.notify(`Forked into "${room.name}" — switching.`)
         ctx.switchRoom(room.roomId)
+        ctx.notifyAfterSwitch(`Forked into "${room.name}".`)
       } catch (err) {
         ctx.notify(err instanceof Error && err.message ? err.message : "Fork failed.", "error")
       }

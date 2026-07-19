@@ -324,6 +324,7 @@ export function App({
       api,
       state,
       notify: (m, l) => store.pushNotice(m, l),
+      notifyAfterSwitch: setPendingNotice,
       switchRoom,
       openOverlay: setOverlay,
       closeOverlay,

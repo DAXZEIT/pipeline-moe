@@ -58,6 +58,10 @@ export interface CommandContext {
   state: RoomState
   /** Surface transient feedback through the shared notice channel. */
   notify: (msg: string, level?: "info" | "error") => void
+  /** Queue a notice for delivery once the NEXT store is mounted — a plain
+   *  notify() in the same tick as switchRoom lands on the store being
+   *  disposed and is lost with it. */
+  notifyAfterSwitch: (msg: string) => void
   /** Switch the active room — disposes the current store and binds a new one. */
   switchRoom: (roomId: string) => void
   openOverlay: (o: Overlay) => void
