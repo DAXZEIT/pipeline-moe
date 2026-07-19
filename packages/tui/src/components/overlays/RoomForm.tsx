@@ -52,10 +52,10 @@ export function RoomForm({
   const [models, setModels] = useState<ModelInfo[]>([])
   const [modelIdx, setModelIdx] = useState(0) // 0 = server default model
   const [focus, setFocus] = useState(0)
-  // ⏎ on the Model row swaps the form for the full /model-style picker
-  // (windowed, type-to-filter — ←→ cycling doesn't scale to 30+ models).
+  // ⏎ on the Preset/Model row swaps the form for the full /model-style picker
+  // (windowed, type-to-filter — ←→ cycling doesn't scale to 30+ entries).
   // The form and its state stay mounted underneath; Esc comes straight back.
-  const [pickingModel, setPickingModel] = useState(false)
+  const [picking, setPicking] = useState<"preset" | "model" | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const { rows } = useTerminalSize()
@@ -125,7 +125,8 @@ export function RoomForm({
       if (key.downArrow || key.tab) return setFocus((f) => Math.min(rowKeys.length - 1, f + 1))
       if (key.return) {
         if (focusKey === "create") return submit()
-        if (focusKey === "model") return setPickingModel(true)
+        if (focusKey === "preset") return setPicking("preset")
+        if (focusKey === "model") return setPicking("model")
         return setFocus((f) => f + 1)
       }
       if (focusKey === "preset") {
@@ -170,7 +171,7 @@ export function RoomForm({
         }
       }
     },
-    { isActive: isActive && !pickingModel },
+    { isActive: isActive && picking === null },
   )
 
   const textRow = (rowKey: TextKey) => {
@@ -208,7 +209,40 @@ export function RoomForm({
     </Box>
   )
 
-  if (pickingModel) {
+  if (picking === "preset") {
+    // Roster slots share the cycle's indexing: ids are indices into
+    // presetLabels, so sentinel rows and preset names can never collide.
+    return (
+      <SelectOverlay
+        title="Roster for the new room"
+        items={[
+          {
+            id: String(DEFAULT_IDX),
+            label: `${presetIdx === DEFAULT_IDX ? "● " : "  "}— default roster —`,
+            hint: "the server's default team",
+          },
+          {
+            id: String(SOLO_IDX),
+            label: `${soloSelected ? "● " : "  "}— solo: pure pi —`,
+            hint: "a bare pi, no team scaffolding",
+          },
+          ...presets.map((p, i) => ({
+            id: String(i + 2),
+            label: `${presetIdx === i + 2 ? "● " : "  "}${p.name}`,
+            hint: presetSummary(p),
+          })),
+        ]}
+        onSelect={(id) => {
+          setPresetIdx(Number(id))
+          setPicking(null)
+        }}
+        onCancel={() => setPicking(null)}
+        isActive={isActive}
+      />
+    )
+  }
+
+  if (picking === "model") {
     return (
       <SelectOverlay
         title="Model for the solo pi"
@@ -227,9 +261,9 @@ export function RoomForm({
         emptyText="No models reported by the server."
         onSelect={(ref) => {
           setModelIdx(ref ? models.findIndex((m) => m.ref === ref) + 1 : 0)
-          setPickingModel(false)
+          setPicking(null)
         }}
-        onCancel={() => setPickingModel(false)}
+        onCancel={() => setPicking(null)}
         isActive={isActive}
       />
     )
@@ -283,9 +317,9 @@ export function RoomForm({
       </Box>
       {error ? <Text color="red">{error}</Text> : null}
       <Text dimColor>
-        {focusKey === "model"
-          ? "⏎ pick model · ←→ cycle · ↑↓ field · esc cancel"
-          : `${presetFocused ? "←→ roster · " : ""}↑↓ field · ⏎ next/create · esc cancel`}
+        {focusKey === "model" || presetFocused
+          ? `⏎ pick ${presetFocused ? "roster" : "model"} · ←→ cycle · ↑↓ field · esc cancel`
+          : "↑↓ field · ⏎ next/create · esc cancel"}
       </Text>
     </Box>
   )
