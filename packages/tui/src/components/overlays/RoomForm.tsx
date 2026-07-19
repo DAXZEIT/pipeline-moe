@@ -1,37 +1,34 @@
 import { Box, Text, useInput } from "ink"
 import { useEffect, useState } from "react"
-import type { Api, PresetFile } from "@pipeline-moe/client-core"
+import type { Api, ModelInfo, PresetFile } from "@pipeline-moe/client-core"
 import { useTerminalSize } from "../../useTerminalSize"
 import { shortModel } from "../../commands/registry"
 import { presetSummary, previewPersonas, roomFormPreviewMax } from "../../preset-picker"
 
-interface Field {
-  key: "name" | "workspaceDir" | "goal"
-  label: string
-  placeholder: string
-}
+type RowKey = "name" | "preset" | "model" | "workspaceDir" | "goal" | "create"
+type TextKey = "name" | "workspaceDir" | "goal"
 
-const NAME_ROW = 0
-const PRESET_ROW = 1
-const WORKDIR_ROW = 2
-const GOAL_ROW = 3
-const CREATE_ROW = 4
-
-const TEXT_FIELDS: Record<number, Field> = {
-  [NAME_ROW]: { key: "name", label: "Name", placeholder: "e.g. Cloud Sprint" },
-  [WORKDIR_ROW]: {
-    key: "workspaceDir",
+const TEXT_FIELDS: Record<TextKey, { label: string; placeholder: string }> = {
+  name: { label: "Name", placeholder: "e.g. Cloud Sprint" },
+  workspaceDir: {
     label: "Workdir",
     placeholder: "optional — /path or user@host:/path (SSHFS)",
   },
-  [GOAL_ROW]: { key: "goal", label: "Goal", placeholder: "optional — auto-starts the room" },
+  goal: { label: "Goal", placeholder: "optional — auto-starts the room" },
 }
+
+// Roster-cycle slots ahead of the saved presets: the default team, or a solo
+// room (a bare pi — /solo's form twin). Solo swaps the preset preview for a
+// Model row, since the model IS the choice there.
+const DEFAULT_IDX = 0
+const SOLO_IDX = 1
 
 /**
  * Create-room wizard — the TUI counterpart of the web UI's CREATE NEW modal:
- * name, preset roster (left/right cycles the saved presets), optional working
- * directory (local path or user@host:path mounted over SSHFS) and optional
- * goal (a goal auto-starts the room). Reached from the + room tab or /newroom.
+ * name, roster (left/right cycles default / solo / saved presets), optional
+ * working directory (local path or user@host:path mounted over SSHFS) and
+ * optional goal (a goal auto-starts the room). Reached from the + room tab or
+ * /newroom.
  */
 export function RoomForm({
   api,
@@ -44,13 +41,15 @@ export function RoomForm({
   onClose: () => void
   isActive: boolean
 }) {
-  const [values, setValues] = useState<Record<Field["key"], string>>({
+  const [values, setValues] = useState<Record<TextKey, string>>({
     name: "",
     workspaceDir: "",
     goal: "",
   })
   const [presets, setPresets] = useState<PresetFile[]>([])
-  const [presetIdx, setPresetIdx] = useState(0) // 0 = default roster
+  const [presetIdx, setPresetIdx] = useState(DEFAULT_IDX)
+  const [models, setModels] = useState<ModelInfo[]>([])
+  const [modelIdx, setModelIdx] = useState(0) // 0 = server default model
   const [focus, setFocus] = useState(0)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -61,16 +60,37 @@ export function RoomForm({
       .presets()
       .then(setPresets)
       .catch(() => {})
+    api
+      .models()
+      .then((r) => setModels(r.models))
+      .catch(() => {})
   }, [api])
 
-  const presetLabels = ["— default roster —", ...presets.map((p) => p.name)]
-  const selectedPreset = presetIdx > 0 ? presets[presetIdx - 1] : undefined
+  const presetLabels = ["— default roster —", "— solo: pure pi —", ...presets.map((p) => p.name)]
+  const soloSelected = presetIdx === SOLO_IDX
+  const selectedPreset = presetIdx > SOLO_IDX ? presets[presetIdx - 2] : undefined
   const preset = selectedPreset?.name
+  const modelLabels = ["— default model —", ...models.map((m) => `${m.local ? "🖥 " : "☁ "}${m.name}`)]
+  const modelRef = modelIdx > 0 ? models[modelIdx - 1]?.ref : undefined
+
+  // The Model row only exists in solo mode; focus indexes into this list, so
+  // it renumbers automatically when the row appears/disappears (cycling the
+  // roster happens while focus sits on the preset row, which keeps its index).
+  const rowKeys: RowKey[] = [
+    "name",
+    "preset",
+    ...(soloSelected ? (["model"] as RowKey[]) : []),
+    "workspaceDir",
+    "goal",
+    "create",
+  ]
+  const focusKey = rowKeys[Math.min(focus, rowKeys.length - 1)]
 
   const submit = () => {
     if (busy) return
     const name = values.name.trim()
-    if (!name) {
+    // Solo rooms may go nameless — the server derives "solo/<model>".
+    if (!name && !soloSelected) {
       setError("Name is required.")
       return
     }
@@ -78,13 +98,14 @@ export function RoomForm({
     api
       .createRoom({
         name,
-        ...(preset ? { preset } : {}),
+        ...(soloSelected ? { solo: true, ...(modelRef ? { model: modelRef } : {}) } : preset ? { preset } : {}),
         ...(values.workspaceDir.trim() ? { workspaceDir: values.workspaceDir.trim() } : {}),
         ...(values.goal.trim() ? { goal: values.goal.trim() } : {}),
       })
       .then((room) => {
         onClose()
-        onCreated(room.roomId, name, Boolean(values.goal.trim()))
+        // room.name, not the typed name — solo auto-names on empty input.
+        onCreated(room.roomId, room.name, Boolean(values.goal.trim()))
       })
       .catch((err: unknown) => {
         setBusy(false)
@@ -96,12 +117,12 @@ export function RoomForm({
     (input, key) => {
       if (key.escape) return onClose()
       if (key.upArrow) return setFocus((f) => Math.max(0, f - 1))
-      if (key.downArrow || key.tab) return setFocus((f) => Math.min(CREATE_ROW, f + 1))
+      if (key.downArrow || key.tab) return setFocus((f) => Math.min(rowKeys.length - 1, f + 1))
       if (key.return) {
-        if (focus === CREATE_ROW) return submit()
+        if (focusKey === "create") return submit()
         return setFocus((f) => f + 1)
       }
-      if (focus === PRESET_ROW) {
+      if (focusKey === "preset") {
         const n = presetLabels.length
         if (key.leftArrow) {
           setError(null)
@@ -113,8 +134,20 @@ export function RoomForm({
         }
         return
       }
-      if (focus === CREATE_ROW) return
-      const field = TEXT_FIELDS[focus].key
+      if (focusKey === "model") {
+        const n = modelLabels.length
+        if (key.leftArrow) {
+          setError(null)
+          setModelIdx((i) => (i - 1 + n) % n)
+        }
+        if (key.rightArrow) {
+          setError(null)
+          setModelIdx((i) => (i + 1) % n)
+        }
+        return
+      }
+      if (focusKey === "create") return
+      const field = focusKey as TextKey
       if (key.backspace || key.delete) {
         setError(null)
         setValues((v) => ({ ...v, [field]: v[field].slice(0, -1) }))
@@ -134,12 +167,14 @@ export function RoomForm({
     { isActive },
   )
 
-  const textRow = (row: number) => {
-    const f = TEXT_FIELDS[row]
-    const focused = row === focus
-    const val = values[f.key]
+  const textRow = (rowKey: TextKey) => {
+    const f = TEXT_FIELDS[rowKey]
+    const focused = rowKey === focusKey
+    const val = values[rowKey]
+    const placeholder =
+      rowKey === "name" && soloSelected ? "optional — auto-named solo/<model>" : f.placeholder
     return (
-      <Box key={f.key}>
+      <Box key={rowKey}>
         <Text color={focused ? "green" : undefined}>{focused ? "▶ " : "  "}</Text>
         <Text dimColor>{f.label}: </Text>
         {val ? (
@@ -148,13 +183,26 @@ export function RoomForm({
             {focused ? <Text color="green">▌</Text> : null}
           </Text>
         ) : (
-          <Text dimColor>{f.placeholder}</Text>
+          <Text dimColor>{placeholder}</Text>
         )}
       </Box>
     )
   }
 
-  const presetFocused = focus === PRESET_ROW
+  const cycleRow = (focused: boolean, label: string, prefix: string, chosen: boolean, trailing?: string) => (
+    <Box>
+      <Text color={focused ? "green" : undefined}>{focused ? "▶ " : "  "}</Text>
+      <Text dimColor>{prefix}: </Text>
+      <Text color={chosen ? "cyan" : undefined} dimColor={!chosen}>
+        {focused ? "‹ " : ""}
+        {label}
+        {focused ? " ›" : ""}
+      </Text>
+      {trailing ? <Text dimColor> {trailing}</Text> : null}
+    </Box>
+  )
+
+  const presetFocused = focusKey === "preset"
   // Same per-agent preview as the Presets overlay (icon + name, model, tools)
   // so picking a preset here shows WHAT you're about to spawn, not just a name.
   const { shown, hidden } = previewPersonas(selectedPreset, roomFormPreviewMax(rows))
@@ -163,18 +211,24 @@ export function RoomForm({
       <Text color="green" bold>
         New room
       </Text>
-      {textRow(NAME_ROW)}
-      <Box>
-        <Text color={presetFocused ? "green" : undefined}>{presetFocused ? "▶ " : "  "}</Text>
-        <Text dimColor>Preset: </Text>
-        <Text color={presetIdx > 0 ? "cyan" : undefined} dimColor={presetIdx === 0}>
-          {presetFocused ? "‹ " : ""}
-          {presetLabels[presetIdx]}
-          {presetFocused ? " ›" : ""}
-        </Text>
-        {presets.length === 0 ? <Text dimColor> (no saved presets)</Text> : null}
-        {selectedPreset ? <Text dimColor>  {presetSummary(selectedPreset)}</Text> : null}
-      </Box>
+      {textRow("name")}
+      {cycleRow(
+        presetFocused,
+        presetLabels[presetIdx],
+        "Preset",
+        presetIdx !== DEFAULT_IDX,
+        presets.length === 0 && !soloSelected
+          ? "(no saved presets)"
+          : selectedPreset
+            ? ` ${presetSummary(selectedPreset)}`
+            : undefined,
+      )}
+      {soloSelected ? (
+        <>
+          <Text dimColor>{"    a bare pi — full tools, no team scaffolding"}</Text>
+          {cycleRow(focusKey === "model", modelLabels[modelIdx], "Model", modelIdx > 0)}
+        </>
+      ) : null}
       {shown.map((p) => (
         <Text key={p.id} wrap="truncate-end">
           {"    "}
@@ -187,16 +241,17 @@ export function RoomForm({
         </Text>
       ))}
       {hidden > 0 ? <Text dimColor>{`      … +${hidden} more agents`}</Text> : null}
-      {textRow(WORKDIR_ROW)}
-      {textRow(GOAL_ROW)}
+      {textRow("workspaceDir")}
+      {textRow("goal")}
       <Box marginTop={1}>
-        <Text inverse={focus === CREATE_ROW} color={focus === CREATE_ROW ? "green" : "gray"}>
-          {focus === CREATE_ROW ? "▶ " : "  "}[ {busy ? "Creating…" : "Create room"} ]
+        <Text inverse={focusKey === "create"} color={focusKey === "create" ? "green" : "gray"}>
+          {focusKey === "create" ? "▶ " : "  "}[ {busy ? "Creating…" : "Create room"} ]
         </Text>
       </Box>
       {error ? <Text color="red">{error}</Text> : null}
       <Text dimColor>
-        {presetFocused ? "←→ preset · " : ""}↑↓ field · ⏎ next/create · esc cancel
+        {presetFocused ? "←→ roster · " : focusKey === "model" ? "←→ model · " : ""}↑↓ field · ⏎ next/create · esc
+        cancel
       </Text>
     </Box>
   )
