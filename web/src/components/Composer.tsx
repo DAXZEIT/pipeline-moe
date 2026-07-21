@@ -39,6 +39,7 @@ const SLASH_COMMANDS = [
   { cmd: "default", syntax: "/default @agent|none", desc: "Set/clear default agent" },
   { cmd: "fallback", syntax: "/fallback @agent|none", desc: "Set/disable fallback routing agent" },
   { cmd: "provider", syntax: "/provider [list|add|remove]", desc: "Manage cloud provider API keys" },
+  { cmd: "seats", syntax: "/seats fuse <seat> @a @b…", desc: "Fuse agents onto a shared seat context (solo @a… to detach)" },
 ]
 
 /** Read a File as a base64 data URI. */

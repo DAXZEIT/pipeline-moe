@@ -73,6 +73,7 @@ export function RoomView({
           onReorder={room.reorderParticipants}
           onFetchParticipant={room.getParticipant}
           onUpdate={room.updateParticipant}
+          onSend={room.send}
         />
 
         <TasksPanel tasks={room.tasks} roster={room.roster} />

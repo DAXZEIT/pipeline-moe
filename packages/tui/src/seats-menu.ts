@@ -1,3 +1,4 @@
+import { seatMoves } from "@pipeline-moe/client-core"
 import type { RosterItem } from "@pipeline-moe/client-core"
 import type { CommandContext, SelectItem } from "./commands/types"
 // Circular with registry.ts (it registers /seats → openSeatsMenu): safe —
@@ -17,12 +18,6 @@ import { shortModel } from "./commands/registry"
  * join, no-adoption fresh seats, orphaned dirs, modelRef invariant) and its
  * notice comes back over SSE. This module adds navigation, not new behavior.
  */
-
-/** Same declared-model comparison the server's invariant uses: undefined on
- *  both sides = both on the host default = compatible. */
-function modelsDiffer(a: RosterItem, b: RosterItem): boolean {
-  return (a.model ?? null) !== (b.model ?? null)
-}
 
 const MISMATCH_HINT = "⚠ different model — the server will refuse"
 
@@ -58,35 +53,29 @@ export function seatPickerItems(roster: RosterItem[]): SelectItem[] {
   return items
 }
 
-/** Level 2 rows for one agent: join each OTHER fused seat, share a new seat
- *  with each own-context member, detach when fused. Model mismatches are
- *  flagged in the hint but not hidden — the server refuses loudly and the
- *  hint explains the fix before the user hits it. */
+/** Level 2 rows for one agent: rendered from the shared `seatMoves` helper
+ *  (client-core) — join/pair/detach logic lives there, this function only
+ *  produces TUI SelectItems and re-encodes ids for `runSeatAction`. Model
+ *  mismatches are flagged in the hint but not hidden — the server refuses
+ *  loudly and the hint explains the fix before the user hits it. */
 export function seatActionItems(agent: RosterItem, roster: RosterItem[]): SelectItem[] {
+  const { joins, pairs, canDetach } = seatMoves(agent, roster)
   const items: SelectItem[] = []
-  const fused = new Map<string, RosterItem[]>()
-  for (const p of roster) {
-    if (p.seat && p.id !== agent.id) fused.set(p.seat, [...(fused.get(p.seat) ?? []), p])
-  }
-  for (const [seat, hats] of fused) {
-    if (seat === agent.seat) continue
-    const mismatch = hats.some((h) => modelsDiffer(agent, h))
+  for (const j of joins) {
     items.push({
-      id: `join:${seat}`,
-      label: `⇥ Join ⌐${seat}`,
-      hint: `${hats.map((h) => `@${h.id}`).join(" + ")}${mismatch ? ` · ${MISMATCH_HINT}` : ""}`,
+      id: `join:${j.seat}`,
+      label: `⇥ Join ⌐${j.seat}`,
+      hint: `${j.hats.map((h) => `@${h.id}`).join(" + ")}${j.mismatch ? ` · ${MISMATCH_HINT}` : ""}`,
     })
   }
-  for (const p of roster) {
-    if (p.id === agent.id || p.seat) continue
-    const mismatch = modelsDiffer(agent, p)
+  for (const pr of pairs) {
     items.push({
-      id: `pair:${p.id}`,
-      label: `⧉ Share a seat with ${p.icon} ${p.name}…`,
-      hint: `you name the seat${mismatch ? ` · ${MISMATCH_HINT}` : ""}`,
+      id: `pair:${pr.partner.id}`,
+      label: `⧉ Share a seat with ${pr.partner.icon} ${pr.partner.name}…`,
+      hint: `you name the seat${pr.mismatch ? ` · ${MISMATCH_HINT}` : ""}`,
     })
   }
-  if (agent.seat) {
+  if (canDetach) {
     items.push({
       id: "solo",
       label: "⏏ Detach to own context",

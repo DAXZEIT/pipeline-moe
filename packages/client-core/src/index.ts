@@ -10,7 +10,8 @@ export type { ClientApi, RoomApi, Api } from "./api.js"
 export { previewRouting } from "./mentions.js"
 export type { RoutingPreview } from "./mentions.js"
 
-export { groupBySeat } from "./seats.js"
+export { groupBySeat, modelsDiffer, seatMoves } from "./seats.js"
+export type { SeatJoin, SeatPair } from "./seats.js"
 
 export { deriveHandoffGraph, deriveHandoffChain, dominantType, USER_NODE } from "./handoffs.js"
 export type { HandoffGraph, HandoffNode, HandoffEdge, HandoffType, HandoffChainStep } from "./handoffs.js"

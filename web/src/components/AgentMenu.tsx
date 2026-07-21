@@ -7,6 +7,8 @@ export interface AgentMenuItem {
   /** Shows a ✓ on the right — for state toggles (default, parallel). */
   checked?: boolean
   disabled?: boolean
+  /** Secondary detail line shown in smaller text below the label. */
+  hint?: string
   /** Destructive styling (red), e.g. Kick. */
   danger?: boolean
   /** Draw a divider above this item. */
@@ -19,7 +21,7 @@ export interface AgentMenuItem {
  *  an item is chosen. */
 export function AgentMenu({ items }: { items: AgentMenuItem[] }) {
   const [open, setOpen] = useState(false)
-  const [pos, setPos] = useState<{ top: number; right: number }>({ top: 0, right: 0 })
+  const [pos, setPos] = useState<{ top: number; left: number }>({ top: 0, left: 0 })
   const wrapRef = useRef<HTMLDivElement>(null)
   const btnRef = useRef<HTMLButtonElement>(null)
 
@@ -46,7 +48,17 @@ export function AgentMenu({ items }: { items: AgentMenuItem[] }) {
       return
     }
     const rect = btnRef.current?.getBoundingClientRect()
-    if (rect) setPos({ top: rect.bottom + 4, right: Math.max(8, window.innerWidth - rect.right) })
+    if (rect) {
+      // The roster sits on the LEFT edge of the app. A right-anchored menu
+      // opens leftward, and wide items (fused-seat "Join … · different model —
+      // the server will refuse" hints) grew the menu until it overflowed the
+      // viewport's left edge and clipped. Open RIGHTWARD from the button (into
+      // the wide transcript area) and clamp within the viewport so the menu
+      // never clips on either side. MENU_W must match the dropdown's max-width.
+      const MENU_W = 260
+      const left = Math.max(8, Math.min(rect.left, window.innerWidth - MENU_W - 8))
+      setPos({ top: rect.bottom + 4, left })
+    }
     setOpen(true)
   }
 
@@ -63,7 +75,7 @@ export function AgentMenu({ items }: { items: AgentMenuItem[] }) {
         ⋯
       </button>
       {open && (
-        <div className="agent-menu-dropdown" role="menu" style={{ top: pos.top, right: pos.right }}>
+        <div className="agent-menu-dropdown" role="menu" style={{ top: pos.top, left: pos.left }}>
           {items.map((it, i) => (
             <div key={i}>
               {it.separatorBefore && <div className="agent-menu-sep" />}
@@ -77,7 +89,10 @@ export function AgentMenu({ items }: { items: AgentMenuItem[] }) {
                 }}
               >
                 <span className="agent-menu-icon">{it.icon}</span>
-                <span className="agent-menu-label">{it.label}</span>
+                <span className="agent-menu-label">
+                  <span>{it.label}</span>
+                  {it.hint && <span className="agent-menu-hint">{it.hint}</span>}
+                </span>
                 {it.checked && <span className="agent-menu-check">✓</span>}
               </button>
             </div>

@@ -1,6 +1,6 @@
 import { useState } from "react"
 import { api } from "../api"
-import { groupBySeat } from "@pipeline-moe/client-core"
+import { groupBySeat, seatMoves } from "@pipeline-moe/client-core"
 import type { PersonaDetail, RosterItem } from "../types"
 import { AddAgent } from "./AddAgent"
 import { AgentMenu, type AgentMenuItem } from "./AgentMenu"
@@ -36,6 +36,8 @@ interface Props {
   onReorder: (order: string[]) => void
   onFetchParticipant: (id: string) => Promise<PersonaDetail>
   onUpdate: (id: string, patch: Parameters<typeof api.updateAgent>[1]) => Promise<unknown>
+  /** Send a text message (slash commands) through the room. */
+  onSend: (text: string) => void
 }
 
 /** Move `from` relative to `to`: dragging down lands below the target, dragging
@@ -106,11 +108,13 @@ export function Roster({
   onReorder,
   onFetchParticipant,
   onUpdate,
+  onSend,
 }: Props) {
   const [creating, setCreating] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [dragId, setDragId] = useState<string | null>(null)
   const [overId, setOverId] = useState<string | null>(null)
+  const [seatPrompt, setSeatPrompt] = useState<{ partnerId: string; creatorId: string; name: string; error?: string } | null>(null)
 
   const drop = (targetId: string) => {
     if (dragId && dragId !== targetId) {
@@ -198,6 +202,38 @@ export function Roster({
         })()}
       </div>
 
+      {/* Seat-name prompt — „Share a seat with…" — fixed overlay to escape
+       *  the roster scroll container, same placement strategy as AgentMenu. */}
+      {seatPrompt && (
+        <div className="seat-prompt-overlay" onClick={() => setSeatPrompt(null)}>
+          <div className="seat-prompt" onClick={(e) => e.stopPropagation()}>
+            <div className="seat-prompt-title">Name the seat for {seatPrompt.name || "…"}</div>
+            <div className="seat-prompt-subtitle">@{seatPrompt.creatorId} + @{seatPrompt.partnerId}</div>
+            <input
+              autoFocus
+              className="seat-prompt-input"
+              value={seatPrompt.name}
+              placeholder="e.g. maker"
+              onChange={(e) => setSeatPrompt((p) => p ? { ...p, name: e.target.value, error: undefined } : null)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault()
+                  confirmSeatPrompt()
+                }
+                if (e.key === "Escape") setSeatPrompt(null)
+              }}
+            />
+            <div className="seat-prompt-actions">
+              <button className="btn btn-ghost" onClick={() => setSeatPrompt(null)}>Cancel</button>
+              <button className="btn" onClick={() => confirmSeatPrompt()}>Create seat</button>
+            </div>
+            {seatPrompt.error && (
+              <div className="seat-prompt-error">{seatPrompt.error}</div>
+            )}
+          </div>
+        </div>
+      )}
+
       <div className="roster-foot">
         {creating ? (
           <AddAgent
@@ -223,6 +259,10 @@ export function Roster({
   /** One roster row (+ its inline editor). `inSeatGroup` suppresses the
    *  per-agent gauge/stats — the group renders the seat's single gauge. */
   function renderItem(r: RosterItem, inSeatGroup: boolean) {
+          function openSeatPrompt(partnerId: string) {
+            setSeatPrompt({ partnerId, creatorId: r.id, name: "", error: undefined })
+          }
+          const seatItems = seatMenuItems(r, roster, turnActive, onSend, openSeatPrompt)
           const menuItems: AgentMenuItem[] = [
             { icon: "✏", label: editingId === r.id ? "Close editor" : "Edit persona", disabled: turnActive, onClick: () => setEditingId((cur) => (cur === r.id ? null : r.id)) },
             { icon: "★", label: r.id === explicit ? "Clear default" : "Set as default", checked: r.id === effective, disabled: !r.active, onClick: () => onSetDefault(r.id === explicit ? null : r.id) },
@@ -232,6 +272,7 @@ export function Roster({
             { icon: "⟳", label: "Compact context", disabled: turnActive || r.status === "compacting", onClick: () => onCompact(r.id) },
             { icon: "⬇", label: "Export HTML", onClick: () => void downloadAgent(r.id, "html") },
             { icon: "⬇", label: "Export JSONL", onClick: () => void downloadAgent(r.id, "jsonl") },
+            ...seatItems,
             { icon: "🗑", label: "Kick from room", danger: true, separatorBefore: true, onClick: () => onKick(r.id) },
           ]
           return (
@@ -336,5 +377,67 @@ export function Roster({
             )}
           </div>
           )
+  }
+
+  /** Seat names travel through the same slug discipline as the server's ids. */
+  function slugSeat(s: string): string {
+    return s.toLowerCase().trim().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "")
+  }
+
+  /** Seat actions for the roster ⋯ menu: join a fused seat, share a new seat
+   *  with an own-context peer (opens the name prompt), detach. Model
+   *  mismatches are shown with ⚠ but not hidden — the server refuses loudly
+   *  and the hint explains the fix before the user hits it. Mirrors the TUI's
+   *  seatActionItems logic (seats-menu.ts) so the two clients stay in lockstep. */
+  function seatMenuItems(
+    agent: RosterItem,
+    roster: RosterItem[],
+    turnActive: boolean,
+    onSend: (text: string) => void,
+    startPair: (partnerId: string) => void,
+  ): AgentMenuItem[] {
+    const { joins, pairs, canDetach } = seatMoves(agent, roster)
+    const items: AgentMenuItem[] = []
+    for (const j of joins) {
+      items.push({
+        icon: "⇥",
+        label: `Join ⌐${j.seat}${j.mismatch ? " ⚠" : ""}`,
+        hint: `${j.hats.map((h) => `@${h.id}`).join(" + ")}${j.mismatch ? " · different model — the server will refuse" : ""}`,
+        disabled: turnActive,
+        onClick: () => onSend(`/seats fuse ${j.seat} ${j.hats.map((h) => `@${h.id}`).join(" ")}`),
+      })
+    }
+    for (const pr of pairs) {
+      items.push({
+        icon: "⧉",
+        label: `Share a seat with ${pr.partner.icon} ${pr.partner.name}…${pr.mismatch ? " ⚠" : ""}`,
+        hint: `you name the seat${pr.mismatch ? " · different model — the server will refuse" : ""}`,
+        disabled: turnActive,
+        onClick: () => startPair(pr.partner.id),
+      })
+    }
+    if (canDetach) {
+      items.push({
+        icon: "⏏",
+        label: "Detach to own context",
+        hint: "fresh session — the shared one stays with the seat",
+        disabled: turnActive,
+        onClick: () => onSend(`/seats solo @${agent.id}`),
+      })
+    }
+    if (items.length > 0) items[0].separatorBefore = true
+    return items
+  }
+
+  /** Confirm the seat-name prompt: slug the name, fire the fuse command. */
+  function confirmSeatPrompt(): void {
+    if (!seatPrompt) return
+    const slug = slugSeat(seatPrompt.name)
+    if (!slug) {
+      setSeatPrompt({ ...seatPrompt, error: "Seat name must contain at least one of [a-z0-9]." })
+      return
+    }
+    onSend(`/seats fuse ${slug} @${seatPrompt.creatorId} @${seatPrompt.partnerId}`)
+    setSeatPrompt(null)
   }
 }

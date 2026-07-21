@@ -277,6 +277,93 @@ ou jeter, jamais perdre en silence.
   (zero-silent-hop invariant holds across the refactor);
 - compaction: per-seat compaction leaves both hats functional.
 
+### 7. WebUI seat controls (plan `webui-seats`, 2026-07-21/22 — CLOSED, live-verified round 3)
+
+The WebUI already *displayed* fused seats (`groupBySeat` → seat-group + shared
+gauge in `Roster.tsx`) but offered no action to create/change them, and
+`/seats` was missing from the composer's hardcoded `SLASH_COMMANDS` list —
+the actual root cause of "I didn't know the feature was active" (dax,
+2026-07-21). Chosen approach: **one door** — the web reuses the same
+`handleSlashCommand → registry.reseat` path the TUI already uses via
+`store.actions.send("/seats fuse|solo …")`. No new backend endpoint, no drift
+risk between the two clients' dispatch.
+
+**Delivered and verified (round 2, 2026-07-21):**
+- `/seats` discoverable in the composer's `SLASH_COMMANDS`.
+- A roster ⋯ menu on web offers Join / Share with… / Detach, mirroring the
+  TUI's `seats-menu.ts` menu shape, with a seat-name prompt modal for new
+  pairings (`web/src/components/Roster.tsx`).
+- **Shared enumeration**, `seatMoves(agent, roster)` in
+  `packages/client-core/src/seats.ts` (`{joins, pairs, canDetach}`, plus the
+  `modelsDiffer` one-seat-one-model comparator) — both
+  `web/Roster.tsx::seatMenuItems` and `packages/tui/src/seats-menu.ts::seatActionItems`
+  now consume the SAME helper and only render their own item shape
+  (`AgentMenuItem[]` vs `SelectItem[]`). Verified by reading both call sites
+  and confirming zero duplicated join/pair/detach logic remains.
+- Mismatch actions stay **clickable** (⚠ hint, not disabled) on both
+  clients — the server's refusal notice is the teaching moment, per the
+  plan's explicit instruction. Seat actions ARE disabled during an active
+  turn (`disabled: turnActive`), matching the sibling Edit/Compact items.
+- Regression coverage: `packages/client-core/src/__tests__/seat-moves.test.ts`,
+  13 tests, runs under the project's real `npm test` (vitest) — 87 files /
+  1379 tests green, `tsc --noEmit` clean on root/web/client-core/tui.
+- Live-verified on an isolated scratch instance (Pattern A, port :5399,
+  never the operator's :5300) with an idle, seeded 3-agent roster: solo
+  detach, fuse restore, and a model-mismatch fuse all behaved exactly per
+  spec, including the SSE refusal notice text matching `registry.ts`'s
+  actual error message.
+
+**Round 1 → round 2, what changed and why it matters:** the first pass
+shipped the discoverability fix correctly but skipped the plan's anti-drift
+hoist and reversed two explicit UX rules (mismatch-disabled, missing
+turn-active guard) — caught by audit via literal plan-vs-diff comparison,
+not inference. A tester smoke test in round 1 also mutated the production
+room hosting that very session (`skills/live-verify` Rule Zero violation)
+and reported a "server bug" that round 2's clean idle-instance retest
+disproved — the symptom was the room being busy plus a client-side guard
+that round 1 had never wired, not a defect in `registry.reseat`.
+
+**Debt from round 2 cleared:** the `agent2` unused-local TS6133 failure in
+`packages/client-core`'s own `typecheck` script was fixed directly by the
+planner (a one-line deletion — dispatching a full builder turn for it would
+have been disproportionate) and re-verified: package typecheck clean, all
+13 `seat-moves.test.ts` tests still green.
+
+**Round 3 (2026-07-22) — a real bug dax's own eyes caught, that no other
+agent could have seen.** Report: "`/seats` works, UI creation works, but
+once the group is created the UI is broken." Diagnosis (planner, on disk):
+not the seat-group render itself — `groupBySeat` traced clean. The actual
+break was the shared `⋯` overflow menu (`AgentMenu.tsx`): it's right-anchored
+and opens leftward, the roster panel sits on the app's left edge, and the
+new seat items introduced a long `white-space: nowrap` hint
+("· different model — the server will refuse") with no `max-width` on
+`.agent-menu-dropdown` to bound it — the menu grew until it overflowed the
+viewport's left edge and got clipped, ellipsis never engaging for lack of a
+bounded width. Invisible with only singleton agents (hints stay short,
+"you name the seat"); appears the instant a fused seat exists, because
+every OTHER agent's menu gains the long `Join … · different model…` item.
+That's the exact trigger dax reported: "when the group is created."
+
+Fix (planner, direct — the gate here is visual and no agent in the room has
+a browser): `AgentMenu.tsx` now opens the dropdown **rightward** from the
+button (into the wide transcript area) and clamps position within the
+viewport (`MENU_W = 260` matching the CSS); `styles.css` gained
+`.agent-menu-dropdown { max-width: 260px }` and `.agent-menu-label { min-width: 0 }`
+so the hint's `text-overflow: ellipsis` can actually engage. Build (tsc+vite)
+clean. **Confirmed by dax visually**: menu renders whole, hints truncate
+cleanly, nothing clipped.
+
+**Process lesson:** this was a pure rendering bug — neither the auditor
+(reads code) nor the tester (drives the REST/SSE door) could have caught it;
+only a browser shows it, so only dax could. When a feature adds wide content
+to a *shared* layout component (a menu, tooltip, badge), an unbounded width
+paired with directional anchoring is a specific, checkable risk — and the
+visual gate needs to be asked for explicitly, never assumed green because
+the build passed.
+
+See `.pi/plans/webui-seats.md` (Round 2 and Round 3 sections) for the full
+step-by-step and the auditor's writeups in the room transcript (2026-07-21/22).
+
 ## Glossaire (fixé au grilling phase 1, 2026-07-12)
 
 - **Seat / siège** — une session pi partagée par un cluster de chapeaux ;
