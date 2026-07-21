@@ -17,6 +17,7 @@ import { SelectOverlay } from "./components/overlays/SelectOverlay"
 import { TextInputOverlay } from "./components/overlays/TextInputOverlay"
 import { LineupOverlay } from "./components/overlays/LineupOverlay"
 import { TasksOverlay } from "./components/overlays/TasksOverlay"
+import { GraphOverlay } from "./components/overlays/GraphOverlay"
 import { TaskSummary } from "./components/TaskSummary"
 import { HeaderDivider } from "./components/HeaderDivider"
 import { AgentForm } from "./components/overlays/AgentForm"
@@ -510,6 +511,9 @@ export function App({
       ) : null}
       {overlay?.kind === "tasks" ? (
         <TasksOverlay tasks={state.tasks} roster={state.roster} isActive onClose={closeOverlay} />
+      ) : null}
+      {overlay?.kind === "graph" ? (
+        <GraphOverlay messages={state.messages} roster={state.roster} isActive onClose={closeOverlay} />
       ) : null}
       {overlay?.kind === "lineup" ? (
         <LineupOverlay

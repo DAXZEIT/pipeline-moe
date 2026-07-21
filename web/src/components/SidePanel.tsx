@@ -1,7 +1,8 @@
 import { useState } from "react"
-import type { WorkspaceFile, RosterItem } from "../types"
+import type { WorkspaceFile, RosterItem, Message } from "../types"
 import { PresetsPanel } from "./PresetsPanel"
 import { SettingsPanel } from "./SettingsPanel"
+import { HandoffGraph } from "./HandoffGraph"
 
 function formatSize(bytes: number): string {
   if (bytes < 1024) return `${bytes}B`
@@ -9,15 +10,16 @@ function formatSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)}M`
 }
 
-type Tab = "workspace" | "presets" | "settings"
+type Tab = "workspace" | "handoffs" | "presets" | "settings"
 
-/** Right-hand side panel with three tabs: live workspace file listing,
- *  presets browser, and runtime settings. */
+/** Right-hand side panel with four tabs: live workspace file listing, the
+ *  room's handoff graph, presets browser, and runtime settings. */
 export function SidePanel({
   files,
   turnActive,
   onLoadPreset,
   onApplyPreset,
+  messages,
   // Settings props
   roster,
   defaultAgent,
@@ -38,6 +40,7 @@ export function SidePanel({
   turnActive: boolean
   onLoadPreset: (name: string) => Promise<{ downgraded?: Array<{ agent: string; model: string }> }>
   onApplyPreset: (name: string) => Promise<{ downgraded?: Array<{ agent: string; model: string }> }>
+  messages: Message[]
   // Settings
   roster: RosterItem[]
   defaultAgent: string | null
@@ -67,6 +70,12 @@ export function SidePanel({
             Workspace
           </button>
           <button
+            className={`side-tab${tab === "handoffs" ? " active" : ""}`}
+            onClick={() => setTab("handoffs")}
+          >
+            Handoffs
+          </button>
+          <button
             className={`side-tab${tab === "presets" ? " active" : ""}`}
             onClick={() => setTab("presets")}
           >
@@ -81,10 +90,13 @@ export function SidePanel({
         </div>
         <div className="workspace-sub">
           {tab === "workspace" && `${files.length} files · live`}
+          {tab === "handoffs" && "who passes to whom"}
           {tab === "presets" && "saved rosters"}
           {tab === "settings" && "room config"}
         </div>
       </div>
+
+      {tab === "handoffs" && <HandoffGraph messages={messages} roster={roster} />}
 
       {tab === "workspace" && (
         <div className="workspace-list">

@@ -636,6 +636,11 @@ export const COMMANDS: Command[] = [
     run: (ctx) => ctx.openOverlay({ kind: "tasks" }),
   },
   {
+    name: "graph",
+    summary: "Trace the room's handoffs — the turn's path + who passed to whom",
+    run: (ctx) => ctx.openOverlay({ kind: "graph" }),
+  },
+  {
     name: "agent",
     summary: "Create a new agent",
     run: (ctx) => ctx.openOverlay({ kind: "agentForm" }),

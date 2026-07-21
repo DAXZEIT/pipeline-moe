@@ -1,5 +1,26 @@
 # Changelog
 
+## [Unreleased] — 2026-07-21
+
+### Added
+
+- **Handoff graph — see who passed the turn to whom.** A room's handoffs are now
+  visible in both clients, derived purely from the live transcript
+  (`Message.handoffTo` for agent→agent, user→agent for routing) and typed by kind:
+  `handoff`, `route` (the human routing work in), and `hat-switch` (a hop between two
+  hats of one fused seat, read off `RosterItem.seat`). The derivation lives in
+  `@pipeline-moe/client-core` (`deriveHandoffGraph` + `deriveHandoffChain`) so web and
+  terminal compute one identical picture.
+  - **Web** (`0.1.1`): a new **Handoffs** tab in the right rail — a radial flow graph
+    (seats on a ring, weighted directed arcs, hover-isolate) with a **matrix** inspect
+    toggle for exact counts. Seats carry their live persona colour + icon.
+  - **TUI** (`0.1.40`): a new **`/graph`** command. Terminal-native: **trace** (the
+    turn's path as a numbered vertical journal — `1 you start · 2 ↳ planner route · 3
+    ↳ builder handoff …`, scrollable, arrows tinted by hop kind) and **flows** (a
+    ranked ledger with bars). A grid was tried and dropped — emoji column widths never
+    align in a terminal, and the snake reads better anyway. A hop back to the user is
+    untyped, not a handoff.
+
 ## [Unreleased] — 2026-07-11
 
 ### Added

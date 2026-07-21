@@ -33,6 +33,7 @@ export type Overlay =
     }
   | { kind: "lineup" }
   | { kind: "tasks" }
+  | { kind: "graph" }
   | { kind: "agentForm" }
   | { kind: "roomForm" }
   | { kind: "prompt"; agentId: string }

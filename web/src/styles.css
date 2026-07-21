@@ -1568,6 +1568,160 @@ body {
   border-bottom-color: var(--accent);
 }
 
+/* ---------- Handoff graph ---------- */
+.hg {
+  --hg-surface: var(--bg2);
+  --hg-handoff: #8b93a7;
+  --hg-route: #6ea8fe;
+  --hg-hatswitch: var(--accent);
+  display: flex;
+  flex-direction: column;
+  padding: 10px;
+  min-height: 0;
+}
+.hg-empty {
+  color: var(--muted);
+  padding: 16px 12px;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.hg-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+.hg-toggle {
+  display: flex;
+  gap: 2px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 2px;
+}
+.hg-tab {
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  padding: 3px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.hg-tab.on {
+  background: var(--bg3);
+  color: var(--text);
+}
+.hg-count {
+  color: var(--muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+.hg-svg {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+.hg-edge {
+  fill: none;
+  stroke-linecap: round;
+}
+.hg-edge.hg-handoff { stroke: var(--hg-handoff); }
+.hg-edge.hg-route { stroke: var(--hg-route); }
+.hg-edge.hg-hatswitch { stroke: var(--hg-hatswitch); stroke-dasharray: 6 5; }
+.hg-node { cursor: default; }
+.hg-node-icon { pointer-events: none; }
+.hg-node-label {
+  font-size: 11px;
+  font-weight: 600;
+  fill: var(--text);
+}
+.hg-node-sub {
+  font-size: 9px;
+  fill: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.hg-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+.hg-key {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--muted);
+  font-size: 10.5px;
+}
+.hg-swatch {
+  width: 16px;
+  height: 0;
+  border-top: 3px solid;
+}
+.hg-swatch.hg-handoff { border-color: var(--hg-handoff); }
+.hg-swatch.hg-route { border-color: var(--hg-route); }
+.hg-swatch.hg-hatswitch { border-color: var(--hg-hatswitch); }
+/* Matrix */
+.hg-matrix-wrap {
+  overflow-x: auto;
+}
+.hg-matrix {
+  border-collapse: collapse;
+  font-size: 11px;
+  width: 100%;
+}
+.hg-matrix th,
+.hg-matrix td {
+  border: 1px solid var(--border);
+  padding: 4px 5px;
+  text-align: center;
+  position: relative;
+}
+.hg-matrix thead th,
+.hg-matrix tbody th {
+  color: var(--muted);
+  font-weight: 600;
+  white-space: nowrap;
+}
+.hg-matrix tbody th {
+  text-align: right;
+  color: var(--text);
+  font-size: 10px;
+}
+.hg-corner {
+  font-size: 9px !important;
+  color: var(--muted) !important;
+}
+.hg-cell {
+  position: absolute;
+  inset: 2px;
+  border-radius: 3px;
+}
+.hg-cell.hg-handoff { background: var(--hg-handoff); }
+.hg-cell.hg-route { background: var(--hg-route); }
+.hg-cell.hg-hatswitch { background: var(--hg-hatswitch); }
+.hg-cell-n {
+  position: relative;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  color: var(--text);
+}
+.hg-tot {
+  background: var(--bg);
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.hg-foot th,
+.hg-foot td {
+  color: var(--muted);
+}
+
 /* ---------- Presets browser ---------- */
 .presets-panel {
   display: flex;

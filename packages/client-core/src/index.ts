@@ -12,6 +12,9 @@ export type { RoutingPreview } from "./mentions.js"
 
 export { groupBySeat } from "./seats.js"
 
+export { deriveHandoffGraph, deriveHandoffChain, dominantType, USER_NODE } from "./handoffs.js"
+export type { HandoffGraph, HandoffNode, HandoffEdge, HandoffType, HandoffChainStep } from "./handoffs.js"
+
 export {
   initialRoomState,
   resetTransient,

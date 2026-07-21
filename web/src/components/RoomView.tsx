@@ -192,6 +192,7 @@ export function RoomView({
         turnActive={room.turnActive}
         onLoadPreset={room.loadPreset}
         onApplyPreset={room.applyPreset}
+        messages={room.messages}
         roster={room.roster}
         defaultAgent={room.defaultAgent}
         fallbackAgent={room.fallbackAgent}
