@@ -424,6 +424,14 @@ export class Registry implements HandoffSink, GoalVerdictSink {
   personaStates(): PersonaState[] {
     return [...this.participants.values()].map((p) => ({
       ...p.persona,
+      // Derive `seat` from the live runtime, never the raw persona field —
+      // which goes stale when a fused pair drops to ONE hat: soloing/detaching
+      // one member leaves the survivor's persona.seat still naming the seat,
+      // even though a 1-hat seat is a singleton (fused() === false). Mirroring
+      // roster()'s `fused()` gate keeps the saved roster, the drift baseline,
+      // and the live UI in agreement (dax 2026-07-22: builder detached, but the
+      // session still showed tester on a phantom "builder-tester" seat).
+      seat: p.seat.fused() ? p.seat.seatId : undefined,
       active: p.active,
       parallel: p.parallel,
       cursor: p.cursor,

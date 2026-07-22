@@ -152,6 +152,21 @@ describe("fused seats through the real Registry", () => {
     expect(registry.get("builder")!.seat.fused()).toBe(false)
   })
 
+  test("soloing one hat de-fuses the SURVIVOR's saved seat too (no phantom 1-hat seat)", async () => {
+    // dax 2026-07-22: builder was detached (compact then showed "nothing to
+    // compact" on its fresh session), but the saved roster still put tester on
+    // a "builder-tester" seat it now occupied alone. personaStates must mirror
+    // roster()'s fused() gate: a lone survivor reads as a singleton everywhere.
+    await registry.create(persona("builder", { seat: "maker" }))
+    await registry.create(persona("tester", { seat: "maker" }))
+    await registry.reseat(["builder"], "builder") // detach builder
+    const seatOf = (id: string) => registry.personaStates().find((s) => s.id === id)?.seat
+    expect(seatOf("builder")).toBeUndefined() // the detached hat
+    expect(seatOf("tester")).toBeUndefined() // the lone survivor — was "maker"
+    // roster() and personaStates() now agree.
+    expect(registry.roster().find((r) => r.id === "tester")?.seat).toBeUndefined()
+  })
+
   test("reseat refuses a model mix BEFORE mutating anything", async () => {
     await registry.create(persona("builder", { model: "local/a.gguf" }))
     await registry.create(persona("tester", { model: "local/b.gguf" }))
