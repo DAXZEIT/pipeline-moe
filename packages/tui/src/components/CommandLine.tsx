@@ -6,7 +6,8 @@ import { pickerKeyAction, pickerVisible } from "../answer-picker"
 import { inputBorderColor, inputMode, inputModeHint } from "../input-mode"
 import { expandPastes, isPastey, markerSpanAt, newPasteStore, stashPaste } from "../paste-markers"
 import { newPromptHistory, pushPrompt, recallNext, recallPrev } from "../prompt-history"
-import { MAX_INPUT_ROWS, cursorRowCol, lineBounds, moveVertical, visibleWindow } from "../multiline-input"
+import { MAX_INPUT_ROWS, lineBounds, moveVertical, visibleWindow, wrapDraft } from "../multiline-input"
+import { useTerminalSize } from "../useTerminalSize"
 import { previewRouting } from "@pipeline-moe/client-core"
 import type { RosterItem, RoutingMode } from "@pipeline-moe/client-core"
 
@@ -116,6 +117,7 @@ export function CommandLine({
 }) {
   const [value, setValue] = useState("")
   const [cursor, setCursor] = useState(0)
+  const { columns } = useTerminalSize()
   // Large pastes collapse to a `[#n paste +L lines]` marker instead of being
   // flattened into one giant line; markers expand back at send time. The store
   // lives for the session so history recall can re-expand old markers.
@@ -442,13 +444,17 @@ export function CommandLine({
 
   // The visible text drops the leading "/" or "!" (shown as a colored prompt
   // glyph), so the cursor maps one slot left in slash/bang mode. The draft is
-  // rendered as a stack of rows, windowed around the cursor's line past
-  // MAX_INPUT_ROWS.
+  // soft-wrapped to the box width into VISUAL rows (a long line grows the box
+  // downward instead of being clipped with an ellipsis), then windowed around
+  // the cursor's row past MAX_INPUT_ROWS.
   const disp = isSlash || isBang ? value.slice(1) : value
   const dcur = isSlash || isBang ? Math.max(0, cursor - 1) : cursor
-  const dLines = disp.split("\n")
-  const { row: cRow, col: cCol } = cursorRowCol(disp, dcur)
-  const win = visibleWindow(dLines.length, cRow, MAX_INPUT_ROWS)
+  // Body width = terminal columns − round border (2) − paddingX (2) − the
+  // 2-col gutter ("› " / "/ " / "  " / "⋮ "). Every visual row fits this, so
+  // the per-row `truncate-end` below never actually truncates.
+  const bodyWidth = Math.max(8, columns - 6)
+  const { rows: vRows, cursorRow: cRow, cursorCol: cCol } = wrapDraft(disp, dcur, bodyWidth)
+  const win = visibleWindow(vRows.length, cRow, MAX_INPUT_ROWS)
   const draftRows = value ? win.end - win.start : 1
   useEffect(() => {
     onDraftRows?.(draftRows)
@@ -512,7 +518,7 @@ export function CommandLine({
       ) : null}
       <Box borderStyle="round" borderColor={border} borderDimColor={!live} paddingX={1} flexDirection="column">
         {value ? (
-          dLines.slice(win.start, win.end).map((line, i) => {
+          vRows.slice(win.start, win.end).map((line, i) => {
             const abs = win.start + i
             const isCursorRow = abs === cRow
             const isLastVisible = i === win.end - win.start - 1
@@ -526,7 +532,7 @@ export function CommandLine({
             const trailer = isLastVisible
               ? (modeHint ? `  ${modeHint}` : "") +
                 (hist.current.index !== -1 ? `  ⟲ ${hist.current.index + 1}/${hist.current.entries.length}` : "") +
-                (win.end < dLines.length ? `  ⋮ +${dLines.length - win.end}` : "")
+                (win.end < vRows.length ? `  ⋮ +${vRows.length - win.end}` : "")
               : ""
             return (
               <Box key={abs}>
