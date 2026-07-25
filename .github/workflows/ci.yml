@@ -30,10 +30,20 @@ jobs:
       # different bugs, and cancelling the sibling hides which one happened.
       fail-fast: false
       matrix:
-        # "20.12" is the engines floor, verbatim — the version a user with an
-        # old-but-allowed Node actually gets. 22 is the daily driver
-        # (@types/node is ^22).
-        node: ["20.12", "22"]
+        # The engines floor, verbatim — the version a user with the oldest
+        # allowed Node actually gets — plus the current LTS.
+        #
+        # The floor used to read "20.12" and the second CI run (30159523318)
+        # showed it was fiction: `npm ci` on node 20.12 emits EBADENGINE for all
+        # four @earendil-works packages, which require node >=22.19.0. pi is the
+        # foundation of this project, so a >=20.12 promise could never hold —
+        # nobody had seen the warning because nobody had ever installed on a
+        # node this old. package.json now declares >=22.19.0 and this matrix
+        # tests it. (The run also hit npm/cli#4828 on npm 10.5.0 for a rolldown
+        # native binding, downstream noise from the same too-old environment.)
+        #
+        # Add "26" here if you want your own daily driver covered too.
+        node: ["22.19", "24"]
     steps:
       - uses: actions/checkout@v4
 

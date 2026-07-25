@@ -19,7 +19,7 @@
     "sse"
   ],
   "engines": {
-    "node": ">=20.12"
+    "node": ">=22.19.0"
   },
   "bin": {
     "pipeline-moe": "./bin/pipeline-moe.mjs"
