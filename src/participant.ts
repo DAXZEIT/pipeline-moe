@@ -12,7 +12,8 @@ import { config } from "./config.js"
 import { ReasoningBudget, reasoningBudgetFor, exhaustedTrace } from "./reasoning-budget.js"
 import { buildHatHeader } from "./seats.js"
 import { SeatRuntime, type ThinkingLevel } from "./seat-runtime.js"
-import type { HandoffSink, Persona, ParticipantStatus, ToolActivity } from "./types.js"
+import { TurnSegmenter } from "./turn-parts.js"
+import type { HandoffSink, Persona, ParticipantStatus, ToolActivity, TurnPart } from "./types.js"
 
 /** Cap a tool result/arg to keep SSE frames and persisted transcripts small. */
 function clip(value: unknown, max = 2000): string {
@@ -36,6 +37,10 @@ export interface TurnResult {
   activity: ToolActivity[]
   /** Reasoning trace accumulated during the turn. */
   reasoning?: string
+  /** The same turn, chronologically segmented (docs/interleaved-turns.md).
+   *  Additive: `text`/`reasoning`/`activity` above are unchanged and stay the
+   *  fields everything else reads. */
+  parts?: TurnPart[]
   /** If the agent called ask_user, the question text. */
   question?: string
   /** Closed answer choices offered with the question (ask_user `options`) —
@@ -157,6 +162,9 @@ export class Participant {
   }
   /** Reasoning accumulated during the current turn. */
   private reasoningBuffer = ""
+  /** Records the ORDER the two buffers above and the tool calls interleaved
+   *  in — the buffers themselves cannot (docs/interleaved-turns.md). */
+  private readonly segments = new TurnSegmenter()
   /** Per-turn reasoning budget (ROADMAP #9) — null on cloud seats / disabled.
    *  Fresh instance per turn (see promptRounds); the thinking-delta watchdog
    *  consumes into it and aborts the generation on breach. */
@@ -207,9 +215,11 @@ export class Participant {
       const me = ev.assistantMessageEvent
       if (me.type === "text_delta") {
         this.buffer += me.delta
+        this.segments.delta("text", me.delta)
         this.emit("token", { id: this.persona.id, delta: me.delta })
       } else if (me.type === "thinking_delta") {
         this.reasoningBuffer += me.delta
+        this.segments.delta("reasoning", me.delta)
         this.emit("reasoning", { id: this.persona.id, delta: me.delta })
         // Budget watchdog: on breach, abort THIS generation — promptRounds
         // injects the checkpoint and re-prompts. (steer() can't do this: it
@@ -228,6 +238,9 @@ export class Participant {
         ts: Date.now(),
       }
       this.activity.set(ev.toolCallId, item)
+      // Closes whatever reasoning/text run was streaming — the tool is the
+      // boundary between "thought before" and "thought after".
+      this.segments.tool(ev.toolCallId)
       this.setStatus("working")
       this.emit("activity", { id: this.persona.id, item })
     } else if (ev.type === "compaction_start") {
@@ -327,6 +340,7 @@ export class Participant {
     const release = await this.seat.acquireTurn(this.persona.id, this.persona.thinkingLevel)
     this.buffer = ""
     this.reasoningBuffer = ""
+    this.segments.reset()
     this.activity.clear()
     this.seat.resetGuard()
     this.setStatus("active")
@@ -343,6 +357,11 @@ export class Participant {
       if (this.reasoningBuffer.trim()) {
         result.reasoning = this.reasoningBuffer.trim()
       }
+      // After the buffers, and unconditionally: a turn salvaged from an abort
+      // has real parts too, and the marker room.ts appends is mirrored onto
+      // them at post time (appendBodyMarker).
+      const parts = this.segments.finish()
+      if (parts) result.parts = parts
       if (thrown !== undefined) {
         result.stopReason = "error"
         result.errorMessage = thrown instanceof Error ? thrown.message : String(thrown)
@@ -478,6 +497,7 @@ export class Participant {
     const release = mine ? null : await this.seat.acquireTurn(this.persona.id, this.persona.thinkingLevel)
     this.buffer = ""
     this.reasoningBuffer = ""
+    this.segments.reset()
     this.activity.clear()
     this.seat.resetGuard()
     this.setStatus("active")
@@ -500,6 +520,11 @@ export class Participant {
       if (this.reasoningBuffer.trim()) {
         result.reasoning = this.reasoningBuffer.trim()
       }
+      // After the buffers, and unconditionally: a turn salvaged from an abort
+      // has real parts too, and the marker room.ts appends is mirrored onto
+      // them at post time (appendBodyMarker).
+      const parts = this.segments.finish()
+      if (parts) result.parts = parts
       if (thrown !== undefined) {
         result.stopReason = "error"
         result.errorMessage = thrown instanceof Error ? thrown.message : String(thrown)

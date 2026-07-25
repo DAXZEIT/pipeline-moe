@@ -64,6 +64,22 @@ export interface ToolActivity {
   ts: number
 }
 
+/** One contiguous stretch of a turn, in the order it happened — a run of
+ *  reasoning, a run of reply text, or a single tool call. Mirrors the server's
+ *  TurnPart (src/types.ts); see docs/interleaved-turns.md. */
+export type TurnPart =
+  | {
+      type: "reasoning" | "text"
+      content: string
+      /** Newline count of `content` — what a collapsed segment prints
+       *  (`💭 thought · 4 l`) without touching the content string. */
+      lines: number
+      ts: number
+    }
+  /** References its ToolActivity in `Message.activity` by id rather than
+   *  copying it, so the live running → ok flip keeps working in place. */
+  | { type: "tool"; toolCallId: string }
+
 export interface Message {
   index: number
   author: string // "user" or participant id
@@ -73,6 +89,11 @@ export interface Message {
   activity?: ToolActivity[]
   /** Reasoning trace (agent messages only, persisted after turn completion). */
   reasoning?: string
+  /** The same turn in chronological order. ADDITIVE — `text`, `reasoning` and
+   *  `activity` above are unchanged and complete on their own; a renderer that
+   *  does not understand `parts`, or an entry recorded before the server sent
+   *  them, falls back to the grouped layout. */
+  parts?: TurnPart[]
   /** Image paths (workspace-relative, e.g. "media/abc.png"). */
   images?: string[]
   /** If this message is a question posed to the user via ask_user. */

@@ -59,6 +59,34 @@ export interface ToolActivity {
   ts: number
 }
 
+/** One contiguous stretch of a turn, in the order it actually happened —
+ *  a run of reasoning, a run of reply text, or a single tool call
+ *  (docs/interleaved-turns.md). Segmentation happens at collection time in
+ *  src/turn-parts.ts; see there for the boundary rule. */
+export type TurnPart = TurnTextPart | TurnToolPart
+
+/** A run of same-type deltas: everything the model wrote between two
+ *  boundaries. `content` is carried rather than referenced by offset into
+ *  `text`/`reasoning`: offsets would save ~11% of a conversation file (measured
+ *  2026-07-25) and break the moment room.ts appends a salvage marker to the
+ *  text after the fact. */
+export interface TurnTextPart {
+  type: "reasoning" | "text"
+  content: string
+  /** Newline count of `content` — what the collapsed one-line render prints
+   *  (`💭 thought · 4 l`) without touching the content string. */
+  lines: number
+  ts: number
+}
+
+/** A tool call, REFERENCED by id rather than copied: the live path flips a
+ *  ToolActivity running → ok in place, and the part stays a pointer into
+ *  `TranscriptEntry.activity`. */
+export interface TurnToolPart {
+  type: "tool"
+  toolCallId: string
+}
+
 /** A transcript line in the shared room. */
 export interface TranscriptEntry {
   /** Monotonic index into the room transcript. */
@@ -73,6 +101,13 @@ export interface TranscriptEntry {
   activity?: ToolActivity[]
   /** Reasoning trace, if any (agent messages only). */
   reasoning?: string
+  /** The same turn in chronological order (agent messages only), when the
+   *  turn was collected by a build that records it. ADDITIVE and presentation-
+   *  only: `text`/`reasoning`/`activity` above stay authoritative — they feed
+   *  buildContext, the token gauge and the receipts — and every entry written
+   *  before docs/interleaved-turns.md simply has no `parts`, which the
+   *  renderers fall back on by showing today's grouped layout. */
+  parts?: TurnPart[]
   /** Paths to saved images (relative to workspace), e.g. "media/abc123.png". */
   images?: string[]
   /** If this message is a question posed to the user via ask_user, the question text. */

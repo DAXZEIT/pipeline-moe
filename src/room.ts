@@ -31,8 +31,10 @@ import type {
   RoutingMode,
   ToolActivity,
   TranscriptEntry,
+  TurnPart,
   WorkReceipt,
 } from "./types.js"
+import { appendBodyMarker } from "./turn-parts.js"
 
 /** Produce a compact one-line summary of a work receipt for injection into the next agent's context. */
 function formatReceipt(r: WorkReceipt): string {
@@ -71,6 +73,8 @@ interface RunOutput {
   reply: string
   activity: ToolActivity[]
   reasoning?: string
+  /** The turn in chronological order (docs/interleaved-turns.md). */
+  parts?: TurnPart[]
   receipt: WorkReceipt
   /** If the agent called ask_user, the question text. */
   question?: string
@@ -1093,6 +1097,7 @@ export class Room {
     questionOptions?: string[],
     durationMs?: number,
     handoffTo?: string,
+    parts?: TurnPart[],
   ): TranscriptEntry {
     const entry: TranscriptEntry = {
       index: this.transcript.length,
@@ -1107,6 +1112,7 @@ export class Room {
       ...(question && questionOptions && questionOptions.length > 0 ? { questionOptions } : {}),
       ...(durationMs != null ? { durationMs } : {}),
       ...(handoffTo ? { handoffTo } : {}),
+      ...(parts && parts.length > 0 ? { parts } : {}),
     }
     this.transcript.push(entry)
 
@@ -1668,7 +1674,7 @@ export class Room {
           this.registry.takeHandoff(asker.persona.id)
           resumeHandoffTo = undefined
         }
-        this.post(asker.persona.id, asker.persona.name, turnBody(result.reply, result.question, result.activity) + marker, result.activity, result.reasoning, undefined, result.question, result.questionOptions, undefined, resumeHandoffTo)
+        this.post(asker.persona.id, asker.persona.name, turnBody(result.reply, result.question, result.activity) + marker, result.activity, result.reasoning, undefined, result.question, result.questionOptions, undefined, resumeHandoffTo, appendBodyMarker(result.parts, marker))
         if (receiptHasChanges(result.receipt)) this.emit("receipt", result.receipt)
         asker.cursor = this.transcript.length
 
@@ -1890,6 +1896,7 @@ export class Room {
         reply: result.text,
         activity: result.activity,
         reasoning: result.reasoning,
+        parts: result.parts,
         // A question from an interrupted/failed turn isn't a real pause request
         // — the turn didn't end the normal way a pause is supposed to.
         question: stopReason ? undefined : result.question,
@@ -2881,7 +2888,7 @@ export class Room {
           this.registry.takeHandoff(out.target.persona.id)
           handoffTo = undefined
         }
-        this.post(out.target.persona.id, out.target.persona.name, turnBody(out.reply, out.question, out.activity) + marker, out.activity, out.reasoning, undefined, out.question, out.questionOptions, out.durationMs, handoffTo)
+        this.post(out.target.persona.id, out.target.persona.name, turnBody(out.reply, out.question, out.activity) + marker, out.activity, out.reasoning, undefined, out.question, out.questionOptions, out.durationMs, handoffTo, appendBodyMarker(out.parts, marker))
         if (receiptHasChanges(out.receipt)) this.emit("receipt", out.receipt)
         out.target.cursor = this.transcript.length
 
