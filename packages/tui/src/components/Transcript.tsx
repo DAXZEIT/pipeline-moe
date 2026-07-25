@@ -23,6 +23,19 @@ import { fmtDuration, headerRule, receiptLines } from "../transcript-format"
 
 type Line = { text: string; color?: string; bold?: boolean; dim?: boolean; cursor?: boolean }
 
+/** Reasoning is the agent talking to itself, and it must not read like the
+ *  reply. `dimColor` alone was not enough once the two sat adjacent in one
+ *  chronological flow (dax, 2026-07-25: "un peu messy") — the last line of a
+ *  thought and the first line of the answer were the same white. An explicit
+ *  gray plus a gutter separates them by colour AND by shape. */
+const THOUGHT = { color: "gray" } as const
+
+/** The gutter is two columns, the same width as the indent it replaces, so a
+ *  thought occupies exactly the rows it did before. Blank lines inside a
+ *  thought keep the bar, so the band stays continuous through a paragraph
+ *  break instead of looking like the thought ended. */
+const THOUGHT_GUTTER = "│ "
+
 /** Word-wrap a block of text to `width` columns, preserving hard newlines and
  *  hard-splitting any single word longer than the width (e.g. a URL). */
 function wrap(text: string, width: number): string[] {
@@ -125,19 +138,21 @@ export function Transcript({
   // Flatten the whole transcript into display lines.
   const lines: Line[] = []
 
+  const pushThoughtLine = (text: string) => lines.push({ text: THOUGHT_GUTTER + text, ...THOUGHT })
+
   // The web UI's collapsible 💭 block: collapsed to one line by default
   // (reasoning traces can dwarf the reply), Ctrl+T expands them all. A live
   // trace shows its last lines so you can watch the agent think.
   const pushThought = (reasoning: string, live: boolean) => {
     const wrapped = wrap(reasoning.trim(), Math.max(10, width - 2))
     if (showThoughts) {
-      lines.push({ text: live ? "💭 thinking…" : "💭 thought", dim: true })
-      for (const l of wrapped) lines.push({ text: "  " + l, dim: true })
+      lines.push({ text: live ? "💭 thinking…" : "💭 thought", ...THOUGHT })
+      for (const l of wrapped) pushThoughtLine(l)
     } else if (live) {
-      lines.push({ text: "💭 thinking…", dim: true })
-      for (const l of wrapped.slice(-2)) lines.push({ text: "  " + l, dim: true })
+      lines.push({ text: "💭 thinking…", ...THOUGHT })
+      for (const l of wrapped.slice(-2)) pushThoughtLine(l)
     } else {
-      lines.push({ text: `💭 thought (${wrapped.length} line${wrapped.length === 1 ? "" : "s"} · ctrl+t)`, dim: true })
+      lines.push({ text: `💭 thought (${wrapped.length} line${wrapped.length === 1 ? "" : "s"} · ctrl+t)`, ...THOUGHT })
     }
   }
 
@@ -187,14 +202,14 @@ export function Transcript({
   const pushReasoningSegment = (content: string, live: boolean) => {
     const wrapped = wrap(content, Math.max(10, width - 2))
     if (showThoughts) {
-      lines.push({ text: live ? "💭 thinking…" : "💭 thought", dim: true })
-      for (const l of wrapped) lines.push({ text: "  " + l, dim: true })
+      lines.push({ text: live ? "💭 thinking…" : "💭 thought", ...THOUGHT })
+      for (const l of wrapped) pushThoughtLine(l)
     } else if (live) {
       // The tail of a thought in flight, so you can watch it move.
-      lines.push({ text: "💭 thinking…", dim: true })
-      for (const l of wrapped.slice(-2)) lines.push({ text: "  " + l, dim: true })
+      lines.push({ text: "💭 thinking…", ...THOUGHT })
+      for (const l of wrapped.slice(-2)) pushThoughtLine(l)
     } else {
-      lines.push({ text: `💭 ${wrapped.length} line${wrapped.length === 1 ? "" : "s"} · ctrl+t`, dim: true })
+      lines.push({ text: `💭 ${wrapped.length} line${wrapped.length === 1 ? "" : "s"} · ctrl+t`, ...THOUGHT })
     }
   }
 
