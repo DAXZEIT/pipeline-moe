@@ -2062,6 +2062,37 @@ body {
 .activity-errors {
   color: var(--danger);
 }
+/* A ×N burst inside an interleaved turn: one summary row that opens into the
+   individual calls. Same skin as a single .activity-item so a run of six reads
+   and a lone read read as the same kind of thing. */
+.activity-group {
+  font-size: 12px;
+  margin: 4px 0;
+  border-left: 2px solid var(--border);
+  padding-left: 8px;
+}
+.activity-group > summary {
+  cursor: pointer;
+  user-select: none;
+}
+.activity-group.status-error {
+  border-left-color: var(--danger);
+}
+.activity-group.status-ok {
+  border-left-color: #2c5a48;
+}
+.activity-group.status-running {
+  border-left-color: #e6c07b;
+}
+.activity-group > .activity-list {
+  padding: 4px 0 2px 4px;
+}
+/* Standalone tool rows in an interleaved turn carry their own spacing — inside
+   .activity-list the flex gap did that job. */
+.row.agent > .activity-item {
+  font-size: 12px;
+  margin: 4px 0;
+}
 .activity-earlier {
   align-self: flex-start;
   background: none;

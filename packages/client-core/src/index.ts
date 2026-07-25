@@ -13,6 +13,9 @@ export type { RoutingPreview } from "./mentions.js"
 export { groupBySeat, modelsDiffer, seatMoves } from "./seats.js"
 export type { SeatJoin, SeatPair } from "./seats.js"
 
+export { toSegments, groupActivity, summarizeArgs, TOOL_ICON } from "./parts.js"
+export type { DisplaySegment, ActivityGroup } from "./parts.js"
+
 export { deriveHandoffGraph, deriveHandoffChain, dominantType, USER_NODE } from "./handoffs.js"
 export type { HandoffGraph, HandoffNode, HandoffEdge, HandoffType, HandoffChainStep } from "./handoffs.js"
 

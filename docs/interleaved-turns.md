@@ -250,7 +250,26 @@ the reasoning traces.
    the grouped path exactly as before: one 💭 blob with its glued seams, then
    `🔧 9 tool calls · ctrl+o`. Structurally guaranteed (`m.parts?.length ? … :
    old code`), and now also observed.
-5. **Web renderer** — same `parts`, same reducer, browser layout. NOT done.
+5. **Web renderer** — ✅ SHIPPED 2026-07-25. `web/src/components/
+   SequenceView.tsx`, with the same two fallbacks as the TUI (no `parts` → the
+   grouped `ActivityView`; prose already drawn → `m.text` is not repeated).
+
+   Building it moved the shared half of block 3 down into
+   `packages/client-core/src/parts.ts`: `toSegments`, `groupActivity`,
+   `summarizeArgs`, `TOOL_ICON`. Resolving pointers and aggregating runs is
+   protocol work, not layout work — two clients drawing the same turn must not
+   be free to describe it differently. What stayed in the TUI is what a
+   terminal needs and a scrolling page does not: `windowSequence`, the
+   line-budget fold. The web has scroll and `<details>`, so a ×N burst
+   collapses on its own instead of the sequence being windowed.
+
+   Verified by rendering the real `Transcript` to static markup with real
+   session entries (the web has no test runner). Interleaved entry: source
+   order `r 🔧 r 🔧 r 🔧 🔧 r t` → rendered `r read r ls r read grep r t`, one
+   bubble, no duplicated body. Pre-`parts` entry from `sessions/default/`
+   (31 calls + a thought): still the one `🔧 31 tool calls` block. Live block
+   with three segments: `thought read thinking…` — exactly one `thinking…`,
+   on the last segment.
 
 Blocks 1-2 are the architecture proof; 3-5 thicken it.
 
@@ -263,9 +282,10 @@ Blocks 1-2 are the architecture proof; 3-5 thicken it.
 
 ## Open
 
-- **The web renderer (block 5) is the open one.** TUI shipped first; the reducer
-  and `liveParts` already live in `client-core`, so the web side is layout work
-  only — but "cheap" is not "free" and the two surfaces drift while one lags.
+- **Per-tool duration is recorded but drawn nowhere.** `durationMs` lands on
+  every `ToolActivity` (block 1); neither renderer shows it. pi's feed prints
+  `Took 0.0s` under each call. Free to add on both sides once it is worth the
+  column.
 - **Does `ask_user` take a part?** The question is currently a callout after the
   body. Chronologically it belongs where it fired. Sharpened by block 1: this
   is not cosmetic but the same gap as the salvage marker — `entry.text` is a

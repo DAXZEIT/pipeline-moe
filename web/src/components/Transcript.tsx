@@ -1,12 +1,15 @@
 import { useEffect, useRef } from "react"
-import type { Message, Receipt, RosterItem, ToolActivity } from "../types"
+import type { LivePart, Message, Receipt, RosterItem, ToolActivity } from "../types"
 import { ActivityView } from "./ActivityView"
+import { SequenceView, proseDrawn } from "./SequenceView"
 
 interface Props {
   messages: Message[]
   streaming: Record<string, string>
   liveActivity: Record<string, ToolActivity[]>
   liveReasoning: Record<string, string>
+  /** Segment boundaries stamped by the server for the turn in flight. */
+  liveParts: Record<string, LivePart[]>
   receipts: Record<number, Receipt>
   roster: RosterItem[]
   /** Whether this room is the visible one (rooms stay mounted across switches). */
@@ -66,6 +69,7 @@ export function Transcript({
   streaming,
   liveActivity,
   liveReasoning,
+  liveParts,
   receipts,
   roster,
   active,
@@ -83,7 +87,7 @@ export function Transcript({
       block: "end",
     })
     if (messages.length > 0) settled.current = true
-  }, [messages, streaming, liveActivity, liveReasoning])
+  }, [messages, streaming, liveActivity, liveReasoning, liveParts])
 
   // When this room becomes the visible one again, jump to the bottom: a hidden
   // transcript can't scroll, so content that streamed in while you were on
@@ -132,6 +136,10 @@ export function Transcript({
         }
         const r = byId(m.author)
         const color = r?.color ?? "#9aa0b5"
+        // Chronological when the entry carries `parts`; grouped otherwise —
+        // there are 67 M of pre-`parts` sessions and they must keep rendering.
+        const interleaved = !!m.parts?.length
+        const drawn = interleaved && proseDrawn(m.parts)
         return (
           <div key={m.index} className="row agent">
             <div className="agent-head" style={{ color }}>
@@ -139,16 +147,24 @@ export function Transcript({
               <span className="agent-name">{m.authorName}</span>
               {m.durationMs != null && <span className="agent-duration">{fmtDuration(m.durationMs)}</span>}
             </div>
-            {m.activity && m.activity.length > 0 && <ActivityView activity={m.activity} />}
-            {m.reasoning && (
-              <details className="reasoning-done">
-                <summary>💭 thought</summary>
-                <pre>{m.reasoning}</pre>
-              </details>
+            {interleaved ? (
+              <SequenceView parts={m.parts!} activity={m.activity} color={color} />
+            ) : (
+              <>
+                {m.activity && m.activity.length > 0 && <ActivityView activity={m.activity} />}
+                {m.reasoning && (
+                  <details className="reasoning-done">
+                    <summary>💭 thought</summary>
+                    <pre>{m.reasoning}</pre>
+                  </details>
+                )}
+              </>
             )}
             {/* An ask_user-only turn has empty text by design — the question
-                callout below is the body, so render no (empty) bubble. */}
-            {m.text && (
+                callout below is the body, so render no (empty) bubble. With a
+                sequence the prose is already in place; `m.text` is then a
+                COMPOSED body and drawing it again would duplicate the reply. */}
+            {m.text && !drawn && (
               <div className="bubble bubble-agent" style={{ borderColor: color }}>
                 {m.text}
               </div>
@@ -194,24 +210,35 @@ export function Transcript({
         const text = streaming[id] ?? ""
         const acts = liveActivity[id] ?? []
         const reasoning = liveReasoning[id] ?? ""
+        // The live sequence is the SAME sequence the entry will carry — the
+        // server stamped the boundaries, so the turn does not visibly re-order
+        // when the message lands (verified live, 2026-07-25: 9 segments
+        // assembled from the stream, 9 persisted, identical).
+        const parts = liveParts[id]
         return (
           <div key={`live-${id}`} className="row agent">
             <div className="agent-head" style={{ color }}>
               <span>{r?.icon}</span>
               <span className="agent-name">{r?.name ?? id}</span>
             </div>
-            {reasoning && (
-              <details className="reasoning-live">
-                <summary>💭 thinking…</summary>
-                <pre>{reasoning}</pre>
-              </details>
-            )}
-            {acts.length > 0 && <ActivityView activity={acts} live />}
-            {text.length > 0 && (
-              <div className="bubble bubble-agent streaming" style={{ borderColor: color }}>
-                {text}
-                <span className="caret" />
-              </div>
+            {parts?.length ? (
+              <SequenceView parts={parts} activity={acts} color={color} live />
+            ) : (
+              <>
+                {reasoning && (
+                  <details className="reasoning-live">
+                    <summary>💭 thinking…</summary>
+                    <pre>{reasoning}</pre>
+                  </details>
+                )}
+                {acts.length > 0 && <ActivityView activity={acts} live />}
+                {text.length > 0 && (
+                  <div className="bubble bubble-agent streaming" style={{ borderColor: color }}>
+                    {text}
+                    <span className="caret" />
+                  </div>
+                )}
+              </>
             )}
           </div>
         )

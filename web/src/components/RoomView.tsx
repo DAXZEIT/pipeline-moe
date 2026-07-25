@@ -156,6 +156,7 @@ export function RoomView({
           streaming={room.streaming}
           liveActivity={room.liveActivity}
           liveReasoning={room.liveReasoning}
+          liveParts={room.liveParts}
           receipts={room.receipts}
           roster={room.roster}
           active={active}

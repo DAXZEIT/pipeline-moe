@@ -1,29 +1,11 @@
-import type { ToolActivity } from "@pipeline-moe/client-core"
+import { groupActivity, summarizeArgs, TOOL_ICON, type ActivityGroup } from "@pipeline-moe/client-core"
 
-/** One-line summary of a tool's args: the command, path, or pattern it acted on. */
-export function summarizeArgs(a: ToolActivity): string {
-  const args = a.args as Record<string, unknown> | undefined
-  if (!args || typeof args !== "object") return ""
-  for (const key of ["command", "file_path", "path", "pattern"]) {
-    const v = args[key]
-    if (typeof v === "string") return v
-  }
-  try {
-    return JSON.stringify(args)
-  } catch {
-    return ""
-  }
-}
-
-export const TOOL_ICON: Record<string, string> = {
-  bash: "⌘",
-  read: "📖",
-  write: "✎",
-  edit: "✏️",
-  grep: "🔍",
-  find: "📁",
-  ls: "📂",
-}
+// The tool vocabulary (icons, arg summary) and the ×N aggregation rule are
+// shared with the web renderer — they live in client-core so the two clients
+// cannot describe the same turn differently. Re-exported here because every
+// TUI module already reaches for them through this file.
+export { groupActivity, summarizeArgs, TOOL_ICON }
+export type { ActivityGroup }
 
 /** Status badge text and color. */
 export function statusBadge(status: string): { text: string; color: string } {
@@ -44,26 +26,6 @@ export function statusBadge(status: string): { text: string; color: string } {
 
 /** How many trailing activity groups the live (streaming) block shows. */
 export const LIVE_WINDOW = 3
-
-export interface ActivityGroup {
-  toolName: string
-  items: ToolActivity[]
-  /** Only ok calls aggregate, so a non-ok group is always a single call. */
-  status: ToolActivity["status"]
-}
-
-/** Collapse consecutive same-tool ok calls into one ×N group ("read ×6").
- *  Errors and the running call never merge — each must stay individually
- *  visible. */
-export function groupActivity(activity: ToolActivity[]): ActivityGroup[] {
-  const groups: ActivityGroup[] = []
-  for (const a of activity) {
-    const last = groups[groups.length - 1]
-    if (a.status === "ok" && last?.status === "ok" && last.toolName === a.toolName) last.items.push(a)
-    else groups.push({ toolName: a.toolName, items: [a], status: a.status })
-  }
-  return groups
-}
 
 /** Slice the live window: the last `size` groups, plus any error groups that
  *  already scrolled past it (pinned — errors are the one thing the user scans

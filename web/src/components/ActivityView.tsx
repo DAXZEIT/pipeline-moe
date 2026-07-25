@@ -1,33 +1,13 @@
 import { useState } from "react"
+import { summarizeArgs, TOOL_ICON } from "@pipeline-moe/client-core"
 import type { ToolActivity } from "../types"
 
-const TOOL_ICON: Record<string, string> = {
-  bash: "⌘",
-  read: "📖",
-  write: "✎",
-  edit: "✏️",
-  grep: "🔍",
-  find: "📁",
-  ls: "📂",
-}
+// The grouped fallback: a turn recorded before the server segmented it has no
+// `parts`, so its tool calls have no place in the story and are shown in one
+// block, as they always were. Interleaved turns go through SequenceView.
 
 /** How many trailing calls the live (streaming) block shows. */
 const LIVE_WINDOW = 3
-
-/** One-line summary of a tool's args: the command, path, or pattern it acted on. */
-function summarizeArgs(a: ToolActivity): string {
-  const args = a.args as Record<string, unknown> | undefined
-  if (!args || typeof args !== "object") return ""
-  for (const key of ["command", "file_path", "path", "pattern"]) {
-    const v = args[key]
-    if (typeof v === "string") return v
-  }
-  try {
-    return JSON.stringify(args)
-  } catch {
-    return ""
-  }
-}
 
 interface Props {
   activity: ToolActivity[]
