@@ -107,7 +107,11 @@ export function Transcript({
 }) {
   const { rows, columns } = useTerminalSize()
   const [offset, setOffset] = useState(0) // display lines scrolled up from the bottom
-  const [showThoughts, setShowThoughts] = useState(false)
+  // Thoughts are shown in full by default. The interleaved layout is what
+  // changed the balance: a thought is no longer one wall glued to the top of
+  // the turn, it is the sentence that explains the tool call under it, and
+  // collapsed it explains nothing. Ctrl+T now COLLAPSES (dax, 2026-07-26).
+  const [showThoughts, setShowThoughts] = useState(true)
   const [showTools, setShowTools] = useState(false)
   const maxOffsetRef = useRef(0)
   const pageRef = useRef(1)
@@ -137,13 +141,19 @@ export function Transcript({
 
   // Flatten the whole transcript into display lines.
   const lines: Line[] = []
+  /** Whether anything on screen can actually be folded — the footer only
+   *  advertises Ctrl+T when there is a thought to fold. */
+  let hasThoughts = false
 
   const pushThoughtLine = (text: string) => lines.push({ text: THOUGHT_GUTTER + text, ...THOUGHT })
 
-  // The web UI's collapsible 💭 block: collapsed to one line by default
-  // (reasoning traces can dwarf the reply), Ctrl+T expands them all. A live
-  // trace shows its last lines so you can watch the agent think.
+  // The web UI's collapsible 💭 block, shown in full by default; Ctrl+T
+  // collapses every thought to one line, for when a reasoning trace dwarfs the
+  // reply. The key is advertised in the footer, which is always on screen and
+  // costs no row — repeating it on each of a turn's four thought headers would
+  // be four times the chrome for the same one fact.
   const pushThought = (reasoning: string, live: boolean) => {
+    hasThoughts = true
     const wrapped = wrap(reasoning.trim(), Math.max(10, width - 2))
     if (showThoughts) {
       lines.push({ text: live ? "💭 thinking…" : "💭 thought", ...THOUGHT })
@@ -152,7 +162,7 @@ export function Transcript({
       lines.push({ text: "💭 thinking…", ...THOUGHT })
       for (const l of wrapped.slice(-2)) pushThoughtLine(l)
     } else {
-      lines.push({ text: `💭 thought (${wrapped.length} line${wrapped.length === 1 ? "" : "s"} · ctrl+t)`, ...THOUGHT })
+      lines.push({ text: `💭 thought (${wrapped.length} line${wrapped.length === 1 ? "" : "s"})`, ...THOUGHT })
     }
   }
 
@@ -200,6 +210,7 @@ export function Transcript({
    *  length — the count is measured here, at the only place that knows the
    *  width, which is why no line count is stored on the part. */
   const pushReasoningSegment = (content: string, live: boolean) => {
+    hasThoughts = true
     const wrapped = wrap(content, Math.max(10, width - 2))
     if (showThoughts) {
       lines.push({ text: live ? "💭 thinking…" : "💭 thought", ...THOUGHT })
@@ -209,7 +220,7 @@ export function Transcript({
       lines.push({ text: "💭 thinking…", ...THOUGHT })
       for (const l of wrapped.slice(-2)) pushThoughtLine(l)
     } else {
-      lines.push({ text: `💭 ${wrapped.length} line${wrapped.length === 1 ? "" : "s"} · ctrl+t`, ...THOUGHT })
+      lines.push({ text: `💭 ${wrapped.length} line${wrapped.length === 1 ? "" : "s"}`, ...THOUGHT })
     }
   }
 
@@ -361,12 +372,16 @@ export function Transcript({
   )
 
   const atBottom = effOffset === 0
-  const footer =
+  const scrollHint =
     lines.length > bodyHeight
       ? atBottom
         ? "⟨ PgUp to scroll back · ⌃↑ jump to top ⟩"
         : `⟨ ${effOffset} line${effOffset === 1 ? "" : "s"} below · PgDn to catch up · ⌃↓ jump to bottom ⟩`
       : ""
+  // Thoughts are expanded by default, so the only way to learn the key is to
+  // be told. Stated as the ACTION the key performs, not as a state name.
+  const thoughtHint = hasThoughts ? (showThoughts ? "⌃T fold thoughts" : "⌃T unfold thoughts") : ""
+  const footer = [scrollHint, thoughtHint].filter(Boolean).join("  ")
 
   return (
     <Box flexDirection="column" flexGrow={1}>
@@ -380,7 +395,9 @@ export function Transcript({
         </Text>
       ))}
       <Box flexGrow={1} />
-      <Text dimColor>{footer || " "}</Text>
+      {/* truncate-end for the same reason the body lines use it: a footer that
+          wraps to two rows would silently break the line accounting. */}
+      <Text dimColor wrap="truncate-end">{footer || " "}</Text>
     </Box>
   )
 }
