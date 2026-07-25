@@ -174,9 +174,13 @@ jobs:
               exit 1
             fi
           done
-          # Not a failure: `files: ["src"]` has no test exclusion, so the TUI's
-          # 17 test files ship to users. Reported so the number stays visible.
-          echo "tui tarball test files: $(grep -c 'src/__tests__' /tmp/tui-files.txt || true)"
+          # Was a reported count until the exclusion landed; now an assertion,
+          # because a decision that isn't held mechanically is back to being a
+          # norm. `files` carries "!src/__tests__" — 17 test files used to ship.
+          if grep -q 'src/__tests__' /tmp/tui-files.txt; then
+            echo "::error::src/__tests__ leaked into the tui tarball (files: has \"!src/__tests__\")"
+            exit 1
+          fi
 
   deps:
     name: pi packages pinned in lockstep
