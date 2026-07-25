@@ -1,0 +1,165 @@
+name: CI
+
+# The one gate the pipeline cannot route around. Everything else in this repo
+# (audit passes, the invariants skill, "tests green before release") is a norm
+# carried in an agent's context — and a norm in prose is bypassable: on
+# 2026-07-18 a session narrated "blocks done" with a fabricated test transcript
+# and commits that were never created. This job runs outside every context
+# window, on a clean checkout, and its verdict cannot be narrated.
+#
+# What it proves that a local `npx vitest` does not: that the declared
+# dependency set installs from the lockfile on the declared engine floor
+# (package.json `engines: >=20.12`) in a tree nobody has warmed by hand.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: typecheck + tests (node ${{ matrix.node }})
+    runs-on: ubuntu-latest
+    strategy:
+      # Both versions report: a floor-only break and a latest-only break are
+      # different bugs, and cancelling the sibling hides which one happened.
+      fail-fast: false
+      matrix:
+        # "20.12" is the engines floor, verbatim — the version a user with an
+        # old-but-allowed Node actually gets. 22 is the daily driver
+        # (@types/node is ^22).
+        node: ["20.12", "22"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+
+      # Lockfile-exact, no resolution drift. This also covers the workspaces
+      # (packages/*), and client-core's `prepare` builds its dist here — which
+      # is what packages/tui resolves `@pipeline-moe/client-core` against.
+      - run: npm ci
+
+      # Root tsconfig is `include: ["src"]`, so this pass is the backend ONLY.
+      - name: typecheck backend (src)
+        run: npm run typecheck
+
+      # The workspace packages carry their own tsconfigs and are invisible to
+      # the root pass. Without these two steps a TUI type error ships green.
+      - name: typecheck client-core
+        run: npm run typecheck -w @pipeline-moe/client-core
+
+      - name: typecheck tui
+        run: npm run typecheck -w @pipeline-moe/tui
+
+      # vitest.config.ts includes src/__tests__ AND packages/*/src/__tests__,
+      # so this is the whole suite (backend + client-core + tui) in one run.
+      - run: npm test
+
+  web:
+    name: web build (typecheck + vite)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      # web/ sits outside the root `workspaces` glob and carries its own
+      # lockfile, so the root `npm ci` never touches it.
+      - name: install web deps
+        run: npm ci
+        working-directory: web
+
+      # `build` is `tsc --noEmit && vite build` — the web typecheck lives here.
+      # This is the same command the root `prepack` runs, so a break here means
+      # `npm publish` would ship a stale or missing bundle.
+      - name: build web
+        run: npm run build
+        working-directory: web
+
+  pack:
+    name: npm tarballs
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - run: npm ci
+
+      # Root `prepack` runs `npm -C web run build`, so packing the root package
+      # is impossible until web's own deps exist. This ordering IS the check:
+      # it is the exact sequence a release has to survive.
+      - name: install web deps (required by root prepack)
+        run: npm ci
+        working-directory: web
+
+      - name: pack root
+        run: npm pack --pack-destination /tmp
+
+      - name: root tarball ships the web bundle and no tests
+        run: |
+          tar -tzf /tmp/pipeline-moe-*.tgz > /tmp/root-files.txt
+          if ! grep -q '^package/web/dist/index\.html$' /tmp/root-files.txt; then
+            echo "::error::web/dist/index.html absent from the tarball — prepack did not build the UI, npx pipeline-moe serve would have no web UI"
+            exit 1
+          fi
+          if grep -q 'src/__tests__' /tmp/root-files.txt; then
+            echo "::error::src/__tests__ leaked into the published tarball (package.json files: has \"!src/__tests__\")"
+            exit 1
+          fi
+
+      - name: pack workspace packages
+        run: |
+          npm pack -w @pipeline-moe/client-core --pack-destination /tmp
+          npm pack -w @pipeline-moe/tui --pack-destination /tmp
+
+      # client-core publishes `dist` only (main/types/exports all point there).
+      # An unbuilt tarball installs fine and fails at import — the failure lands
+      # on the TUI user, not here, unless this step catches it.
+      - name: client-core tarball ships a built dist
+        run: |
+          tar -tzf /tmp/pipeline-moe-client-core-*.tgz > /tmp/cc-files.txt
+          for f in package/dist/index.js package/dist/index.d.ts package/dist/types.d.ts; do
+            if ! grep -qxF "$f" /tmp/cc-files.txt; then
+              echo "::error::$f missing from the client-core tarball (tsc -p tsconfig.build.json did not run)"
+              exit 1
+            fi
+          done
+
+      # The TUI runs TypeScript directly through tsx, so its tarball ships src/
+      # rather than a build — the entrypoint is what has to be there.
+      - name: tui tarball ships its entrypoint
+        run: |
+          tar -tzf /tmp/pipeline-moe-tui-*.tgz > /tmp/tui-files.txt
+          for f in package/bin/pmoe.mjs package/src/cli.tsx package/tsconfig.json; do
+            if ! grep -qxF "$f" /tmp/tui-files.txt; then
+              echo "::error::$f missing from the tui tarball"
+              exit 1
+            fi
+          done
+          # Not a failure: `files: ["src"]` has no test exclusion, so the TUI's
+          # 17 test files ship to users. Reported so the number stays visible.
+          echo "tui tarball test files: $(grep -c 'src/__tests__' /tmp/tui-files.txt || true)"
+
+  deps:
+    name: pi packages pinned in lockstep
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # No install needed — this reads package.json and the lockfile.
+      - run: node scripts/check-pi-lockstep.mjs
