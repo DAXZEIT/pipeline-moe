@@ -215,12 +215,15 @@ export class Participant {
       const me = ev.assistantMessageEvent
       if (me.type === "text_delta") {
         this.buffer += me.delta
-        this.segments.delta("text", me.delta)
-        this.emit("token", { id: this.persona.id, delta: me.delta })
+        // `seq` carries the boundary the server just decided — clients append
+        // into that segment instead of re-deriving where segments start, so
+        // the live sequence cannot drift from the persisted one.
+        const seq = this.segments.delta("text", me.delta)
+        this.emit("token", { id: this.persona.id, delta: me.delta, seq })
       } else if (me.type === "thinking_delta") {
         this.reasoningBuffer += me.delta
-        this.segments.delta("reasoning", me.delta)
-        this.emit("reasoning", { id: this.persona.id, delta: me.delta })
+        const seq = this.segments.delta("reasoning", me.delta)
+        this.emit("reasoning", { id: this.persona.id, delta: me.delta, seq })
         // Budget watchdog: on breach, abort THIS generation — promptRounds
         // injects the checkpoint and re-prompts. (steer() can't do this: it
         // queues for AFTER the assistant message ends, and a reasoning loop
@@ -240,9 +243,9 @@ export class Participant {
       this.activity.set(ev.toolCallId, item)
       // Closes whatever reasoning/text run was streaming — the tool is the
       // boundary between "thought before" and "thought after".
-      this.segments.tool(ev.toolCallId)
+      const seq = this.segments.tool(ev.toolCallId)
       this.setStatus("working")
-      this.emit("activity", { id: this.persona.id, item })
+      this.emit("activity", { id: this.persona.id, item, seq })
     } else if (ev.type === "compaction_start") {
       this.emit("status", { id: this.persona.id, status: "compacting", reason: ev.reason })
     } else if (ev.type === "compaction_end") {
@@ -261,6 +264,10 @@ export class Participant {
       item.durationMs = Date.now() - item.ts
       this.activity.set(ev.toolCallId, item)
       this.setStatus("active")
+      // No `seq` on the END event, deliberately: the tool's segment was placed
+      // by the start event, and this frame only flips the same ToolActivity
+      // running → ok in place. A seq here would be a second chance to insert
+      // the part, i.e. a second boundary decision.
       this.emit("activity", { id: this.persona.id, item })
     } else if (ev.type === "auto_retry_start") {
       this.emit("status", {

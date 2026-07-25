@@ -32,30 +32,44 @@ export class TurnSegmenter {
   private parts: TurnPart[] = []
   /** The last element of `parts` while a text/reasoning run is open. */
   private open: TurnTextPart | null = null
+  /** Wire identity of a segment, handed to clients so they can assemble the
+   *  SAME sequence live without re-deriving any boundary rule (see `seq` in
+   *  the emitted events). Monotonic within a turn; gaps are legal — a segment
+   *  that turns out to be pure whitespace is dropped below and its number is
+   *  simply never reused. */
+  private nextSeq = 0
+  private openSeq = -1
 
   /** Start a fresh turn. Called from the same place the buffers are cleared. */
   reset(): void {
     this.parts = []
     this.open = null
+    this.nextSeq = 0
+    this.openSeq = -1
   }
 
-  delta(type: "reasoning" | "text", delta: string): void {
+  /** @returns the seq of the segment this delta landed in. */
+  delta(type: "reasoning" | "text", delta: string): number {
     let part = this.open
     if (!part || part.type !== type) {
       this.close()
       part = { type, content: "", ts: Date.now() }
       this.parts.push(part)
       this.open = part
+      this.openSeq = this.nextSeq++
     }
     part.content += delta
+    return this.openSeq
   }
 
   /** A tool call started — it closes whatever segment was running. The part
    *  REFERENCES its ToolActivity by id instead of copying it, so the live path
-   *  that flips a tool running → ok in place keeps working untouched. */
-  tool(toolCallId: string): void {
+   *  that flips a tool running → ok in place keeps working untouched.
+   *  @returns the seq of the tool segment. */
+  tool(toolCallId: string): number {
     this.close()
     this.parts.push({ type: "tool", toolCallId })
+    return this.nextSeq++
   }
 
   /** Close the turn and hand over its parts. `undefined` when the turn
@@ -94,8 +108,14 @@ export class TurnSegmenter {
  *  Without this the marker lives only in `entry.text`, and a renderer drawing
  *  the parts would show the partial reply with no sign that it was cut off —
  *  the salvage marker exists precisely so a partial turn cannot be mistaken
- *  for a complete one. Falls back to appending a text part when the turn
- *  ended with a tool call and produced no prose at all. */
+ *  for a complete one.
+ *
+ *  A turn that produced no prose at all is left alone on purpose: `entry.text`
+ *  is then a COMPOSED body (turnBody's `(tool calls only — no text reply)` or
+ *  `(no response)`, plus the marker), and a marker-only part would show the
+ *  suffix while hiding what it qualifies. The division of labour instead is:
+ *  text parts carry the MODEL'S prose, and a renderer that finds none falls
+ *  back to `entry.text`, which is exactly the composed body. */
 export function appendBodyMarker(parts: TurnPart[] | undefined, marker: string): TurnPart[] | undefined {
   if (!parts || !marker) return parts
   for (let i = parts.length - 1; i >= 0; i--) {
@@ -106,5 +126,5 @@ export function appendBodyMarker(parts: TurnPart[] | undefined, marker: string):
       return next
     }
   }
-  return [...parts, { type: "text", content: marker.trim(), ts: Date.now() }]
+  return parts
 }

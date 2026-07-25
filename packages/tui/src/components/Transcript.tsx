@@ -2,9 +2,10 @@ import { Box, Text, useInput } from "ink"
 import { appendFileSync } from "node:fs"
 import { useTerminalSize } from "../useTerminalSize"
 import { useRef, useState } from "react"
-import type { Message, Receipt, RosterItem, ToolActivity } from "@pipeline-moe/client-core"
+import type { LivePart, Message, Receipt, RosterItem, ToolActivity } from "@pipeline-moe/client-core"
 import { renderMarkdownLines, renderStreamingMarkdownLines } from "../markdown"
 import { groupActivity, groupLine, windowActivity, type ActivityGroup } from "../activity"
+import { toSegments, windowSequence, type DisplaySegment } from "../parts"
 import { fmtDuration, headerRule, receiptLines } from "../transcript-format"
 
 /**
@@ -59,6 +60,7 @@ export function Transcript({
   streaming,
   liveReasoning,
   liveActivity,
+  liveParts,
   reasoningActive,
   receipts,
   reservedRows,
@@ -70,6 +72,10 @@ export function Transcript({
   streaming: Record<string, string>
   liveReasoning: Record<string, string>
   liveActivity: Record<string, ToolActivity[]>
+  /** The in-flight turn in chronological order, assembled from the `seq` the
+   *  server stamps on every frame. Absent for a server that predates it, which
+   *  is exactly when the grouped live block below still applies. */
+  liveParts?: Record<string, LivePart[]>
   /** True while the agent's most recent delta was reasoning — a second
    *  thinking burst after text/tools re-shows "💭 thinking…" instead of
    *  silently growing the collapsed thought block. */
@@ -169,6 +175,71 @@ export function Transcript({
     }
   }
 
+  // ── Interleaved sequence (docs/interleaved-turns.md) ─────────────────
+  //
+  // The chronological path. Everything above stays as the fallback: a turn
+  // recorded before the server segmented it has no `parts`, and there are 67 M
+  // of those in sessions/.
+
+  /** One reasoning segment. Collapsed it is a single line carrying its WRAPPED
+   *  length — the count is measured here, at the only place that knows the
+   *  width, which is why no line count is stored on the part. */
+  const pushReasoningSegment = (content: string, live: boolean) => {
+    const wrapped = wrap(content, Math.max(10, width - 2))
+    if (showThoughts) {
+      lines.push({ text: live ? "💭 thinking…" : "💭 thought", dim: true })
+      for (const l of wrapped) lines.push({ text: "  " + l, dim: true })
+    } else if (live) {
+      // The tail of a thought in flight, so you can watch it move.
+      lines.push({ text: "💭 thinking…", dim: true })
+      for (const l of wrapped.slice(-2)) lines.push({ text: "  " + l, dim: true })
+    } else {
+      lines.push({ text: `💭 ${wrapped.length} line${wrapped.length === 1 ? "" : "s"} · ctrl+t`, dim: true })
+    }
+  }
+
+  const pushSegment = (s: DisplaySegment, live: boolean, argWidth: number) => {
+    if (s.kind === "tools") {
+      const l = groupLine(s.group, argWidth)
+      lines.push({ text: l.text, color: l.color === "green" ? undefined : l.color })
+    } else if (s.kind === "reasoning") {
+      pushReasoningSegment(s.content, live)
+    } else {
+      const rendered = live
+        ? renderStreamingMarkdownLines(s.content, width) ?? wrap(s.content, width)
+        : renderMarkdownLines(s.content, width) ?? wrap(s.content, width)
+      for (const l of rendered) lines.push({ text: l })
+    }
+  }
+
+  /** Draw a turn in the order it happened. Returns false when there is nothing
+   *  to draw, so the caller can fall back to the grouped layout. */
+  const pushSequence = (
+    parts: readonly { type: "reasoning" | "text" | "tool"; content?: string; toolCallId?: string }[],
+    activity: ToolActivity[] | undefined,
+    live: boolean,
+  ): boolean => {
+    const segments = toSegments(parts as never, activity)
+    if (segments.length === 0) return false
+    const argWidth = Math.max(10, width - 32)
+    // Only the LAST segment of a running turn is in flight. Marking them all
+    // live would re-open "💭 thinking…" on every thought the turn ever had.
+    const inFlight = segments[segments.length - 1]
+    const draw = (s: DisplaySegment) => pushSegment(s, live && s === inFlight, argWidth)
+    // ctrl+o expands the sequence, the same key that expands a tool block —
+    // both are "show me everything that got folded away".
+    if (showTools) {
+      for (const s of segments) draw(s)
+      return true
+    }
+    const { head, pinnedErrors, hidden, tail } = windowSequence(segments)
+    for (const s of head) draw(s)
+    for (const s of pinnedErrors) draw(s)
+    if (hidden > 0) lines.push({ text: `  ⋯ ${hidden} segment${hidden === 1 ? "" : "s"} hidden · ctrl+o`, dim: true })
+    for (const s of tail) draw(s)
+    return true
+  }
+
   for (const m of messages) {
     // Full-width rule in the author's color — the TUI counterpart of the
     // WebUI's per-reply card border; replaces the bare name line (no extra row).
@@ -177,10 +248,21 @@ export function Transcript({
       bold: true,
       color: colorOf(m.author),
     })
-    if (m.reasoning) pushThought(m.reasoning, false)
-    if (m.activity?.length) pushActivity(m.activity, false)
+    // Chronological when the entry carries it; grouped otherwise.
+    const interleaved = m.parts?.length ? pushSequence(m.parts, m.activity, false) : false
+    if (!interleaved) {
+      if (m.reasoning) pushThought(m.reasoning, false)
+      if (m.activity?.length) pushActivity(m.activity, false)
+    }
     if (m.images?.length) lines.push({ text: `📎 ${m.images.length} image${m.images.length === 1 ? "" : "s"}`, dim: true })
-    if (m.text) {
+    // With a sequence, the model's prose was already drawn in place, as text
+    // segments. `m.text` is then a COMPOSED body (the reply plus whatever
+    // turnBody added) and re-rendering it would duplicate the reply. The one
+    // case it must still be drawn is a turn that wrote no prose at all, where
+    // the body IS turnBody's placeholder — "(tool calls only — no text reply)"
+    // and, on a salvaged turn, its marker.
+    const proseDrawn = interleaved && m.parts!.some((p) => p.type === "text")
+    if (m.text && !proseDrawn) {
       // Shell output is raw text — markdown rendering would mangle it
       // (# comments become headers, indentation collapses).
       const rendered =
@@ -188,7 +270,7 @@ export function Transcript({
           ? wrap(m.text, width)
           : renderMarkdownLines(m.text, width) ?? wrap(m.text, width)
       for (const l of rendered) lines.push({ text: l })
-    } else if (!m.question) lines.push({ text: "(no response)", dim: true })
+    } else if (!proseDrawn && !m.question) lines.push({ text: "(no response)", dim: true })
     // ask_user callout — the WebUI shows this as a 🤚 banner under the bubble;
     // the TUI only surfaced the question in the status bar, so it vanished
     // from the story once answered. Options render dim so the scrollback
@@ -215,6 +297,7 @@ export function Transcript({
     const text = streaming[id] ?? ""
     const reasoning = liveReasoning[id] ?? ""
     const acts = liveActivity[id] ?? []
+    const parts = liveParts?.[id]
     if (!text && !reasoning && acts.length === 0) continue
     // width - 2 leaves room for the appended streaming cursor (" ▌") — a
     // full-width rule would push it past the truncate-end boundary.
@@ -222,9 +305,15 @@ export function Transcript({
     // Live = the agent is thinking RIGHT NOW (last delta was reasoning) — not
     // "no text yet": a second burst after text/tools re-opens "thinking…"
     // instead of silently growing the collapsed thought block.
-    if (reasoning) pushThought(reasoning, reasoningActive[id] ?? !text)
-    if (acts.length) pushActivity(acts, true)
-    if (text) for (const l of renderStreamingMarkdownLines(text, width) ?? wrap(text, width)) lines.push({ text: l })
+    // The live sequence is the SAME sequence the entry will carry — the server
+    // stamped the boundaries, so the turn does not visibly re-order when the
+    // message lands (verified live, 2026-07-25: 9 segments assembled from the
+    // stream, 9 persisted, identical).
+    if (!(parts?.length && pushSequence(parts, acts, true))) {
+      if (reasoning) pushThought(reasoning, reasoningActive[id] ?? !text)
+      if (acts.length) pushActivity(acts, true)
+      if (text) for (const l of renderStreamingMarkdownLines(text, width) ?? wrap(text, width)) lines.push({ text: l })
+    }
     lines.push({ text: "" })
   }
 

@@ -193,13 +193,16 @@ describe("appendBodyMarker", () => {
     expect((parts[1] as { content: string }).content).toBe("afterthought")
   })
 
-  test("appends a text part when the turn was cut off before writing any prose", () => {
+  test("leaves a prose-less turn alone — its body is a composed placeholder", () => {
+    // A turn cut off before writing anything gets no text part. `entry.text` is
+    // then turnBody's "(tool calls only — no text reply)" PLUS the marker, and
+    // a marker-only part would show the suffix while hiding what it qualifies.
+    // The renderer's rule is the complement: no text part → draw entry.text.
     const seg = new TurnSegmenter()
     seg.delta("reasoning", "let me check")
     seg.tool("call-1")
     const parts = appendBodyMarker(seg.finish(), marker) ?? []
-    expect(shape(parts)).toBe("r 🔧call-1 t")
-    expect((parts[2] as { content: string }).content).toBe(marker.trim())
+    expect(shape(parts)).toBe("r 🔧call-1")
   })
 
   test("a normal turn (empty marker) is returned untouched", () => {

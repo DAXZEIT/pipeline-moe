@@ -79,6 +79,15 @@ export type TurnPart =
    *  copying it, so the live running → ok flip keeps working in place. */
   | { type: "tool"; toolCallId: string }
 
+/** A part being assembled DURING a turn. `seq` is the server's identity for
+ *  the segment, carried on every streaming frame: the client appends into the
+ *  segment the server names instead of deciding for itself where segments
+ *  start. That is the whole point — a client-side boundary rule would have to
+ *  agree with the server's forever, and would diverge the day one of them
+ *  changed. Dropped when the `message` event lands with the authoritative
+ *  `Message.parts`, which is what gets persisted. */
+export type LivePart = TurnPart & { seq: number }
+
 export interface Message {
   index: number
   author: string // "user" or participant id

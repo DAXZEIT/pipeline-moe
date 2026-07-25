@@ -13,6 +13,7 @@
 import type {
   ConversationMeta,
   HandoffGate,
+  LivePart,
   Message,
   OAuthProgress,
   ProviderInfo,
@@ -44,6 +45,12 @@ export interface RoomState {
   liveActivity: Record<string, ToolActivity[]>
   /** In-flight reasoning deltas, keyed by agent id. */
   liveReasoning: Record<string, string>
+  /** The in-flight turn in CHRONOLOGICAL order, keyed by agent id — the same
+   *  sequence the finished `Message.parts` will hold, assembled from the `seq`
+   *  the server stamps on every streaming frame. Additive: the three buffers
+   *  above are untouched, so a renderer that has not moved to parts yet keeps
+   *  working. Cleared when the message lands. */
+  liveParts: Record<string, LivePart[]>
   /** Filesystem receipts, keyed by the transcript index of the owning message. */
   receipts: Record<number, Receipt>
   workspace: WorkspaceFile[]
@@ -106,6 +113,7 @@ export const initialRoomState: RoomState = {
   streaming: {},
   liveActivity: {},
   liveReasoning: {},
+  liveParts: {},
   receipts: {},
   workspace: [],
   notices: [],
@@ -161,6 +169,7 @@ export function resetTransient(state: RoomState): RoomState {
     streaming: {},
     liveActivity: {},
     liveReasoning: {},
+    liveParts: {},
     reasoningActive: {},
     receipts: {},
   }
@@ -205,6 +214,32 @@ export interface ReduceResult {
 
 const noEffects = (state: RoomState): ReduceResult => ({ state, effects: [] })
 
+/** Append a streaming delta into the segment the SERVER named.
+ *
+ *  The only rule here is "same seq → same segment": no delta-type flip test,
+ *  no message-boundary test, nothing that could disagree with the server's
+ *  segmentation. An unknown seq opens a segment; a seq that is not the last
+ *  one is impossible by construction (the server closes a segment before
+ *  opening the next and never returns to it) and is treated as a new segment
+ *  rather than silently merged.
+ *
+ *  `seq` is optional on the wire: a server that predates it streams as before
+ *  and simply builds no live parts, which is exactly the grouped fallback. */
+function appendLivePart(
+  list: LivePart[] | undefined,
+  seq: number | undefined,
+  type: "reasoning" | "text",
+  delta: string,
+): LivePart[] | undefined {
+  if (seq === undefined) return list
+  const parts = list ?? []
+  const last = parts[parts.length - 1]
+  if (last && last.seq === seq && last.type !== "tool") {
+    return [...parts.slice(0, -1), { ...last, content: last.content + delta }]
+  }
+  return [...parts, { type, content: delta, ts: Date.now(), seq }]
+}
+
 function omit<T>(map: Record<string, T>, key: string): Record<string, T> {
   if (!(key in map)) return map
   const next = { ...map }
@@ -246,33 +281,45 @@ export function reduce(state: RoomState, event: SseEvent): ReduceResult {
     }
 
     case "token": {
-      const { id, delta } = event.data as { id: string; delta: string }
+      const { id, delta, seq } = event.data as { id: string; delta: string; seq?: number }
+      const parts = appendLivePart(state.liveParts[id], seq, "text", delta)
       return noEffects({
         ...state,
         streaming: { ...state.streaming, [id]: (state.streaming[id] ?? "") + delta },
+        ...(parts ? { liveParts: { ...state.liveParts, [id]: parts } } : {}),
         // A text delta means the thinking burst (if any) just ended.
         ...(state.reasoningActive[id] ? { reasoningActive: { ...state.reasoningActive, [id]: false } } : {}),
       })
     }
 
     case "activity": {
-      const { id, item } = event.data as { id: string; item: ToolActivity }
+      const { id, item, seq } = event.data as { id: string; item: ToolActivity; seq?: number }
       const list = state.liveActivity[id] ?? []
       const idx = list.findIndex((x) => x.toolCallId === item.toolCallId)
       const next = idx >= 0 ? list.map((x, i) => (i === idx ? item : x)) : [...list, item]
+      // Only the START frame carries a seq. The completion frame flips the same
+      // ToolActivity in place above, and must not place a second segment —
+      // which is also why the part is a pointer and holds no tool state itself.
+      const parts = state.liveParts[id] ?? []
+      const placed = seq !== undefined && !parts.some((p) => p.seq === seq)
       return noEffects({
         ...state,
         liveActivity: { ...state.liveActivity, [id]: next },
+        ...(placed
+          ? { liveParts: { ...state.liveParts, [id]: [...parts, { type: "tool", toolCallId: item.toolCallId, seq: seq as number }] } }
+          : {}),
         // Executing a tool means the agent stopped thinking for now.
         ...(state.reasoningActive[id] ? { reasoningActive: { ...state.reasoningActive, [id]: false } } : {}),
       })
     }
 
     case "reasoning": {
-      const { id, delta } = event.data as { id: string; delta: string }
+      const { id, delta, seq } = event.data as { id: string; delta: string; seq?: number }
+      const parts = appendLivePart(state.liveParts[id], seq, "reasoning", delta)
       return noEffects({
         ...state,
         liveReasoning: { ...state.liveReasoning, [id]: (state.liveReasoning[id] ?? "") + delta },
+        ...(parts ? { liveParts: { ...state.liveParts, [id]: parts } } : {}),
         ...(state.reasoningActive[id] ? {} : { reasoningActive: { ...state.reasoningActive, [id]: true } }),
       })
     }
@@ -288,6 +335,9 @@ export function reduce(state: RoomState, event: SseEvent): ReduceResult {
         streaming: omit(state.streaming, msg.author),
         liveActivity: omit(state.liveActivity, msg.author),
         liveReasoning: omit(state.liveReasoning, msg.author),
+        // The entry carries the authoritative `parts` — the live assembly has
+        // done its job and is dropped with the other buffers.
+        liveParts: omit(state.liveParts, msg.author),
         reasoningActive: omit(state.reasoningActive, msg.author),
       })
     }

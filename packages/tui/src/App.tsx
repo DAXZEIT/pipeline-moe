@@ -450,6 +450,7 @@ export function App({
             liveReasoning={state.liveReasoning}
             reasoningActive={state.reasoningActive}
             liveActivity={state.liveActivity}
+            liveParts={state.liveParts}
             receipts={state.receipts}
             // Every row the fixed "rows - 8" budget doesn't know about must be
             // declared here, or the layout exceeds the screen and Ink

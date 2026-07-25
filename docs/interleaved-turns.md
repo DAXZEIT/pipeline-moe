@@ -220,22 +220,39 @@ the reasoning traces.
      which is the one thing the salvage marker exists to prevent (F7).
      `appendBodyMarker()` mirrors it onto the last text part at post time.
      The question callout is the same class of problem, still open (see below).
-2. **Boundary event + `client-core` reducer** — placed second on purpose: this
-   is the fact capable of invalidating the design. Verified live on an isolated
-   instance (`PORT=5399`, throwaway workspace): run one real multi-tool turn,
-   then assert the live-assembled `parts` are identical to the persisted entry.
-   If they can't be made identical by construction, blocks 3-4 change shape.
-3. **TUI renderer** — per-segment collapse + sequence windowing + pinned
-   errors. Verified by screenshot, not by `capture-pane`: this is a rendering
-   change, and the vision heuristic applies (the text says what the lines said,
-   not what the screen shows).
-4. **Back-compat replay** — load a real pre-`parts` conversation from
-   `sessions/`, assert the grouped fallback renders exactly as today. Cheap, and
-   it protects 67 M of history.
-5. **Web renderer** — same `parts`, same reducer, browser layout.
+2. **Boundary event + `client-core` reducer** — ✅ SHIPPED 2026-07-25. The
+   server stamps `seq`, its own segment identity, on every `token` /
+   `reasoning` / tool-START frame; `state.liveParts` appends into the segment
+   it is told. The client holds NO boundary rule, so there is nothing to drift.
+   The tool-END frame deliberately carries no `seq` (it flips the same
+   ToolActivity in place; a seq there would be a second chance to place the
+   segment). `seq` is optional on the wire — a server without it builds no live
+   parts, which is the grouped fallback.
 
-Blocks 1-2 are the architecture proof; 3-5 thicken it. Block 4 could fold into
-3, kept separate because it is the only block that reads dax's real history.
+   Verified twice. Scripted: one event script drives BOTH the server segmenter
+   and the real reducer, then compares (`src/__tests__/
+   interleaved-live-vs-persisted.test.ts`). Live on `PORT=5399` against a real
+   model: **2 turns, live 9 / persisted 9 and live 2 / persisted 2, IDENTICAL,
+   0 divergences**, every tool part resolved, `durationMs` on all 4 calls.
+3. **TUI renderer** — ✅ SHIPPED 2026-07-25. `packages/tui/src/parts.ts`
+   (`toSegments` + `windowSequence`) and a `pushSequence` path in
+   `Transcript.tsx`; the grouped path stays, untouched, as the fallback.
+   Consecutive same-tool ok calls still aggregate ×N, but aggregation never
+   reaches ACROSS a thought — two reads with a thought between them are two
+   moments, not one burst.
+
+   One thing only a live run showed: the sequence window engaged on an
+   11-segment turn to hide 2, i.e. spent a marker line to save two lines and
+   ate the turn's first tool call for nothing. Folding is now worth its own
+   chrome before it happens (`MIN_FOLD`, window raised to 12).
+4. **Back-compat replay** — ✅ SHIPPED 2026-07-25. A real 111-entry
+   pre-`parts` conversation loaded into the isolated instance renders through
+   the grouped path exactly as before: one 💭 blob with its glued seams, then
+   `🔧 9 tool calls · ctrl+o`. Structurally guaranteed (`m.parts?.length ? … :
+   old code`), and now also observed.
+5. **Web renderer** — same `parts`, same reducer, browser layout. NOT done.
+
+Blocks 1-2 are the architecture proof; 3-5 thicken it.
 
 ## Decisions taken (dax, 2026-07-25)
 
@@ -246,9 +263,9 @@ Blocks 1-2 are the architecture proof; 3-5 thicken it. Block 4 could fold into
 
 ## Open
 
-- **TUI first or both clients together?** `client-core` carries the reducer, so
-  the web renderer is cheap once block 3 exists — but "cheap" is not "free" and
-  the two surfaces drift if one lags.
+- **The web renderer (block 5) is the open one.** TUI shipped first; the reducer
+  and `liveParts` already live in `client-core`, so the web side is layout work
+  only — but "cheap" is not "free" and the two surfaces drift while one lags.
 - **Does `ask_user` take a part?** The question is currently a callout after the
   body. Chronologically it belongs where it fired. Sharpened by block 1: this
   is not cosmetic but the same gap as the salvage marker — `entry.text` is a
