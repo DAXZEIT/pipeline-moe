@@ -234,6 +234,22 @@ describe("groupLine", () => {
     expect(l.text).toContain("×2")
   })
 
+  it("appends a duration only when the call was slow", () => {
+    const fast = groupActivity([{ ...call("read", "ok", "1", { file_path: "a.md" }), durationMs: 4 }])[0]
+    expect(groupLine(fast, 40).text).toBe("  📖 read a.md  ok")
+    const slow = groupActivity([{ ...call("bash", "ok", "1", { command: "npm test" }), durationMs: 42_100 }])[0]
+    expect(groupLine(slow, 40).text).toBe("  ⌘ bash npm test  ok 42s")
+  })
+
+  it("the duration takes its width from the args, not from the terminal", () => {
+    // Otherwise a slow call with a long path would push the line past the
+    // width it was given and get truncated at the wrong end.
+    const g = groupActivity([{ ...call("bash", "ok", "1", { command: "x".repeat(60) }), durationMs: 42_100 }])[0]
+    const plain = groupActivity([call("bash", "ok", "1", { command: "x".repeat(60) })])[0]
+    expect(groupLine(g, 40).text.length).toBeLessThanOrEqual(groupLine(plain, 40).text.length)
+    expect(groupLine(g, 40).text).toMatch(/…  ok 42s$/)
+  })
+
   it("error group renders red", () => {
     const g = groupActivity([call("bash", "error", "1", { command: "npm test" })])[0]
     const l = groupLine(g, 40)

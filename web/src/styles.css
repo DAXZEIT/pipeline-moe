@@ -2040,6 +2040,14 @@ body {
   flex: 1;
   min-width: 0;
 }
+/* Only drawn when a call was actually slow (SLOW_TOOL_MS) — a column of
+   "0.0s" would bury the one that matters. */
+.activity-duration {
+  font-size: 10px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
 .activity-badge {
   font-size: 10px;
   padding: 1px 6px;

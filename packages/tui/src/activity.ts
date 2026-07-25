@@ -1,4 +1,4 @@
-import { groupActivity, summarizeArgs, TOOL_ICON, type ActivityGroup } from "@pipeline-moe/client-core"
+import { groupActivity, summarizeArgs, toolDuration, TOOL_ICON, type ActivityGroup } from "@pipeline-moe/client-core"
 
 // The tool vocabulary (icons, arg summary) and the ×N aggregation rule are
 // shared with the web renderer — they live in client-core so the two clients
@@ -43,12 +43,20 @@ export function windowActivity(groups: ActivityGroup[], size = LIVE_WINDOW): {
 }
 
 /** One display line for a group: a single call keeps the classic format, a
- *  ×N group comma-joins its args ("📖 read ×6 planner.md, builder.md, …"). */
+ *  ×N group comma-joins its args ("📖 read ×6 planner.md, builder.md, …").
+ *
+ *  A trailing duration appears only when the call (or the whole burst) took
+ *  long enough to be worth reading — see SLOW_TOOL_MS. It takes its width out
+ *  of the args budget rather than out of the terminal's, so the line still
+ *  fits. */
 export function groupLine(g: ActivityGroup, argWidth: number): { text: string; color: string } {
   const icon = TOOL_ICON[g.toolName] ?? "🔧"
   const badge = statusBadge(g.status)
+  const dur = toolDuration(g.items)
   const args = g.items.map(summarizeArgs).filter(Boolean).join(", ")
-  const truncated = args.length > argWidth ? args.slice(0, argWidth - 1) + "…" : args
+  const budget = Math.max(10, argWidth - (dur ? dur.length + 1 : 0))
+  const truncated = args.length > budget ? args.slice(0, budget - 1) + "…" : args
   const count = g.items.length > 1 ? ` ×${g.items.length}` : ""
-  return { text: `  ${icon} ${g.toolName}${count}${truncated ? " " + truncated : ""}  ${badge.text}`, color: badge.color }
+  const tail = `  ${badge.text}${dur ? ` ${dur}` : ""}`
+  return { text: `  ${icon} ${g.toolName}${count}${truncated ? " " + truncated : ""}${tail}`, color: badge.color }
 }

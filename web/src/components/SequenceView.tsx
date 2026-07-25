@@ -1,4 +1,4 @@
-import { toSegments, summarizeArgs, TOOL_ICON } from "@pipeline-moe/client-core"
+import { toSegments, summarizeArgs, toolDuration, TOOL_ICON } from "@pipeline-moe/client-core"
 import type { ActivityGroup, DisplaySegment, ToolActivity, TurnPart } from "../types"
 
 // Block 5 of docs/interleaved-turns.md — the web counterpart of the TUI's
@@ -11,6 +11,7 @@ import type { ActivityGroup, DisplaySegment, ToolActivity, TurnPart } from "../t
 
 function ToolItem({ a }: { a: ToolActivity }) {
   const args = summarizeArgs(a)
+  const dur = toolDuration([a])
   return (
     <div className={`activity-item status-${a.status}`}>
       <div className="activity-line">
@@ -19,6 +20,7 @@ function ToolItem({ a }: { a: ToolActivity }) {
           {a.toolName}
         </span>
         <code className="activity-args">{args}</code>
+        {dur && <span className="activity-duration">{dur}</span>}
         <span className={`activity-badge badge-${a.status}`}>
           {a.status === "running" ? "…" : a.status === "error" ? "err" : "ok"}
         </span>
@@ -40,6 +42,9 @@ function ToolItem({ a }: { a: ToolActivity }) {
 function ToolGroup({ group }: { group: ActivityGroup }) {
   if (group.items.length === 1) return <ToolItem a={group.items[0]} />
   const args = group.items.map(summarizeArgs).filter(Boolean).join(", ")
+  // The burst's TOTAL — six reads at 3 ms each are still nothing, and one
+  // slow call in the middle is exactly what this is meant to surface.
+  const dur = toolDuration(group.items)
   return (
     <details className={`activity-group status-${group.status}`}>
       <summary className="activity-line">
@@ -48,6 +53,7 @@ function ToolGroup({ group }: { group: ActivityGroup }) {
           {group.toolName} ×{group.items.length}
         </span>
         <code className="activity-args">{args}</code>
+        {dur && <span className="activity-duration">{dur}</span>}
         <span className={`activity-badge badge-${group.status}`}>
           {group.status === "running" ? "…" : group.status === "error" ? "err" : "ok"}
         </span>

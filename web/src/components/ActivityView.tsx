@@ -1,5 +1,5 @@
 import { useState } from "react"
-import { summarizeArgs, TOOL_ICON } from "@pipeline-moe/client-core"
+import { summarizeArgs, toolDuration, TOOL_ICON } from "@pipeline-moe/client-core"
 import type { ToolActivity } from "../types"
 
 // The grouped fallback: a turn recorded before the server segmented it has no
@@ -28,7 +28,9 @@ export function ActivityView({ activity, live }: Props) {
   const tail = windowed ? activity.slice(-LIVE_WINDOW) : activity
   const pinnedErrors = windowed ? activity.slice(0, -LIVE_WINDOW).filter((a) => a.status === "error") : []
   const hidden = activity.length - tail.length - pinnedErrors.length
-  const item = (a: ToolActivity) => (
+  const item = (a: ToolActivity) => {
+    const dur = toolDuration([a])
+    return (
     <div key={a.toolCallId} className={`activity-item status-${a.status}`}>
       <div className="activity-line">
         <span className="activity-tool">
@@ -36,6 +38,7 @@ export function ActivityView({ activity, live }: Props) {
           {a.toolName}
         </span>
         <code className="activity-args">{summarizeArgs(a)}</code>
+        {dur && <span className="activity-duration">{dur}</span>}
         <span className={`activity-badge badge-${a.status}`}>
           {a.status === "running" ? "…" : a.status === "error" ? "err" : "ok"}
         </span>
@@ -47,7 +50,8 @@ export function ActivityView({ activity, live }: Props) {
         </details>
       ) : null}
     </div>
-  )
+    )
+  }
   return (
     <details className="activity" open={live}>
       <summary className="activity-summary">

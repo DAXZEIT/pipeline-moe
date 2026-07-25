@@ -3,6 +3,10 @@
 // unit-testable without rendering Ink.
 
 import type { Receipt } from "@pipeline-moe/client-core"
+import { fmtDuration } from "@pipeline-moe/client-core"
+
+// Shared with the web renderer — one definition of what "8.2s" means.
+export { fmtDuration }
 
 /** One display line of the transcript — mirrors Transcript.tsx's Line shape
  *  (minus the cursor flag, which only live headers use). */
@@ -23,16 +27,6 @@ export interface FormattedLine {
 export function headerRule(name: string, icon: string | undefined, width: number, extra?: string): string {
   const prefix = `── ${icon ? `${icon} ` : ""}${name}${extra ? ` · ${extra}` : ""} `
   return prefix + "─".repeat(Math.max(0, width - prefix.length))
-}
-
-/** Compact duration: 800ms → "0.8s", 8240 → "8.2s", 74s → "1m14s". */
-export function fmtDuration(ms: number): string {
-  if (ms < 60_000) {
-    const s = ms / 1000
-    return `${s.toFixed(s < 10 ? 1 : 0)}s`
-  }
-  const total = Math.round(ms / 1000)
-  return `${Math.floor(total / 60)}m${String(total % 60).padStart(2, "0")}s`
 }
 
 /** The TUI counterpart of the WebUI's WORK RECEIPT block: a dim header plus

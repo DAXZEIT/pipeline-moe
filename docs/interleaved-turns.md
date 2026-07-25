@@ -271,7 +271,26 @@ the reasoning traces.
    with three segments: `thought read thinking…` — exactly one `thinking…`,
    on the last segment.
 
-Blocks 1-2 are the architecture proof; 3-5 thicken it.
+6. **Per-tool duration** — ✅ SHIPPED 2026-07-25, both clients. `durationMs`
+   had been recorded since block 1 and drawn nowhere.
+
+   It is drawn only above `SLOW_TOOL_MS` (1 s), which is the whole design.
+   Every duration recorded up to that point — 29 calls — ran 1 to 15 ms, all
+   local filesystem tools. pi prints `Took 0.0s` under each of those; a column
+   of zeroes is not a measurement, it is decoration that makes the one slow
+   call harder to find. A ×N burst reports its TOTAL, so a single slow call
+   inside a run of fast ones still surfaces.
+
+   `fmtDuration` was duplicated byte-for-byte in the TUI and the web; it moved
+   into `client-core/src/format.ts` next to the threshold.
+
+   Verified in both renderers on a turn with `read ×2` (3 ms + 4 ms) and one
+   42.1 s `bash`: the burst draws nothing, the bash draws `42s`, the turn
+   header draws its own `45s`. In the TUI the duration takes its width out of
+   the args budget, not the terminal's, so a slow call with a long path does
+   not get truncated at the wrong end.
+
+Blocks 1-2 are the architecture proof; 3-6 thicken it.
 
 ## Decisions taken (dax, 2026-07-25)
 
@@ -282,10 +301,6 @@ Blocks 1-2 are the architecture proof; 3-5 thicken it.
 
 ## Open
 
-- **Per-tool duration is recorded but drawn nowhere.** `durationMs` lands on
-  every `ToolActivity` (block 1); neither renderer shows it. pi's feed prints
-  `Took 0.0s` under each call. Free to add on both sides once it is worth the
-  column.
 - **Does `ask_user` take a part?** The question is currently a callout after the
   body. Chronologically it belongs where it fired. Sharpened by block 1: this
   is not cosmetic but the same gap as the salvage marker — `entry.text` is a

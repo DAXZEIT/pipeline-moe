@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react"
+import { fmtDuration } from "@pipeline-moe/client-core"
 import type { LivePart, Message, Receipt, RosterItem, ToolActivity } from "../types"
 import { ActivityView } from "./ActivityView"
 import { SequenceView, proseDrawn } from "./SequenceView"
@@ -14,16 +15,6 @@ interface Props {
   roster: RosterItem[]
   /** Whether this room is the visible one (rooms stay mounted across switches). */
   active: boolean
-}
-
-/** Compact turn duration: 8240 → "8.2s", 74s → "1m14s" (same as the TUI). */
-function fmtDuration(ms: number): string {
-  if (ms < 60_000) {
-    const s = ms / 1000
-    return `${s.toFixed(s < 10 ? 1 : 0)}s`
-  }
-  const total = Math.round(ms / 1000)
-  return `${Math.floor(total / 60)}m${String(total % 60).padStart(2, "0")}s`
 }
 
 function ReceiptView({ r }: { r: Receipt }) {
