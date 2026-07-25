@@ -73,10 +73,22 @@ jobs:
         with:
           node-version: "22"
           cache: npm
-          cache-dependency-path: web/package-lock.json
 
-      # web/ sits outside the root `workspaces` glob and carries its own
-      # lockfile, so the root `npm ci` never touches it.
+      # web/ imports @pipeline-moe/client-core in api.ts, types.ts, useRoom.ts…
+      # WITHOUT declaring it in web/package.json: it resolves by walking up to
+      # the root node_modules, where the workspace install symlinks
+      # @pipeline-moe/client-core -> packages/client-core. So the root install
+      # is a hard prerequisite, and it also runs client-core's `prepare` (tsc -p
+      # tsconfig.build.json) to produce the dist the types resolve against.
+      # First CI run (30159393336) proved this the hard way: web-only install →
+      # "Cannot find module '@pipeline-moe/client-core'" ×3 plus a cascade of
+      # implicit-any. `cd web && npm ci && npm run build` cannot work alone on a
+      # fresh clone.
+      - name: install root deps (web resolves client-core through them)
+        run: npm ci
+
+      # web/ still sits outside the `workspaces` glob and carries its own
+      # lockfile, so it needs its own install on top.
       - name: install web deps
         run: npm ci
         working-directory: web

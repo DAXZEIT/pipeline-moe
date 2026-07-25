@@ -11,11 +11,25 @@ const MEMORY_DIR = join(__dirname, "..", "..", "agent_memory")
  *
  * We can't test Participant.create() with a real LLM, so we test the
  * injection logic directly: file existence, size limits, formatting.
+ *
+ * Two KINDS of check live here, and the distinction is load-bearing (first CI
+ * run, 2026-07-25, run 30159393336): `agent_memory/` is gitignored runtime
+ * state written by the scribe, so the checks that read it assert on THIS
+ * machine's install, not on code. They failed 5/9 on a clean checkout — i.e.
+ * they would fail for any contributor cloning the repo, and "1386 green" was
+ * really 1381 tests plus 5 assertions that only pass where agents have already
+ * run. They keep their value as a LOCAL health guard (a ballooned or emptied
+ * memory file is a real operational problem), so they are gated on the
+ * directory existing rather than deleted. Anything testing injection LOGIC
+ * builds its own fixture and runs everywhere.
  */
-describe("memory injection", () => {
-  // ── File existence and size ──────────────────────────────────────────
+const HAS_LIVE_MEMORY = existsSync(MEMORY_DIR)
 
-  it("agent memory files exist for all active personas", () => {
+describe("memory injection", () => {
+  // ── Local health guard: reads the live, gitignored agent_memory/ ──────
+  // Skipped where that directory doesn't exist (CI, fresh clone).
+
+  it.skipIf(!HAS_LIVE_MEMORY)("agent memory files exist for all active personas", () => {
     const expectedAgents = ["auditor", "builder", "fetcher", "planner", "scribe", "scout", "tester"]
     for (const agent of expectedAgents) {
       const path = join(MEMORY_DIR, `${agent}.md`)
@@ -23,7 +37,7 @@ describe("memory injection", () => {
     }
   })
 
-  it("each memory file is under 32KB (anti-ballooning guard)", () => {
+  it.skipIf(!HAS_LIVE_MEMORY)("each memory file is under 32KB (anti-ballooning guard)", () => {
     // The 4KB injection truncation is tested separately in 'injection truncates files over 4KB'.
     // This test guards against runaway growth — files naturally grow past 4KB as the scribe
     // accumulates history, but should never balloon to multi-MB size.
@@ -35,7 +49,7 @@ describe("memory injection", () => {
     }
   })
 
-  it("README.md exists and documents the system", () => {
+  it.skipIf(!HAS_LIVE_MEMORY)("README.md exists and documents the system", () => {
     const readmePath = join(MEMORY_DIR, "README.md")
     expect(existsSync(readmePath)).toBe(true)
     const content = readFileSync(readmePath, "utf-8")
@@ -60,15 +74,26 @@ describe("memory injection", () => {
     return memoryNote
   }
 
+  // Formatting is injection LOGIC, so it builds its own fixture instead of
+  // reading the live builder.md — a format assertion has no reason to depend on
+  // whether this machine's scribe has ever written anything.
   it("injection produces correct format for existing file", () => {
-    const note = buildMemoryNote("builder", MEMORY_DIR)
-    expect(note).toContain("YOUR MEMORY (agent_memory/builder.md):")
-    expect(note).toContain("---")
-    expect(note).toContain("End of memory — updated by the scribe")
-    expect(note).toContain("After compaction, this is refreshed")
-    // Should contain actual content from the file, not empty
-    const fileContent = readFileSync(join(MEMORY_DIR, "builder.md"), "utf-8")
-    expect(note).toContain(fileContent.trim().split("\n")[0])
+    const tmpDir = join(__dirname, "..", "..", "tmp_test_memory_format")
+    try {
+      mkdirSync(tmpDir, { recursive: true })
+      writeFileSync(join(tmpDir, "builder.md"), "# Builder notes\nfirst line of memory\n")
+
+      const note = buildMemoryNote("builder", tmpDir)
+      expect(note).toContain("YOUR MEMORY (agent_memory/builder.md):")
+      expect(note).toContain("---")
+      expect(note).toContain("End of memory — updated by the scribe")
+      expect(note).toContain("After compaction, this is refreshed")
+      // The file's content is carried through, not dropped.
+      expect(note).toContain("# Builder notes")
+      expect(note).toContain("first line of memory")
+    } finally {
+      rmSync(tmpDir, { recursive: true, force: true })
+    }
   })
 
   it("injection returns empty string for missing file", () => {
@@ -95,7 +120,7 @@ describe("memory injection", () => {
 
   // ── Content verification ─────────────────────────────────────────────
 
-  it("memory files contain meaningful content (not empty)", () => {
+  it.skipIf(!HAS_LIVE_MEMORY)("memory files contain meaningful content (not empty)", () => {
     const agents = ["auditor", "builder", "fetcher", "planner", "scribe", "scout", "tester"]
     for (const agent of agents) {
       const path = join(MEMORY_DIR, `${agent}.md`)
