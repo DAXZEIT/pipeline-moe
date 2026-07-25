@@ -56,7 +56,14 @@ export interface ToolActivity {
   status: "running" | "ok" | "error"
   /** Truncated string form of the tool result, set on completion. */
   result?: string
+  /** Start of the call. */
   ts: number
+  /** Wall-clock ms the call took, set on completion — what a per-tool
+   *  `Took 0.4s` renders from (docs/interleaved-turns.md). Not recoverable
+   *  after the fact: `ts` is the start and the end event carried no time at
+   *  all, so a turn recorded before this field simply has no duration.
+   *  Absent while the call is still running. */
+  durationMs?: number
 }
 
 /** One contiguous stretch of a turn, in the order it actually happened —
@@ -73,11 +80,14 @@ export type TurnPart = TurnTextPart | TurnToolPart
 export interface TurnTextPart {
   type: "reasoning" | "text"
   content: string
-  /** Newline count of `content` — what the collapsed one-line render prints
-   *  (`💭 thought · 4 l`) without touching the content string. */
-  lines: number
   ts: number
 }
+// No precomputed line count here on purpose. A stored newline count is not the
+// number a collapsed segment wants: measured per-segment on a live turn
+// (2026-07-25), three of four reasoning runs were single-line paragraphs of
+// 91/206/343 chars — i.e. 1, 2 and 3 WRAPPED lines. "1 l" on a 343-char
+// thought reads as "trivial, skip it". Wrapping needs a width only the
+// renderer has, and it has `content` too, so the count belongs there.
 
 /** A tool call, REFERENCED by id rather than copied: the live path flips a
  *  ToolActivity running → ok in place, and the part stays a pointer into

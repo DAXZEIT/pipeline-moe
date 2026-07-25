@@ -22,20 +22,6 @@
 
 import type { TurnPart, TurnTextPart } from "./types.js"
 
-/** Lines a segment occupies as authored — the metric the collapsed
- *  one-line render prints (`💭 thought · 4 l`). Raw newline count, NOT wrapped
- *  lines: wrapping needs a terminal width only the renderer knows. Measured on
- *  real history before committing to it (2026-07-25, 63 reasoning entries):
- *  median 91 chars/line, only 6 single-line — the model does emit newlines, so
- *  the count carries information. */
-function countLines(content: string): number {
-  let n = 1
-  for (let i = 0; i < content.length; i++) {
-    if (content.charCodeAt(i) === 10) n++
-  }
-  return n
-}
-
 /** Accumulates a turn's parts in arrival order.
  *
  *  The open text/reasoning segment is ALWAYS the last element of `parts` while
@@ -57,7 +43,7 @@ export class TurnSegmenter {
     let part = this.open
     if (!part || part.type !== type) {
       this.close()
-      part = { type, content: "", lines: 0, ts: Date.now() }
+      part = { type, content: "", ts: Date.now() }
       this.parts.push(part)
       this.open = part
     }
@@ -98,7 +84,6 @@ export class TurnSegmenter {
       return
     }
     part.content = content
-    part.lines = countLines(content)
   }
 }
 
@@ -116,12 +101,10 @@ export function appendBodyMarker(parts: TurnPart[] | undefined, marker: string):
   for (let i = parts.length - 1; i >= 0; i--) {
     const part = parts[i]
     if (part.type === "text") {
-      const content = part.content + marker
       const next = [...parts]
-      next[i] = { ...part, content, lines: countLines(content) }
+      next[i] = { ...part, content: part.content + marker }
       return next
     }
   }
-  const content = marker.trim()
-  return [...parts, { type: "text", content, lines: countLines(content), ts: Date.now() }]
+  return [...parts, { type: "text", content: marker.trim(), ts: Date.now() }]
 }

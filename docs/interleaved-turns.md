@@ -120,6 +120,27 @@ Rejected: collapsing finished turns to reply-only with a one-line shape summary
 (`💭🔧 ×16 · 4 errors`). Denser across 20 turns, but it hides the very shape
 decision 4 exists to expose.
 
+## Target rendering — pi's own feed (dax, 2026-07-25)
+
+Named by dax as the format to reach: every action deposits into the feed one
+after another, WITH the per-member envelope kept around the whole turn.
+
+- A tool call is a **block** with a status colour (green ok / red error), a
+  header line that reads like the invocation (`$ ls /home/dax/pipeline-moe/`,
+  `read ~/pipeline-moe/src/room.ts:560-614`), its output, and `Took 0.0s`.
+- Reasoning is **not** boxed — plain dim italic between the blocks.
+- A long output elides inside its own block:
+  `… (25 earlier lines, ctrl+o to expand)`, keeping the TAIL.
+
+Two consequences for the data, both handled or logged in block 1: the per-tool
+duration (`durationMs`, added) and the elision direction (`clip()` keeps the
+head — open, below). The header line needs no new data: `args` is persisted,
+formatting it per tool is renderer work.
+
+Note this does not contradict decision 4. pi's feed IS the expanded view; the
+`Ctrl+T` collapse folding each segment to one line is the other state of the
+same layout.
+
 ## Measurement (2026-07-25, `sessions/default/mqipjpxe-u6cq12.json`, 2.25 M)
 
 ```
@@ -167,12 +188,31 @@ the reasoning traces.
    `reset()` bleed, ordering-by-construction. Full suite 1399 green, four
    typechecks clean. No UI, no client behaviour change.
 
-   Two things the build settled that the design had left implicit:
+   Verified end-to-end on a live turn the same evening
+   (`sessions/solo-mrr3jne5`, a 4-tool interrupted turn), which is stronger
+   than the pure tests: shape `r 🔧 r 🔧 r 🔧 🔧 r t`, i.e. three short
+   thoughts each preceding their tool call and then the long one — the flat
+   blob on screen really was four distinct thoughts. Content preserved (5135
+   chars of segments against a 5138-char buffer, the 3 lost being inter-segment
+   whitespace) and every tool part resolved in `activity`. The
+   `appendBodyMarker` fallback fired for real: the turn wrote no prose, so the
+   salvage marker became its own text part.
 
-   - **`lines` was worth checking before typing it.** Measured on 63 real
-     reasoning entries: median 91 chars/line, only 6 single-line. The model
-     does emit newlines, so a raw newline count carries information. (Wrapped
-     line count stays the renderer's job — it needs a width.)
+   Things the build settled that the design had left implicit:
+
+   - **`lines` was the wrong metric — dropped.** The doc's argument ("the
+     renderer would have to re-wrap every blob just to print a count") does not
+     survive contact: the renderer re-wraps anyway to display an expanded
+     segment, and it holds `content`. Worse, the number lies. The first
+     measurement was per-ENTRY, which conflated four segments into one blob and
+     hid it; per-SEGMENT on the live turn, three of four reasoning runs were
+     single-line paragraphs of 91 / 206 / 343 chars — 1, 2 and 3 wrapped lines
+     at width 120. `💭 thought · 1 l` on a 343-char thought reads as "trivial,
+     skip it", which is exactly backwards for the field's only purpose.
+   - **A per-tool duration has to be measured at collection.** The target
+     rendering shows `Took 0.4s` per call; `ToolActivity.ts` is the START and
+     the end event carries no time at all, so duration is not reconstructible
+     from a persisted entry. `durationMs` is now set on `tool_execution_end`.
    - **`entry.text` is a COMPOSED body, not the concatenation of the text
      parts.** `turnBody()` adds the question callout and `(no response)`, and
      room.ts appends ` _(interrupted — partial)_` after the fact. A renderer
@@ -216,6 +256,13 @@ Blocks 1-2 are the architecture proof; 3-5 thicken it. Block 4 could fold into
   it. `ask_user` IS a tool call, so its part already exists; the open question
   is only whether the renderer draws the callout at the tool part's position
   instead of after the body. Decide at block 3.
+- **Does `clip()` keep the wrong end?** It truncates a tool result to the first
+  2000 chars; pi's elision keeps the last lines. Which end matters is
+  tool-dependent (head for a `read`, tail for a `bash` whose verdict is its
+  last line), so this is a taste call, not a bug. Cheap to change and free of
+  side effects — verified 2026-07-25 that `clip()` is display-only: agents
+  never read it (`buildContext` uses `e.text` alone) and the room gauge counts
+  `toolName + args`, not results. Decide at block 3.
 - **Reasoning-budget interaction.** `reasoning-budget.ts` aborts a generation
   mid-thought and re-prompts; the resulting continuation currently glues onto
   the same blob. Segmented, it becomes a visible seam — probably an improvement

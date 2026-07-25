@@ -256,6 +256,9 @@ export class Participant {
       }
       item.status = ev.isError ? "error" : "ok"
       item.result = clip(ev.result)
+      // Measured here or nowhere: the end event carries no timestamp, so a
+      // per-tool duration cannot be reconstructed from a persisted entry.
+      item.durationMs = Date.now() - item.ts
       this.activity.set(ev.toolCallId, item)
       this.setStatus("active")
       this.emit("activity", { id: this.persona.id, item })

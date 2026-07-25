@@ -61,21 +61,20 @@ export interface ToolActivity {
   args?: unknown
   status: "running" | "ok" | "error"
   result?: string
+  /** Start of the call. */
   ts: number
+  /** Wall-clock ms the call took, set on completion (absent while running, and
+   *  on turns recorded before the server measured it). */
+  durationMs?: number
 }
 
 /** One contiguous stretch of a turn, in the order it happened — a run of
  *  reasoning, a run of reply text, or a single tool call. Mirrors the server's
  *  TurnPart (src/types.ts); see docs/interleaved-turns.md. */
 export type TurnPart =
-  | {
-      type: "reasoning" | "text"
-      content: string
-      /** Newline count of `content` — what a collapsed segment prints
-       *  (`💭 thought · 4 l`) without touching the content string. */
-      lines: number
-      ts: number
-    }
+  /** No stored line count: a collapsed segment wants WRAPPED lines, which
+   *  depend on a width only the renderer knows — and it has `content`. */
+  | { type: "reasoning" | "text"; content: string; ts: number }
   /** References its ToolActivity in `Message.activity` by id rather than
    *  copying it, so the live running → ok flip keeps working in place. */
   | { type: "tool"; toolCallId: string }

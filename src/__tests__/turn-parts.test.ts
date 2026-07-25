@@ -53,14 +53,16 @@ describe("TurnSegmenter", () => {
     expect(shape(seg.finish())).toBe("r t r")
   })
 
-  test("lines counts the segment as authored", () => {
+  test("a segment carries its content verbatim — the renderer measures it", () => {
+    // No stored line count: see the note on TurnTextPart. A collapsed segment
+    // wants WRAPPED lines, which need a width the segmenter does not have.
     const seg = new TurnSegmenter()
     seg.delta("reasoning", "line one\nline two\nline three")
     seg.tool("call-1")
     seg.delta("text", "single")
     const parts = seg.finish()
-    expect((parts?.[0] as { lines: number }).lines).toBe(3)
-    expect((parts?.[2] as { lines: number }).lines).toBe(1)
+    expect((parts?.[0] as { content: string }).content).toBe("line one\nline two\nline three")
+    expect((parts?.[2] as { content: string }).content).toBe("single")
   })
 
   test("segments are trimmed, and a whitespace-only run is dropped entirely", () => {
@@ -114,7 +116,42 @@ describe("TurnSegmenter", () => {
     seg.delta("text", "Done.")
     const parts = seg.finish()
     expect(shape(parts)).toBe("🔧call-1 t")
-    expect((parts?.[1] as { lines: number }).lines).toBe(1)
+    expect((parts?.[1] as { content: string }).content).toBe("Done.")
+  })
+
+  test("no content is lost — the segments reconstruct the buffers", () => {
+    // The load-bearing invariant: `parts` is a re-slicing of what the two
+    // buffers already hold, never a lossy summary. Only inter-segment
+    // whitespace disappears (each run is trimmed on its own, where the buffer
+    // was trimmed once at its ends). Verified on a real turn before being
+    // pinned here — sessions/solo-mrr3jne5, 4 reasoning segments, 5135 chars
+    // against a 5138-char buffer.
+    const seg = new TurnSegmenter()
+    let text = ""
+    let reasoning = ""
+    const script: Array<["reasoning" | "text", string] | ["tool", string]> = [
+      ["reasoning", "first thought\n\n"],
+      ["tool", "call-1"],
+      ["reasoning", "  second thought"],
+      ["text", "Partial reply. "],
+      ["tool", "call-2"],
+      ["text", "\nRest of the reply."],
+    ]
+    for (const [kind, payload] of script) {
+      if (kind === "tool") seg.tool(payload)
+      else {
+        seg.delta(kind, payload)
+        if (kind === "text") text += payload
+        else reasoning += payload
+      }
+    }
+    const parts = seg.finish() ?? []
+    const joined = (type: "reasoning" | "text") =>
+      parts.filter((p) => p.type === type).map((p) => (p as { content: string }).content).join("")
+    const squeeze = (s: string) => s.replace(/\s+/g, "")
+
+    expect(squeeze(joined("reasoning"))).toBe(squeeze(reasoning))
+    expect(squeeze(joined("text"))).toBe(squeeze(text))
   })
 
   test("parts stay ordered by construction, not by timestamp", () => {
@@ -136,7 +173,7 @@ describe("appendBodyMarker", () => {
   // show a truncated reply with no sign it was cut off.
   const marker = " _(interrupted — partial)_"
 
-  test("lands on the last text part and refreshes its line count", () => {
+  test("lands on the last text part", () => {
     const seg = new TurnSegmenter()
     seg.delta("text", "first")
     seg.tool("call-1")
@@ -145,7 +182,6 @@ describe("appendBodyMarker", () => {
 
     expect((parts[0] as { content: string }).content).toBe("first")
     expect((parts[2] as { content: string }).content).toBe(`second\nline${marker}`)
-    expect((parts[2] as { lines: number }).lines).toBe(2)
   })
 
   test("never lands on a reasoning part", () => {
