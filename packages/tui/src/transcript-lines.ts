@@ -24,7 +24,18 @@ import { groupActivity, groupLine, windowActivity, type ActivityGroup } from "./
 import { toSegments, windowSequence, type DisplaySegment } from "./parts"
 import { fmtDuration, headerRule, receiptLines } from "./transcript-format"
 
-export type Line = { text: string; color?: string; bold?: boolean; dim?: boolean; cursor?: boolean }
+export type Line = {
+  text: string
+  color?: string
+  bold?: boolean
+  dim?: boolean
+  cursor?: boolean
+  /** Attachment paths carried by this line, for a client that can DRAW them.
+   *  `text` stays the `📎 N images` summary, so a renderer that ignores this
+   *  field (Ink, and any terminal without a graphics protocol) is unchanged —
+   *  the pi-tui client swaps in kitty/iTerm2 rows when it can. */
+  images?: string[]
+}
 
 /** Reasoning is the agent talking to itself, and it must not read like the
  *  reply. `dimColor` alone was not enough once the two sat adjacent in one
@@ -291,7 +302,11 @@ export function transcriptLines(
       if (m.activity?.length) pushActivity(m.activity, false)
     }
     if (m.images?.length) {
-      lines.push({ text: `📎 ${m.images.length} image${m.images.length === 1 ? "" : "s"}`, dim: true })
+      lines.push({
+        text: `📎 ${m.images.length} image${m.images.length === 1 ? "" : "s"}`,
+        dim: true,
+        images: m.images,
+      })
     }
     // With a sequence, the model's prose was already drawn in place, as text
     // segments. `m.text` is then a COMPOSED body (the reply plus whatever

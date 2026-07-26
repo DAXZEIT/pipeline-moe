@@ -38,7 +38,9 @@ import { cleanPtyCapture, exitCodeOf } from "../pty-capture"
 
 export interface ShellDeps {
   tui: TUI
-  store: RoomStore
+  /** Read at call time: a room switch replaces the store, and a capture posted to
+   *  the room the user just left is worse than one not posted at all. */
+  store: () => RoomStore
   /** The room's workspace on the SERVER. Undefined when the server did not
    *  report one, which is also how a pre-0.1.11 server looks. */
   workspaceDir: () => string | undefined
@@ -48,8 +50,10 @@ export interface ShellDeps {
 
 /** Resume the app after a foreign process wrote to the terminal, WITHOUT
  *  clearing the scrollback. See the module comment for why this is not
- *  `requestRender(true)`. */
-function resumeBelow(tui: TUI): void {
+ *  `requestRender(true)`. Exported because `/prompt`'s $EDITOR needs exactly the
+ *  same thing — "someone else drew on this terminal, re-print below whatever they
+ *  left" is not specific to `!`. */
+export function resumeBelow(tui: TUI): void {
   const priv = tui as unknown as { previousLines?: unknown }
   if (Array.isArray(priv.previousLines)) {
     priv.previousLines = []
@@ -61,14 +65,15 @@ function resumeBelow(tui: TUI): void {
 }
 
 export function createShellRunner(deps: ShellDeps): (command: string) => void {
-  const { tui, store } = deps
+  const { tui } = deps
+  const store = (): RoomStore => deps.store()
 
   const serverSide = (command: string, why: string): void => {
-    store.pushNotice(`$ ${command} — running non-interactively on the server (${why}).`)
-    store.actions
+    store().pushNotice(`$ ${command} — running non-interactively on the server (${why}).`)
+    store().actions
       .runShell(command)
       .catch((err: unknown) =>
-        store.pushNotice(
+        store().pushNotice(
           err instanceof Error && err.message ? err.message : "Shell failed — server unreachable?",
           "error",
         ),
@@ -80,7 +85,7 @@ export function createShellRunner(deps: ShellDeps): (command: string) => void {
    *  way to stop it. Esc keeps it private. */
   const askToShare = (command: string, output: string, exit: number): void => {
     const lines = output ? output.split("\n").filter((l) => l.trim()).length : 0
-    const keepPrivate = (): void => store.pushNotice(`$ ${command} — output kept private.`)
+    const keepPrivate = (): void => store().pushNotice(`$ ${command} — output kept private.`)
     const list = new SelectList(
       [
         { value: "send", label: "Send to chat", description: "shared context for all agents" },
@@ -108,16 +113,16 @@ export function createShellRunner(deps: ShellDeps): (command: string) => void {
     list.onSelect = (item): void => {
       close()
       if (item.value !== "send") return keepPrivate()
-      store.actions
+      store().actions
         .postShellRecord(command, output, exit)
         .catch((err: unknown) =>
-          store.pushNotice(
+          store().pushNotice(
             err instanceof Error && err.message ? err.message : "Failed to record shell output.",
             "error",
           ),
         )
     }
-    store.pushNotice(`$ ${command} — ${lines} line${lines === 1 ? "" : "s"} captured. Share?`)
+    store().pushNotice(`$ ${command} — ${lines} line${lines === 1 ? "" : "s"} captured. Share?`)
     tui.requestRender()
   }
 

@@ -1,30 +1,17 @@
-import { spawnSync } from "node:child_process"
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
-import { tmpdir } from "node:os"
-import { join } from "node:path"
 import { Box, Text, useInput, useStdin } from "ink"
 import { useEffect, useRef, useState } from "react"
 import type { RoomStore, PersonaDetail } from "@pipeline-moe/client-core"
 import { useTerminalSize } from "../../useTerminalSize"
-
-/** Pick the user's editor: $VISUAL, $EDITOR, then common fallbacks. */
-function resolveEditor(): string {
-  if (process.env.VISUAL) return process.env.VISUAL
-  if (process.env.EDITOR) return process.env.EDITOR
-  for (const candidate of ["nvim", "vim", "nano", "vi"]) {
-    const found = spawnSync("sh", ["-c", `command -v ${candidate}`], { stdio: "ignore" })
-    if (found.status === 0) return candidate
-  }
-  return "vi"
-}
+import { editText } from "../../external-editor"
 
 /**
  * View + edit an agent's system prompt. The view is a scrollable pager;
  * pressing `e` hands the prompt to the user's $EDITOR in a temp .md file —
  * multi-line editing in a TUI input line is hopeless, the external editor is
- * the terminal-native answer (same pattern as `git commit`). spawnSync blocks
- * the event loop, so Ink can't repaint over the editor; raw mode is released
- * around it and the editor owns the tty via stdio: "inherit".
+ * the terminal-native answer (same pattern as `git commit`). The temp-file
+ * dance lives in `external-editor.ts`, shared with the pi-tui client; what is
+ * local is HOW the terminal is released — Ink drops raw mode around the
+ * blocking spawn, and the editor owns the tty via stdio: "inherit".
  */
 export function PromptOverlay({
   agentId,
@@ -54,30 +41,20 @@ export function PromptOverlay({
   const openEditor = () => {
     if (!detail || editingRef.current) return
     editingRef.current = true
-    const dir = mkdtempSync(join(tmpdir(), "pmoe-prompt-"))
-    const file = join(dir, `${agentId}.md`)
     try {
-      writeFileSync(file, detail.systemPrompt)
-      setRawMode(false)
-      const editor = resolveEditor()
-      // $EDITOR may carry arguments ("code --wait") — run through the shell.
-      const res = spawnSync("sh", ["-c", `${editor} "$0"`, file], { stdio: "inherit" })
-      setRawMode(true)
-      if (res.error) {
-        setError(`Editor failed: ${String(res.error.message ?? res.error)}`)
-        return
-      }
-      const next = readFileSync(file, "utf-8")
-      if (next.trim() === detail.systemPrompt.trim()) {
-        store.pushNotice("System prompt unchanged.")
-        return
-      }
-      if (!next.trim()) {
-        setError("Empty prompt — not saved.")
-        return
-      }
+      const outcome = editText(detail.systemPrompt, {
+        basename: `${agentId}.md`,
+        suspend: (run) => {
+          setRawMode(false)
+          run()
+          setRawMode(true)
+        },
+      })
+      if (outcome.kind === "unchanged") return store.pushNotice("System prompt unchanged.")
+      if (outcome.kind === "empty") return setError("Empty prompt — not saved.")
+      if (outcome.kind === "failed") return setError(`Editor failed: ${outcome.error}`)
       store.actions
-        .updateParticipant(agentId, { systemPrompt: next.trim() })
+        .updateParticipant(agentId, { systemPrompt: outcome.text })
         .then(() => {
           store.pushNotice(`@${agentId} system prompt updated.`)
           onClose()
@@ -87,9 +64,6 @@ export function PromptOverlay({
         )
     } finally {
       editingRef.current = false
-      try {
-        rmSync(dir, { recursive: true, force: true })
-      } catch {}
     }
   }
 

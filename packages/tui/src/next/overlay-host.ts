@@ -32,6 +32,8 @@ import type { Api, RoomStore } from "@pipeline-moe/client-core"
 import type { Overlay } from "../commands/types"
 import { ComposerComponent } from "./composer"
 import { agentForm, editAgentForm, roomForm } from "./forms"
+import { GraphOverlayComponent } from "./graph"
+import { PromptOverlayComponent } from "./prompt"
 import {
   LineupOverlayComponent,
   PresetPickerOverlayComponent,
@@ -40,9 +42,8 @@ import {
   TextInputOverlayComponent,
 } from "./overlays"
 
-/** The kinds this host serves. Everything else falls through to the caller, which
- *  posts a notice naming the phase that brings it — the graph and the prompt
- *  pager are all that is left. */
+/** Every kind the registry can raise. Phase 5 closes the set: nothing falls
+ *  through to a "lands in phase N" notice any more. */
 const HANDLED = new Set<Overlay["kind"]>([
   "select",
   "textInput",
@@ -53,22 +54,30 @@ const HANDLED = new Set<Overlay["kind"]>([
   "editAgent",
   "roomForm",
   "presetComposer",
+  "graph",
+  "prompt",
 ])
 
 const SIZE = { width: "80%", minWidth: 40, maxHeight: "80%", anchor: "center" } as const
 
 export interface OverlayHostDeps {
   tui: TUI
-  store: RoomStore
+  /** Read at build time, not captured: room switching replaces the store, and an
+   *  overlay built against the previous one would edit the room the user left.
+   *  (A switch also closes the stack — see `closeAll` — so this only has to be
+   *  right at the moment an overlay is raised.) */
+  store: () => RoomStore
   api: Api
   /** Where focus goes when the last overlay closes. */
   refocus: () => void
   /** Raise a command by name — `a` in the line-up opens the add-agent flow, and
    *  that flow is a registry command, not something this module should know. */
   runCommand: (input: string) => void
-  /** A room was created. The client refreshes its tab strip; switching to it is
-   *  Phase 5's job (it needs store rebinding). */
+  /** A room was created: refresh the strip and switch to it. */
   onRoomCreated: (roomId: string, name: string, hadGoal: boolean) => void
+  /** Release the terminal around a blocking child process and take it back —
+   *  `/prompt`'s `e` hands the screen to $EDITOR. */
+  suspend: (run: () => void) => void
 }
 
 interface Layer {
@@ -97,6 +106,13 @@ export class OverlayHost {
     // stack needs telling where to go.
     if (this.stack.length === 0) this.deps.refocus()
     this.deps.tui.requestRender()
+  }
+
+  /** Every layer down, no cancel callbacks — a room switch is not a cancellation
+   *  of the form you had open, it is the room changing under it. Callbacks here
+   *  would reopen parents against a store that no longer exists. */
+  closeAll(): void {
+    while (this.stack.length > 0) this.close()
   }
 
   /** Esc, or /close-style dismissal: down it goes, and its cancel callback runs
@@ -166,7 +182,8 @@ export class OverlayHost {
   }
 
   private build(o: Overlay): (Component & Focusable) | null {
-    const { store, api, runCommand } = this.deps
+    const { api, runCommand } = this.deps
+    const store = this.deps.store()
     switch (o.kind) {
       case "select":
         return new SelectOverlayComponent({
@@ -224,6 +241,20 @@ export class OverlayHost {
         return editAgentForm(o.agentId, store, this.formDeps())
       case "roomForm":
         return roomForm(api, { ...this.formDeps(), onCreated: this.deps.onRoomCreated })
+      case "graph":
+        return new GraphOverlayComponent({
+          messages: () => store.getSnapshot().messages,
+          roster: () => store.getSnapshot().roster,
+          onClose: () => this.close(),
+        })
+      case "prompt":
+        return new PromptOverlayComponent({
+          agentId: o.agentId,
+          store,
+          onClose: () => this.close(),
+          suspend: this.deps.suspend,
+          requestRender: () => this.deps.tui.requestRender(),
+        })
       case "presetComposer":
         return new ComposerComponent({
           initial: o.initial,

@@ -5,41 +5,21 @@
 // clients dispatch the same code. All this module does is build that context out
 // of the pi-tui client's pieces.
 //
-// Two callbacks are not fully honoured yet, and say so rather than failing
-// silently:
-//
-//   - `openOverlay` — nine of the eleven overlay kinds are served (Phase 3 the
-//     five generic ones, Phase 4 the four forms); the handoff graph and the prompt
-//     pager are Phase 5. A command that raises one of those posts a notice naming
-//     the phase. A silent no-op would read as a broken command; an error would
-//     read as a bug. Naming the phase is the only honest option while the client
-//     is half-migrated.
-//   - `switchRoom` — needs the tab strip and store rebinding, which is Phase 5.
-//
-// Everything else works: the commands that act through the store or the API are
-// the majority, and they are live from this phase on.
+// As of Phase 5 the context is COMPLETE — all eleven overlay kinds are served and
+// `switchRoom` rebinds the store for real. The `openOverlay` guard below stays
+// anyway: it is what turns "the client cannot draw this yet" into a notice naming
+// the phase rather than a silent no-op, and that is worth keeping for whatever
+// overlay kind gets added next.
 
 import type { Api, RoomStore } from "@pipeline-moe/client-core"
 import type { CommandContext, Overlay } from "../commands/types"
 import { lookup } from "../commands/registry"
 
-/** Which phase of docs/tui-pitui-migration-plan.md brings each overlay. */
-const OVERLAY_PHASE: Record<Overlay["kind"], string> = {
-  select: "3",
-  textInput: "3",
-  lineup: "3",
-  tasks: "3",
-  presetPicker: "3",
-  agentForm: "4",
-  editAgent: "4",
-  roomForm: "4",
-  presetComposer: "4",
-  graph: "5",
-  prompt: "5",
-}
-
 export interface CommandRunnerDeps {
-  store: RoomStore
+  /** Read at dispatch time, not captured: a room switch replaces the store, and a
+   *  command that ran against the previous one would push its notices into a
+   *  disposed store and mutate the room the user just left. */
+  store: () => RoomStore
   api: Api
   /** Fresh state at dispatch time — a snapshot captured earlier can be a whole
    *  turn stale by the time a command with an await in it runs. */
@@ -48,12 +28,17 @@ export interface CommandRunnerDeps {
    *  makes the phase notice appear. */
   openOverlay?: (o: Overlay) => boolean
   closeOverlay?: () => void
+  /** Switch rooms — hydrate-then-swap, so nothing flashes empty. */
+  switchRoom: (roomId: string) => void
+  /** A notice that must survive the store swap a switch performs. */
+  notifyAfterSwitch: (message: string) => void
 }
 
 export function createCommandRunner(deps: CommandRunnerDeps): (input: string) => void {
-  const { store, api, getState } = deps
+  const { api, getState } = deps
 
   return (input: string): void => {
+    const store = deps.store()
     const body = input.slice(1) // strip the leading "/"
     const sp = body.indexOf(" ")
     const head = sp === -1 ? body : body.slice(0, sp)
@@ -68,14 +53,13 @@ export function createCommandRunner(deps: CommandRunnerDeps): (input: string) =>
       api,
       state: getState(),
       notify: (m, l) => store.pushNotice(m, l),
-      // No room switching yet, so there is no store to outlive the notice —
-      // it can go straight out. The Ink client has to park it (a notice pushed
-      // in the same tick as a switch dies with the disposed store).
-      notifyAfterSwitch: (m) => store.pushNotice(m),
-      switchRoom: () => store.pushNotice("Room switching arrives with the tab strip (Phase 5).", "error"),
+      // A notice pushed in the same tick as a switch would land on the store
+      // being disposed — park it and let the next store deliver it.
+      notifyAfterSwitch: deps.notifyAfterSwitch,
+      switchRoom: deps.switchRoom,
       openOverlay: (o) => {
         if (deps.openOverlay?.(o)) return
-        store.pushNotice(`/${head}: the ${o.kind} overlay lands in Phase ${OVERLAY_PHASE[o.kind]}.`, "error")
+        store.pushNotice(`/${head}: this client cannot draw a ${o.kind} overlay yet.`, "error")
       },
       closeOverlay: () => deps.closeOverlay?.(),
     }

@@ -1,14 +1,19 @@
 import { Box, Text, useInput } from "ink"
 import { useState } from "react"
+import { hyperlink } from "@earendil-works/pi-tui"
 import type { OAuthProgress } from "@pipeline-moe/client-core"
 
 /**
- * OSC 8 terminal hyperlink (same encoding pi uses): supporting terminals
- * (Ghostty, kitty, WezTerm, iTerm2…) make the text clickable — which survives
- * line-wrapping, unlike selecting a wrapped URL by hand. Terminals without
- * support ignore the escapes and show the plain text.
+ * OSC 8 terminal hyperlink: supporting terminals (Ghostty, kitty, WezTerm,
+ * iTerm2…) make the text clickable — which survives line-wrapping, unlike
+ * selecting a wrapped URL by hand. Terminals without support ignore the escapes
+ * and show the plain text.
+ *
+ * This was a hand-copied escape sequence ("the same encoding pi uses" — it was
+ * literally pi's). It is pi's own encoder now, shared with the pi-tui client's
+ * panel, which is one fewer place for a stray control byte to hide.
  */
-const link = (text: string, url: string) => `\u001B]8;;${url}\u0007${text}\u001B]8;;\u0007`
+const link = hyperlink
 
 const clickHint = process.platform === "darwin" ? "⌘+click to open ↗" : "Ctrl+click to open ↗"
 

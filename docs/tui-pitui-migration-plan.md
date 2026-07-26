@@ -451,16 +451,128 @@ against 1 342 booked for deletion in Phase 6.
 
 ---
 
-## Phase 5 — the remainder
+## Phase 5 — the remainder ✅ DONE (2026-07-27)
 
-- `GraphOverlay` (223) — mostly string generation; ports cleanly.
-- `PromptOverlay` (135) — pager + `$EDITOR` launch.
-- `OAuthPanel` (121) — device-flow UI; blocking, so it wants a captured overlay.
-- `answer-picker` / QCM — no more `reservedRows` booking; it is just rows.
-- **`/image` finally displays something.** pi-tui ships the kitty and iTerm2
-  graphics protocols with reserved-row bookkeeping in the diff. This is a
-  feature the migration *adds*, on a kitty terminal with a vision model — worth
-  scheduling deliberately rather than discovering.
+**Goal: parity. After this phase there is nothing `pmoe` does that `pmoe-next`
+cannot, which is the precondition for flipping the default.**
+
+| piece | lines | landed as |
+|---|---|---|
+| `GraphOverlay` | 223 | `next/graph.ts` (~200) |
+| `PromptOverlay` | 135 | `next/prompt.ts` (~165) + `external-editor.ts`, shared with Ink |
+| `OAuthPanel` | 121 | `next/oauth.ts` (~135) |
+| `answer-picker` / QCM | — | `next/answers.ts` (~120); `pickerRows` is now called by the Ink client only |
+| room switching + tab strip | — | `next/rooms.ts` + the store rebinding in `main.ts` |
+| **inline images** | — | `next/images.ts` (~150) — the feature the migration ADDS |
+
+**Exit met.** All eleven overlay kinds are served; `commands.ts` no longer posts a
+"lands in phase N" notice for anything. Verified live against a scratch server on
+:5399, at 120 and 56 columns: the graph on a real three-hop turn (`you → Planner →
+Builder → Planner`, route/handoff tinted) and its flows ledger; the prompt pager
+wrapping a 44-line system prompt, `e` into real vim, `ggIEDITED-BY-VIM`, `:wq`, and
+the server confirming the new prompt; a planner `ask_user` with three closed
+options answered by pressing `3`; `/image` posting a real 830 KB PNG (server saved
+`media/bf99d031a49e.png`); ⌃V staging a PNG off the Wayland clipboard and sending
+it with text (server: both messages carry the image); ←→ across `[main-room,
+Second Room, + room]` with the highlight following and `⏎` on `+` opening the
+create/resume entry; and `/rooms` switching with its notice surviving the store
+swap.
+
+**The graph was the cheapest port in the migration, for a reason worth naming.**
+`deriveHandoffGraph` and `deriveHandoffChain` already live in client-core — the web
+graph reads the same two functions — so `GraphOverlay.tsx` was 223 lines of
+*padding and colour* around two pure derivations. Remove the JSX and what is left
+is string generation. The one behavioural fix: switching view resets the scroll
+(the Ink version shared one offset between two lists of different lengths, which
+landed you mid-list in a list you had not scrolled).
+
+**`$EDITOR` does not have to cost the scrollback.** The obvious resume is
+`requestRender(true)`, and it is wrong: that invalidates the dimensions, and pi-tui
+answers a dimension change with `\x1b[2J\x1b[H\x1b[3J` — screen *and* scrollback,
+i.e. the conversation. `!` shell mode had already solved this in Phase 2
+(`resumeBelow`: forget the previous frame, keep the dimensions, let pi-tui take its
+"first render — assumes clean screen" path and re-print below whatever the child
+left). "Someone else drew on this terminal" is one problem with one answer, so
+`resumeBelow` is exported and `/prompt` uses it. Measured: `fullRedraws` 1 → 2, log
+line `fullRender: first render (prev=0, new=46)`, and the turn from before the edit
+still on screen afterwards — that branch calls `fullRender(false)`, so the counter
+moves and nothing is erased.
+
+**The QCM picker is the migration's argument in miniature.** Same decisions
+(`answer-picker.ts`, untouched, called by both clients); what disappears is
+`pickerRows(n) = n + 4`, a number that existed only because the Ink Transcript's
+height math assumed a fixed-size command line — and which the App had to keep
+booked *even while the picker was hidden by typing*, because a layout that jumps is
+worse than one that wastes four rows. Here it is a component that returns rows when
+it has something to say and `[]` when it does not.
+
+**Images: what pi-tui gives, and what it refuses.** An attachment line carries its
+paths (`Line.images`, additive — Ink renders the same `📎 N images` text and
+ignores the field), and the pi-tui transcript swaps in kitty/iTerm2 rows: one line
+holding the escape sequence, `rows - 1` blank lines after it, which is the shape
+pi-tui's diff understands (`getKittyImageReservedRows`,
+`expandChangedRangeForKittyImages`). Three things had to be right. Image lines must
+bypass the transcript's `" " + truncateToWidth(...)` — a prefix inside a graphics
+sequence corrupts the payload, and pi-tui exempts them from the width throw for the
+same reason. The `Image` instances are cached, so the same *string reference* comes
+back every frame and the differ compares a megabyte of base64 in O(1) instead of
+re-encoding it per token. And images are capped at 16 rows, because a block that
+does not fit the viewport makes pi-tui fall back to a full render ("kitty image
+pre-clear would scroll") — one that fits costs nothing.
+
+**pi-tui refuses image protocols under tmux, deliberately** (`detectCapabilities`:
+`if (process.env.TMUX) return { images: null, … }`), so the client keeps its `📎`
+line there — verified, and it is why the drawn image could not be photographed
+through `tmux capture-pane`. What was verified instead: the real bytes, fetched
+from the live server through the real code path, produce
+`ESC_Ga=T,f=100,q=2,C=1,c=48,r=8,i=…` followed by exactly seven blank rows. The
+sequence is correct and the placement is library code.
+
+**Room switching rebinds the store, and nothing captures it.** A store is bound to
+one room at construction, so a switch builds a new one and disposes the old —
+hydrate-then-swap (preload, then swap, so nothing flashes empty) with a monotonic
+token so a stale preload cannot yank the user back. Everything therefore reads
+`getState()` / `currentStore()` at call time: `commands.ts`, `shell.ts` and
+`OverlayHost` all took a `() => RoomStore` this phase. A switch also closes the
+overlay stack — a line-up editor holding the previous roster would apply its next
+keystroke to a room the user has left.
+
+**Both known unknowns resolved, live.**
+
+- **Resize with a long conversation** costs exactly one full redraw per width
+  change (`fullRender: terminal width changed (120 -> 56)`), and it is *not* worse
+  than the plan feared: because the transcript returns the whole conversation every
+  frame, the clear is immediately followed by a full re-print — after resizing
+  twice, the scrollback still began at the first `── You ──` and contained exactly
+  one status bar (no ghost frames). Bounded only by the terminal's own scrollback
+  limit.
+- **tmux + `PI_HARDWARE_CURSOR`** behaves. With `showHardwareCursor: true` under
+  tmux, typing `hello cursor` put the pane cursor at `12,35` with the input line at
+  screen row 35 — the insertion point, exactly.
+
+**What a full redraw actually costs, since Phase 5 adds three ways to spend one.**
+Through a streaming turn the counter stays put — a fresh turn late in the session
+added zero. Deliberate whole-screen events each cost exactly one: `$EDITOR` resume
+(no clear), a width change (clear + full re-print), and a room switch
+(`firstChanged < viewportTop (0 < 73)` — the whole transcript changes, including
+lines that scrolled away, so the clear is correct rather than a regression).
+
+**Not verified live: the OAuth flow itself.** Starting one means contacting an
+external provider and opening a browser tab, which this project's rules put out of
+bounds (`CLAUDE.md`: local only). The panel's six statuses, its input line and its
+key handling are covered by tests; its mounting is `pushComponent`, the same path
+the member card proved live in Phase 4. Two things it gained: pi-tui's `hyperlink()`
+replaces a hand-copied OSC 8 sequence in *both* clients, and its `Input` replaces a
+field that displayed `"…" + value.slice(-59)` — a redirect URL is exactly the string
+whose interesting end you need to see whole.
+
+**⌃V was a parity gap, and it is closed here.** An image on the clipboard stages
+rather than sends (the web Composer's contract), and because this client can draw,
+the staged image is shown *as the image* — the one place where "did I paste the
+right screenshot?" has an answer before you press ⏎.
+
+**Size:** ~770 lines written and 70 tests (repo: 1 775 green), against 479 booked
+for deletion in Phase 6.
 
 ---
 
@@ -499,13 +611,13 @@ point, `pmoe` still works.
   2026-07-26 — it does not fit**, for four concrete reasons (no in-place text, no
   submit action, no multi-select, no interleaved rows). The saving came from
   writing the keyboard loop once instead of four times. See Phase 4.
-- **Resize behaviour** with a long conversation. A width change is a full redraw
-  that clears the scrollback — unavoidable in this architecture (claude_code
-  pays it too), but confirm it is not worse than that. Phase 0 saw a height
-  change alone also trigger one (`height=16` → `height=40` in the redraw log),
-  which is expected but worth knowing before blaming a component for it.
-- **tmux + `PI_HARDWARE_CURSOR`.** The prototype ran with the hardware cursor
-  on; verify it behaves under tmux, which is where it usually goes wrong.
+- ~~**Resize behaviour** with a long conversation.~~ **Resolved 2026-07-27 — one
+  full redraw per width change, and the conversation is re-printed rather than
+  lost** (the transcript returns every line each frame). Phase 0 saw a height
+  change alone also trigger one, which is expected but worth knowing before
+  blaming a component for it. See Phase 5.
+- ~~**tmux + `PI_HARDWARE_CURSOR`.**~~ **Resolved 2026-07-27 — it behaves**: the
+  pane cursor sat exactly at the insertion point under tmux. See Phase 5.
 
 ## What this plan deliberately does not do
 

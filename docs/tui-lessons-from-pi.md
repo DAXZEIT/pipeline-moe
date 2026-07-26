@@ -60,8 +60,13 @@ reads as written above until Phase 6 deletes it.
   `picking` hack was deleted rather than ported — forms push their pickers on top
   of themselves, and the composer runs three layers deep.*
 - **Inline images** (Kitty / iTerm2 graphics protocols) with reserved-row
-  bookkeeping in the diff. Relevant to us: kitty terminal, vision models,
-  `/image` currently displays nothing.
+  bookkeeping in the diff. *Adopted in Phase 5 — `/image` and ⌃V now display, in
+  the transcript and as a staging preview.* Three things to know: the `Image`
+  component emits the sequence on one line plus `rows - 1` blank lines (that shape
+  is what the diff understands); image lines are exempt from the width throw and
+  must not be prefixed or truncated; and `detectCapabilities` returns
+  `images: null` under tmux **on purpose**, so a graphics feature can only be seen
+  in the terminal itself.
 - **Theme system** (light/dark, component-level theme interfaces). Our colors
   are hardcoded.
 - **`SettingsList`** — a label→value list where ⏎ cycles a fixed `values` array or
@@ -91,10 +96,28 @@ is the strategic asset: any rendering layer can sit on it.
    transcript fed by client-core) would price the migration honestly.
 2. **Prompt history + multiline in CommandLine** — small, isolated, daily win.
 3. **Large-paste markers** — paste a 200-line log without wrecking the input.
-4. **Inline kitty images** for `/image` and agent screenshots.
+4. ~~**Inline kitty images** for `/image` and agent screenshots.~~ *Done, Phase 5 —
+   on `pmoe-next` only, which is one more reason the flip matters.*
 5. **Keybinding registry** — their declarative pattern, even partially adopted.
 
 ## Status
+
+- 2026-07-27: **(1) Phase 5 shipped — PARITY.** The handoff graph, the prompt
+  pager, the OAuth panel, the QCM picker, room switching with the tab strip, ⌃V
+  image staging, and inline images. All eleven overlay kinds are served; nothing
+  posts a "lands in phase N" notice any more. Findings worth carrying: **`$EDITOR`
+  does not have to cost the scrollback** — `requestRender(true)` invalidates the
+  dimensions and therefore clears screen *and* scrollback, while `resumeBelow`
+  (Phase 2's `!` fix, now exported) forgets the frame and keeps the dimensions, so
+  pi-tui re-prints below whatever the child left; measured 1 → 2 on the counter with
+  the previous turn still on screen. **pi-tui refuses image protocols under tmux**
+  by design, which is a verification constraint, not a bug. **Image lines need
+  reference stability**: the transcript returns every line each frame, so the
+  `Image` instances are cached and the same string comes back — otherwise the diff
+  re-compares (and the encoder re-produces) a megabyte of base64 per token. And a
+  room switch legitimately costs one full redraw (`firstChanged < viewportTop`),
+  because the whole transcript changes including lines that scrolled away — the same
+  mechanism the layout order exists to avoid for ordinary chrome updates.
 
 - 2026-07-26: **(1) Phase 4 shipped** — the four forms. `SettingsList` was
   evaluated and does not fit (no in-place text editing, no submit action, no

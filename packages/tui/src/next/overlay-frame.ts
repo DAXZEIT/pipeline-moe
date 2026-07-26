@@ -67,8 +67,9 @@ export interface FrameOptions {
   /** The key legend on the last row. Dim. */
   hint: string
   /** chalk colour name for the border and title. Magenta = a picker, cyan = a
-   *  board or an editor — the same one-colour-per-meaning rule as the chrome. */
-  color: "magenta" | "cyan" | "green" | "yellow"
+   *  board or an editor — the same one-colour-per-meaning rule as the chrome.
+   *  Green and red are outcomes (the OAuth panel ends in one of the two). */
+  color: "magenta" | "cyan" | "green" | "yellow" | "red"
 }
 
 /** A rounded box: title row, body, hint row. `width` is the OUTER width, so the
