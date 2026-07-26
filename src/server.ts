@@ -545,6 +545,8 @@ async function main(): Promise<void> {
         goalMode: o.goalMode,
         goalEvaluator: o.goalEvaluator,
         maxGoalIterations: o.maxGoalIterations,
+        solo: o.solo,
+        model: o.model,
         spawnedBy: o.spawnedBy,
       })
       return { roomId: d.roomId, name: d.name, goalStatus: d.goalStatus }
@@ -587,6 +589,24 @@ async function main(): Promise<void> {
       // the asker); otherwise it lands as a normal routed message.
       r.submit(text)
       return true
+    },
+    async pipelineStatus() {
+      // Pure exposure: every field below already existed, it was just only
+      // reachable over HTTP (the UI) and never from inside a turn.
+      // `room` is the default room, declared below — this closure only runs
+      // once a turn is executing, long after it is initialized.
+      const presets = await listPresets()
+      return {
+        rooms: roomManager.listRooms(),
+        maxRooms: config.maxRooms,
+        local: roomManager.localSlots(),
+        models: listModels(resolved, room.getAllowCloud(), explicitlyEnabledProviders).map((m) => ({
+          ref: m.ref,
+          name: m.name,
+          local: m.local,
+        })),
+        presets: presets.map((p) => ({ name: p.name, agents: p.personas.map((x) => x.name) })),
+      }
     },
   }
   roomManager.setOrchestrator(orchestrator)

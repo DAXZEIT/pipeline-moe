@@ -1848,7 +1848,8 @@ export class Room {
     let lockAcquired = false
     try {
       if (isLocal && this.localLock) {
-        await this.localLock.acquire()
+        // Labelled with the roomId so pipeline_status can name the holder.
+        await this.localLock.acquire(this.roomId)
         lockAcquired = true
       }
       // Turn timing starts after the lock: "how long was the agent active",
@@ -1916,7 +1917,7 @@ export class Room {
       target.cursor = this.transcript.length
       return null
     } finally {
-      if (lockAcquired) this.localLock?.release()
+      if (lockAcquired) this.localLock?.release(this.roomId)
       this.running.delete(target)
     }
   }

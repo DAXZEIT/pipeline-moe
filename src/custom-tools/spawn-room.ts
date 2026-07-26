@@ -52,6 +52,23 @@ const spawnRoomSchema = Type.Object({
         "iteration is one evaluator verification pass plus any agents it dispatches.",
     }),
   ),
+  solo: Type.Optional(
+    Type.Boolean({
+      description:
+        "Spawn a ONE-agent room instead of a roster: a single general-purpose agent with full " +
+        "tools and no team protocol. Use it when the goal needs a worker, not a pipeline — it is " +
+        "cheaper and has no coordination overhead. Mutually exclusive with preset. For a solo " +
+        "worker that gets reviewed, use a preset roster pairing it with an auditor instead.",
+    }),
+  ),
+  model: Type.Optional(
+    Type.String({
+      description:
+        "Model ref for a solo room (e.g. 'anthropic/claude-opus-5'), from pipeline_status. Use it " +
+        "when the local slots are saturated: a cloud room runs immediately instead of queueing " +
+        "behind them. Ignored without solo — a preset carries its own models.",
+    }),
+  ),
 })
 
 export function createSpawnRoomToolDefinition(
@@ -93,6 +110,8 @@ export function createSpawnRoomToolDefinition(
           goalMode: params.goalMode,
           goalEvaluator: params.goalEvaluator,
           maxGoalIterations: params.maxGoalIterations,
+          solo: params.solo,
+          model: params.model,
           spawnedBy,
         })
         return {

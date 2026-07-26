@@ -57,6 +57,12 @@ export const config = {
    *  without bound — every local room contends for the single llama-server slot.
    *  provisionRoom rejects spawns past this. Set PIPELINE_MAX_ROOMS to tune. */
   maxRooms: Math.max(1, Number(process.env.PIPELINE_MAX_ROOMS ?? 8) || 8),
+  /** How many local-model turns may run at once — must match llama-server's
+   *  --parallel. Default stays 1 (the historical serialization); raise it with
+   *  PIPELINE_LOCAL_SLOTS only after checking the KV pool covers N contexts.
+   *  Reported by pipeline_status, so an over-claim here makes an orchestrator
+   *  route onto slots that do not exist. */
+  localSlots: Math.max(1, Number(process.env.PIPELINE_LOCAL_SLOTS ?? 1) || 1),
   /** Per-turn reasoning budget in streamed chars for LOCAL seats (checkpoint,
    *  not guillotine — see src/reasoning-budget.ts / ROADMAP #9). 0 disables.
    *  Cloud seats never get a budget: deep reasoners spend legitimately. */

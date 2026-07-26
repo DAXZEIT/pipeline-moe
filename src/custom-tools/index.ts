@@ -20,6 +20,7 @@ import {
 } from "./task-tools.js"
 import { createAskOrchestratorToolDefinition } from "./ask-orchestrator.js"
 import { createAnswerRoomToolDefinition } from "./answer-room.js"
+import { createPipelineStatusToolDefinition } from "./pipeline-status.js"
 import { createHandoffToolDefinition } from "./handoff.js"
 import { createGoalVerdictToolDefinition } from "./goal-verdict.js"
 import type { ParentLink, RoomOrchestrator } from "../orchestrator.js"
@@ -58,8 +59,11 @@ export interface ToolContext {
 }
 
 /** Orchestration tool names — gated on a RoomOrchestrator being present, not on
- *  the static TOOLS registry. Only orchestrator personas (the planner) get them. */
-export const ORCHESTRATION_TOOLS = ["spawn_room", "check_room", "stop_room", "destroy_room", "answer_room"] as const
+ *  the static TOOLS registry. Only orchestrator personas (the planner, and the
+ *  solo console — docs/orchestrator-room.md) get them. `pipeline_status` rides
+ *  the same gate but is read-only: it is the observation half without which the
+ *  other five command blind. */
+export const ORCHESTRATION_TOOLS = ["spawn_room", "check_room", "stop_room", "destroy_room", "answer_room", "pipeline_status"] as const
 
 // Registry of tool name → factory function.
 // Add new tools here — each tool is a self-contained module.
@@ -105,6 +109,18 @@ export function buildCustomTools(toolNames: string[], ctx?: ToolContext): ToolDe
     if (wanted.has("stop_room")) tools.push(createStopRoomToolDefinition(orch) as ToolDefinition)
     if (wanted.has("destroy_room")) tools.push(createDestroyRoomToolDefinition(orch) as ToolDefinition)
     if (wanted.has("answer_room")) tools.push(createAnswerRoomToolDefinition(orch) as ToolDefinition)
+    // pipeline_status is NOT allowlist-gated like the five above: any seat that
+    // can already command the pipeline gets to observe it. Gating it on the
+    // allowlist would leave every planner persisted before this feature — and
+    // every preset roster on disk — commanding blind until its file was edited,
+    // the same reason the task tools and handoff are context-gated. Naming it
+    // explicitly still works (a read-only observer seat holding no command
+    // tool). It marks ctx.roomId as "← you" so the caller need not work out
+    // which row is its own.
+    const commands = ORCHESTRATION_TOOLS.some((n) => n !== "pipeline_status" && wanted.has(n))
+    if (commands || wanted.has("pipeline_status")) {
+      tools.push(createPipelineStatusToolDefinition(orch, ctx.roomId) as ToolDefinition)
+    }
   }
 
   // ask_orchestrator — context-gated on the parent link, NOT on the persona

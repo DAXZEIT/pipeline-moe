@@ -36,7 +36,7 @@ import { join } from "node:path"
 import { config } from "./config.js"
 import { installBatchTerminateGuard, type BatchTerminateGuard } from "./batch-terminate-guard.js"
 import { buildConfinedTools } from "./sandbox-tools.js"
-import { buildCustomTools } from "./custom-tools/index.js"
+import { buildCustomTools, ORCHESTRATION_TOOLS } from "./custom-tools/index.js"
 import { resolveModelRef, type ResolvedModel } from "./model.js"
 import { buildSeatSystemPrompt, hatToolGate, seatCompactionInstructions, type HatSection } from "./seats.js"
 import { unionTools } from "./seats.js"
@@ -92,6 +92,26 @@ export const LONE_AGENT_NOTE =
   "Your personal memory lives at agent_memory/<your_id>.md. Read it at the start of a task " +
   "to recall prior context; keep it updated with durable lessons. After a compaction, your " +
   "memory is refreshed automatically."
+
+/** Injected when the seat actually holds the orchestration tools — the same
+ *  predicate under which buildCustomTools builds them, so the prompt never
+ *  promises a mechanism the toolset doesn't carry, and (the reverse direction,
+ *  new here) never stays silent about one it does. It documents what the tools
+ *  DO; it says nothing about who the agent is, so a /solo console keeps serving
+ *  the operator's own SYSTEM.md unchanged (docs/orchestrator-room.md). Its last
+ *  sentence exists to repair LONE_AGENT_NOTE: "no one to hand off to" is true of
+ *  this room and false of the pipeline. */
+export const ORCHESTRATOR_NOTE =
+  "You hold the pipeline's orchestration tools. They act on OTHER rooms, never on this one. " +
+  "pipeline_status lists every room, the local-model slots and who holds them, and the preset " +
+  "rosters spawn_room accepts. spawn_room creates a room that works a goal on its own and reports " +
+  "back to you when it resolves; check_room reads its progress; answer_room replies when one of " +
+  "them escalates a question to you; stop_room halts a runaway while keeping its transcript; " +
+  "destroy_room removes it. Call pipeline_status BEFORE spawning: preset names and free local " +
+  "slots cannot be known otherwise, and a local room spawned onto saturated slots simply queues " +
+  "behind the rooms already holding them — put it on a cloud model instead. Being the only agent " +
+  "in this room does not mean you work alone: here, delegating is spawning a room, not handing " +
+  "off a turn."
 
 /** Read a hat's logbook (agent_memory/<id>.md), capped at 4KB to avoid
  *  consuming excessive context tokens. Empty string when absent. */
@@ -250,6 +270,14 @@ export class SeatRuntime {
     const self = single ? this.hats[0].id : this.hatIds()
     const rosterNote = lone ? null : deps.handoffSink?.describeRoster?.(self) ?? null
 
+    // Toolset union, computed here rather than at the tool build below because
+    // the prompt assembly needs the same answer: whether this seat commands the
+    // pipeline. One source of truth for both halves of the invariant.
+    const union = unionTools(this.hats)
+    const commandsPipeline =
+      deps.orchestrator !== undefined &&
+      ORCHESTRATION_TOOLS.some((t) => t !== "pipeline_status" && union.includes(t))
+
     // System prompt assembly. Singleton = the exact pre-feature layering;
     // fused = the additive multi-role seat prompt (grilling Q3).
     let promptParts: string[]
@@ -263,6 +291,7 @@ export class SeatRuntime {
         ...(this.hats[0].systemPrompt ? [this.hats[0].systemPrompt] : []),
         workspaceNote(deps.workspaceDir),
         lone ? LONE_AGENT_NOTE : ROOM_NOTE,
+        ...(commandsPipeline ? [ORCHESTRATOR_NOTE] : []),
         ...(rosterNote ? [rosterNote] : []),
         ...(memoryNote ? [memoryNote] : []),
       ]
@@ -275,6 +304,7 @@ export class SeatRuntime {
         buildSeatSystemPrompt(this.seatId, sections),
         workspaceNote(deps.workspaceDir),
         ROOM_NOTE,
+        ...(commandsPipeline ? [ORCHESTRATOR_NOTE] : []),
         ...(rosterNote ? [rosterNote] : []),
       ]
     }
@@ -324,9 +354,9 @@ export class SeatRuntime {
       sessionManager = SessionManager.inMemory(deps.workspaceDir)
     }
 
-    // Toolset: the CONSTANT union of the hats' allowlists (cache-stable), with
-    // the per-hat restriction enforced at execution by the dynamic gate.
-    const union = unionTools(this.hats)
+    // Toolset: the CONSTANT union of the hats' allowlists (cache-stable, built
+    // above), with the per-hat restriction enforced at execution by the dynamic
+    // gate.
     const confined = buildConfinedTools(deps.workspaceDir, union, skillRoots)
     const custom = buildCustomTools(union, {
       orchestrator: deps.orchestrator,

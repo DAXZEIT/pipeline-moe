@@ -1,0 +1,33 @@
+{
+  "name": "pi-audited",
+  "personas": [
+    {
+      "id": "pi",
+      "name": "pi",
+      "color": "#B48EAD",
+      "icon": "π",
+      "tools": ["read", "bash", "edit", "write", "grep", "find", "ls", "web_search", "web_read", "youtube_transcript", "arxiv_search", "youcom_search"],
+      "systemPrompt": "",
+      "active": true,
+      "parallel": false
+    },
+    {
+      "id": "auditor",
+      "name": "Auditor",
+      "color": "#AFA9EC",
+      "icon": "🔎",
+      "tools": ["read", "grep", "find", "ls"],
+      "active": true,
+      "parallel": false
+    },
+    {
+      "id": "tester",
+      "name": "Tester",
+      "color": "#97C459",
+      "icon": "🧪",
+      "tools": ["read", "bash", "grep", "find", "ls"],
+      "active": true,
+      "parallel": false
+    }
+  ]
+}

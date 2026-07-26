@@ -328,6 +328,11 @@ describe("ask_orchestrator / answer_room tools", () => {
         answered.push({ roomId, text })
         return true
       },
+      pipelineStatus: async () => ({
+        rooms: [], maxRooms: 8,
+        local: { capacity: 1, inUse: 0, holders: [], waiting: 0 },
+        models: [], presets: [],
+      }),
     }
     const tool = createAnswerRoomToolDefinition(orchestrator)
     const res = await tool.execute("t1", { roomId: "room-sub1", text: "take path A" } as never, undefined as never, undefined as never, {} as never)

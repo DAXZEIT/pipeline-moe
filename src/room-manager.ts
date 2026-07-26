@@ -88,8 +88,9 @@ export class RoomManager {
       createdAt: number
     }
   >()
-  /** Process-global semaphore for serializing local-model inference across all rooms. */
-  private readonly localLock = new LocalModelLock()
+  /** Process-global semaphore for serializing local-model inference across all
+   *  rooms. Capacity mirrors llama-server's --parallel (config.localSlots). */
+  private readonly localLock = new LocalModelLock(config.localSlots)
   /** Capability surface for sub-room spawning, injected by the server after
    *  construction (it closes over preset/mount logic that lives in server.ts).
    *  Passed to each room's Registry so orchestrator personas get the tools.
@@ -519,6 +520,17 @@ export class RoomManager {
       goalText: room.getGoalText(),
       workspaceDir: room.getWorkspaceDir(),
     }))
+  }
+
+  /** Local-model slot occupancy. The lock itself stays private — this is the
+   *  read-only projection pipeline_status reports to an orchestrator seat. */
+  localSlots(): { capacity: number; inUse: number; holders: string[]; waiting: number } {
+    return {
+      capacity: this.localLock.capacity,
+      inUse: this.localLock.inUse,
+      holders: this.localLock.owners,
+      waiting: this.localLock.waitCount,
+    }
   }
 
   /** Full details for one room. Returns undefined when not found. */

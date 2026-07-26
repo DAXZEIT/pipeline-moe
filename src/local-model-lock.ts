@@ -1,52 +1,81 @@
-// LocalModelLock — process-global semaphore(1) for llama-server inference.
+// LocalModelLock — process-global semaphore for llama-server inference.
 //
-// llama-server runs with --parallel 1: only one inference slot. When multiple
-// rooms are active, local-model agents must be serialized. Cloud agents bypass
-// this lock entirely (they hit independent endpoints).
+// llama-server serves a bounded number of inference slots (--parallel N, 2 since
+// 2026-07-18). When multiple rooms are active, local-model agents contend for
+// them, so this semaphore serializes past capacity. Cloud agents bypass the lock
+// entirely (they hit independent endpoints).
+//
+// Capacity is injected (config.localSlots, PIPELINE_LOCAL_SLOTS) rather than
+// hardcoded: a lock that claims 1 slot while the server serves 2 makes every
+// occupancy report a lie, and `pipeline_status` reports occupancy to an agent
+// that routes on it (docs/orchestrator-room.md).
 //
 // The lock is held by RoomManager and injected into each Room at creation.
-// Room.executeAgent() acquires before inference, releases in `finally`.
+// Room.executeAgent() acquires before inference, releases in `finally`, and
+// labels both with its roomId so the holder is nameable.
 
-/** Async semaphore with capacity 1 for serializing local-model inference. */
+/** Async counting semaphore for local-model inference. Capacity defaults to 1. */
 export class LocalModelLock {
-  private held = false
-  private readonly queue: Array<() => void> = []
+  /** One entry per in-flight acquisition, labelled with its owner. */
+  private readonly holders: string[] = []
+  private readonly queue: Array<{ owner: string; resolve: () => void }> = []
+
+  constructor(readonly capacity: number = 1) {}
 
   /**
-   * Acquire the lock. Resolves immediately if free; otherwise queues and waits
-   * until the current holder calls release().
+   * Acquire a slot. Resolves immediately while below capacity; otherwise queues
+   * and waits until a holder calls release(). `owner` is a label for reporting
+   * (the roomId) — it does not affect scheduling.
    */
-  async acquire(): Promise<void> {
-    if (!this.held) {
-      this.held = true
+  async acquire(owner = "?"): Promise<void> {
+    if (this.holders.length < this.capacity) {
+      this.holders.push(owner)
       return
     }
     return new Promise<void>((resolve) => {
-      this.queue.push(resolve)
+      this.queue.push({ owner, resolve })
     })
   }
 
   /**
-   * Release the lock. If there are waiting callers, the next one is unblocked.
-   * Calling release() when nothing was acquired is a no-op (safe).
+   * Release a slot. If callers are waiting, the next one is unblocked and takes
+   * the freed slot directly. Releasing without a matching acquire is a no-op
+   * (safe). An unknown owner drops an arbitrary slot rather than none — losing
+   * the label is recoverable, leaking a slot is not.
    */
-  release(): void {
+  release(owner = "?"): void {
+    const i = this.holders.indexOf(owner)
+    if (i >= 0) this.holders.splice(i, 1)
+    else this.holders.pop()
     const next = this.queue.shift()
     if (next) {
-      // Hand ownership directly to the next waiter — held stays true.
-      next()
-    } else {
-      this.held = false
+      this.holders.push(next.owner)
+      next.resolve()
     }
   }
 
-  /** Whether the lock is currently held (useful for testing). */
+  /** Whether any slot is currently taken. */
   get isHeld(): boolean {
-    return this.held
+    return this.holders.length > 0
   }
 
-  /** Number of callers waiting to acquire (useful for testing). */
+  /** Slots currently taken. */
+  get inUse(): number {
+    return this.holders.length
+  }
+
+  /** Number of callers waiting to acquire. */
   get waitCount(): number {
     return this.queue.length
+  }
+
+  /** Labels of the current holders, in acquisition order. */
+  get owners(): string[] {
+    return [...this.holders]
+  }
+
+  /** Labels of the queued callers, in wait order. */
+  get waiters(): string[] {
+    return this.queue.map((q) => q.owner)
   }
 }

@@ -13,6 +13,15 @@ export interface SpawnRoomOptions {
   goal: string
   /** Preset roster name (from presets/). Omit to use the default roster. */
   preset?: string
+  /** Spawn a one-agent room (a bare pi) instead of a roster. Mutually exclusive
+   *  with `preset` — provisionRoom rejects both together, mirroring the HTTP
+   *  contract. Lets an orchestrator delegate to a single worker, and lets a
+   *  console spawn another console (docs/orchestrator-room.md). */
+  solo?: boolean
+  /** Model ref pinned on a solo room's agent — the escape hatch when the local
+   *  slots are saturated. Validated by provisionRoom; ignored without `solo`
+   *  (a preset carries its own per-persona models). */
+  model?: string
   /** Working directory scope — local path or user@host:/path (sshfs).
    *  Omit for the pipeline workspace. */
   workspaceDir?: string
@@ -47,6 +56,31 @@ export interface CheckRoomResult {
   lastMessages?: string[]
 }
 
+/** One room as the orchestrator sees it — the same shape roomManager.listRooms()
+ *  already produces for /api/rooms, minus nothing. */
+export interface PipelineRoomStatus {
+  roomId: string
+  name: string
+  participantCount: number
+  goalStatus: string
+  goalText: string | null
+  workspaceDir?: string
+}
+
+/** Everything an orchestrator seat needs to decide WHERE to put the next room:
+ *  what exists, what it may spawn from, and whether the local model has room.
+ *  Composed from listRooms + listModels + listPresets + the local lock — the
+ *  only state that is not already served over HTTP is the lock's occupancy. */
+export interface PipelineStatus {
+  rooms: PipelineRoomStatus[]
+  /** config.maxRooms — spawns are rejected past it. */
+  maxRooms: number
+  /** llama-server slot occupancy. `capacity` mirrors --parallel. */
+  local: { capacity: number; inUse: number; holders: string[]; waiting: number }
+  models: Array<{ ref: string; name: string; local: boolean }>
+  presets: Array<{ name: string; agents: string[] }>
+}
+
 export interface RoomOrchestrator {
   /** Create a room, load its roster, submit its goal. Fire-and-forget — the
    *  room runs in the background and this resolves once it has started. */
@@ -64,6 +98,9 @@ export interface RoomOrchestrator {
    *  ask_orchestrator/ask_user question, this is the answer and resumes it.
    *  Returns false when the room is absent. */
   answerRoom(roomId: string, text: string): boolean
+  /** Read-only census of the pipeline: rooms, capacity, models, presets.
+   *  Async because presets are read from disk. */
+  pipelineStatus(): Promise<PipelineStatus>
 }
 
 /** The link a spawned sub-room holds back to its parent. Built by the server

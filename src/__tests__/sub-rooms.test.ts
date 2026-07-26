@@ -24,6 +24,13 @@ function mockOrchestrator(overrides: Partial<RoomOrchestrator> = {}): RoomOrches
     stopRoom: vi.fn(async () => true),
     destroyRoom: vi.fn(async () => true),
     answerRoom: vi.fn(() => true),
+    pipelineStatus: vi.fn(async () => ({
+      rooms: [],
+      maxRooms: 8,
+      local: { capacity: 1, inUse: 0, holders: [], waiting: 0 },
+      models: [],
+      presets: [],
+    })),
     ...overrides,
   }
 }
@@ -41,17 +48,20 @@ describe("buildCustomTools — orchestration gating", () => {
       ["spawn_room", "check_room", "destroy_room"],
       { orchestrator: mockOrchestrator() },
     )
-    expect(tools.map((t) => t.name).sort()).toEqual(["check_room", "destroy_room", "spawn_room"])
+    // pipeline_status rides along with any command tool — see below.
+    expect(tools.map((t) => t.name).sort()).toEqual([
+      "check_room", "destroy_room", "pipeline_status", "spawn_room",
+    ])
   })
 
   test("only builds the orchestration tools in the allowlist", () => {
     const tools = buildCustomTools(["spawn_room"], { orchestrator: mockOrchestrator() })
-    expect(tools.map((t) => t.name)).toEqual(["spawn_room"])
+    expect(tools.map((t) => t.name)).toEqual(["spawn_room", "pipeline_status"])
   })
 
   test("builds stop_room when requested", () => {
     const tools = buildCustomTools(["stop_room"], { orchestrator: mockOrchestrator() })
-    expect(tools.map((t) => t.name)).toEqual(["stop_room"])
+    expect(tools.map((t) => t.name)).toEqual(["stop_room", "pipeline_status"])
   })
 
   test("stop_room is a context-gated orchestration tool", () => {
@@ -65,7 +75,7 @@ describe("buildCustomTools — orchestration gating", () => {
       ["web_search", "spawn_room"],
       { orchestrator: mockOrchestrator() },
     )
-    expect(tools.map((t) => t.name).sort()).toEqual(["spawn_room", "web_search"])
+    expect(tools.map((t) => t.name).sort()).toEqual(["pipeline_status", "spawn_room", "web_search"])
   })
 
   test("orchestration tools are not part of the static availableCustomTools registry", () => {
@@ -98,6 +108,31 @@ describe("spawn_room tool", () => {
     expect(text).toContain("room-abc")
     expect(text).toContain("audit-x")
     expect(text).toContain("check_room")
+  })
+
+  test("passes solo + model through — delegating to ONE agent, on a chosen model", async () => {
+    // Without these two fields an orchestrator can only delegate to rosters,
+    // and can never route around a saturated local slot (the whole point of
+    // reading pipeline_status first).
+    const orch = mockOrchestrator()
+    const tool = createSpawnRoomToolDefinition(orch)
+    await tool.execute(
+      "tc1",
+      { name: "probe", goal: "read the config and report", solo: true, model: "anthropic/claude-opus-5" },
+      undefined, undefined, {} as any,
+    )
+    expect(orch.spawnRoom).toHaveBeenCalledWith(
+      expect.objectContaining({ solo: true, model: "anthropic/claude-opus-5" }),
+    )
+  })
+
+  test("a roster spawn leaves both unset — the preset carries its own models", async () => {
+    const orch = mockOrchestrator()
+    const tool = createSpawnRoomToolDefinition(orch)
+    await tool.execute("tc1", { name: "x", goal: "y", preset: "local-default" }, undefined, undefined, {} as any)
+    expect(orch.spawnRoom).toHaveBeenCalledWith(
+      expect.objectContaining({ solo: undefined, model: undefined }),
+    )
   })
 
   test("returns a readable error when spawnRoom throws", async () => {

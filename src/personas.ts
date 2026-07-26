@@ -606,7 +606,15 @@ export const SEED_PERSONAS: Persona[] = [
  *  runs an unmodified pi with the pipeline's infrastructure around it:
  *  workspace confinement, transcript, presets-free lifecycle, gauges. Full
  *  hands on purpose — this IS pi, not a role. Never part of SEED_PERSONAS;
- *  built on demand by provisionRoom({solo}). */
+ *  built on demand by provisionRoom({solo}).
+ *
+ *  It also holds the orchestration tools: the room sits OUTSIDE the pipeline —
+ *  nothing routes into it, it hands off to no one — while commanding it from
+ *  there (docs/orchestrator-room.md). The capability is documented in the
+ *  assembled prompt (ORCHESTRATOR_NOTE), never in systemPrompt: writing
+ *  anything here would flip seat-runtime's `purePi` test and silently stop
+ *  serving the operator's SYSTEM.md, which is the reason /solo exists.
+ *  pipeline_status rides along with the command tools, listed for clarity. */
 export function soloPersona(model?: string): Persona {
   return {
     id: "pi",
@@ -616,6 +624,7 @@ export function soloPersona(model?: string): Persona {
     tools: [
       "read", "bash", "edit", "write", "grep", "find", "ls",
       "web_search", "web_read", "youtube_transcript", "arxiv_search", "youcom_search",
+      "spawn_room", "check_room", "stop_room", "destroy_room", "answer_room", "pipeline_status",
     ],
     systemPrompt: "",
     ...(model ? { model } : {}),
