@@ -1,6 +1,6 @@
 import { beforeAll, describe, expect, test, vi } from "vitest"
 import chalk from "chalk"
-import stringWidth from "string-width"
+import { visibleWidth } from "@earendil-works/pi-tui"
 import type { RoomStore, RoomTask, RosterItem } from "@pipeline-moe/client-core"
 import type { SelectItem } from "../commands/types.js"
 import {
@@ -22,7 +22,12 @@ beforeAll(() => {
 })
 
 const plain = (ls: string[]): string[] => ls.map((l) => l.replace(/\x1b\[[0-9;]*m/g, ""))
-const vis = (s: string): number => stringWidth(s.replace(/\x1b\[[0-9;]*m/g, ""))
+// WIDTH IS MEASURED THE WAY THE TERMINAL DOES IT, not with `string-width`.
+// `▶` is East Asian Ambiguous: string-width says 2 columns, pi-tui and every
+// terminal we run in say 1. Asserting with string-width means measuring the
+// padding with the same wrong ruler that produced it, which is exactly how a
+// focused form row shipped one column short of its own border in Phase 3.
+const vis = (s: string): number => visibleWidth(s)
 const text = (ls: string[]): string => plain(ls).join("\n")
 const rows = () => 40
 

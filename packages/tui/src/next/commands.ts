@@ -8,12 +8,12 @@
 // Two callbacks are not fully honoured yet, and say so rather than failing
 // silently:
 //
-//   - `openOverlay` — Phase 3 serves the five generic overlays (select,
-//     textInput, tasks, lineup, presetPicker); the four forms are Phase 4 and
-//     the graph and prompt pager are Phase 5. A command that raises one of those
-//     posts a notice naming the phase. A silent no-op would read as a broken
-//     command; an error would read as a bug. Naming the phase is the only honest
-//     option while the client is half-migrated.
+//   - `openOverlay` — nine of the eleven overlay kinds are served (Phase 3 the
+//     five generic ones, Phase 4 the four forms); the handoff graph and the prompt
+//     pager are Phase 5. A command that raises one of those posts a notice naming
+//     the phase. A silent no-op would read as a broken command; an error would
+//     read as a bug. Naming the phase is the only honest option while the client
+//     is half-migrated.
 //   - `switchRoom` — needs the tab strip and store rebinding, which is Phase 5.
 //
 // Everything else works: the commands that act through the store or the API are

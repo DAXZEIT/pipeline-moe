@@ -8,12 +8,11 @@
 // this one reaches parity. See docs/tui-pitui-migration-plan.md for the phase
 // order and the five gates every phase must re-pass.
 //
-// Phase 3 status: transcript, the full chrome, the input, and the five generic
-// overlays — the list picker (nine commands live on it), the one-line prompt, the
-// task board, the line-up editor and the preset picker, all on pi-tui's overlay
-// system. Not yet ported: the four forms (phase 4 — agent, edit-agent, room,
-// preset composer), the handoff graph, the prompt pager, OAuth, images and room
-// switching (phase 5).
+// Phase 4 status: transcript, the full chrome, the input, the five generic
+// overlays and all four forms — new agent, edit agent, new room, and the team
+// composer with its member card. Nine of the eleven overlay kinds are live and the
+// registry dispatches every one of them unchanged. Not yet ported: the handoff
+// graph, the prompt pager, OAuth, inline images and room switching (phase 5).
 //
 // The one thing this client does NOT have, by design: scroll state. No offset,
 // no maxOffset, no PgUp/PgDn, no reservedRows arithmetic, no bodyHeight. The
@@ -215,15 +214,17 @@ async function main(): Promise<void> {
   tui.addChild(chrome)
   tui.addChild(new StatsComponent(tui, () => bytes, () => frames))
 
-  // The room list feeds the tab strip. Fetched once; Phase 5 wires ←→ switching
-  // and the "+ room" form, which is what would make it change.
-  void fetch(`${apiBase}/api/rooms`)
-    .then((r) => r.json() as Promise<RoomSummary[]>)
-    .then((rs) => {
-      chrome.rooms = rs
-      tui.requestRender()
-    })
-    .catch(() => {})
+  // The room list feeds the tab strip. Re-fetched after /newroom; Phase 5 wires
+  // ←→ switching, which is what would make the SELECTION change.
+  const refreshRooms = (): Promise<void> =>
+    fetch(`${apiBase}/api/rooms`)
+      .then((r) => r.json() as Promise<RoomSummary[]>)
+      .then((rs) => {
+        chrome.rooms = rs
+        tui.requestRender()
+      })
+      .catch(() => {})
+  void refreshRooms()
 
   // Alt+⏎ is the multiline gesture this client's users already have in their
   // fingers, and pi-tui does not bind it (shift+enter / ctrl+j). Add it rather
@@ -253,8 +254,17 @@ async function main(): Promise<void> {
   const overlays = new OverlayHost({
     tui,
     store,
+    api,
     refocus: () => tui.setFocus(editor),
     runCommand: (input) => runCommand(input),
+    // The room exists; joining it needs store rebinding, which is Phase 5. Refresh
+    // the strip so the new tab is visible either way.
+    onRoomCreated: (_id, name, hadGoal) => {
+      store.pushNotice(
+        `Room "${name}" created${hadGoal ? " and started" : ""} — switching to it arrives with the tab strip (Phase 5).`,
+      )
+      void refreshRooms()
+    },
   })
   const runCommand = createCommandRunner({
     store,

@@ -1,6 +1,7 @@
 import { beforeAll, describe, expect, test } from "vitest"
 import chalk from "chalk"
 import stringWidth from "string-width"
+import { visibleWidth } from "@earendil-works/pi-tui"
 import { fitLine, frame, moreMarker, twoColumn, windowStart } from "../next/overlay-frame.js"
 
 // The overlay box. pi-tui THROWS on a rendered line wider than the viewport, an
@@ -13,7 +14,10 @@ beforeAll(() => {
 })
 
 const plain = (s: string): string => s.replace(/\x1b\[[0-9;]*m/g, "")
-const vis = (s: string): number => stringWidth(plain(s))
+// The terminal's ruler, not string-width's — see next/overlay-frame.ts. The two
+// disagree on `▶`, and padding asserted with the overcounting measure is how a
+// focused row shipped a column short of its own border.
+const vis = (s: string): number => visibleWidth(s)
 const widths = [200, 120, 80, 60, 40, 20, 10, 4]
 
 describe("frame", () => {
@@ -124,10 +128,18 @@ describe("windowStart", () => {
 })
 
 describe("fitLine", () => {
-  test("satisfies the STRICTER of the two width measures", () => {
-    // `▶` (U+25B6) is East Asian Ambiguous: string-width says 2 columns, pi-tui's
-    // measure says 1. A line pi-tui believes fits can still soft-wrap.
+  test("fits the width pi-tui and the terminal both count in", () => {
+    // `▶` (U+25B6) is East Asian Ambiguous — string-width says 2 columns, pi-tui
+    // and the terminal say 1. Fitting to the stricter measure looks safe and is
+    // not: it throws away a column the box actually had, which is how a task
+    // owner rendered as "@s…" in a room 80 columns wide.
     const arrows = "▶".repeat(30)
-    for (const w of widths) expect(stringWidth(plain(fitLine(arrows, w)))).toBeLessThanOrEqual(w)
+    for (const w of widths) {
+      expect(vis(fitLine(arrows, w))).toBeLessThanOrEqual(w)
+      // 30 arrows are 30 columns, so anything from 30 up must survive whole.
+      if (w >= 30) expect(plain(fitLine(arrows, w))).toBe(arrows)
+    }
+    // And the overcounting measure is the one that would have cropped it.
+    expect(stringWidth(arrows)).toBe(60)
   })
 })

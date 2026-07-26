@@ -56,13 +56,18 @@ reads as written above until Phase 6 deletes it.
 
 - **Overlay system**: 9 anchor points, %-based sizing, stacking, `nonCapturing`
   overlays. Our single-overlay model forced the `picking` workaround in
-  `RoomForm.tsx` to fake a two-level modal. *Adopted in Phase 3; the `picking`
-  hack is deleted rather than ported in Phase 4.*
+  `RoomForm.tsx` to fake a two-level modal. *Adopted in Phase 3; in Phase 4 the
+  `picking` hack was deleted rather than ported — forms push their pickers on top
+  of themselves, and the composer runs three layers deep.*
 - **Inline images** (Kitty / iTerm2 graphics protocols) with reserved-row
   bookkeeping in the diff. Relevant to us: kitty terminal, vision models,
   `/image` currently displays nothing.
 - **Theme system** (light/dark, component-level theme interfaces). Our colors
   are hardcoded.
+- **`SettingsList`** — a label→value list where ⏎ cycles a fixed `values` array or
+  opens a submenu that replaces the render. Evaluated for our forms in Phase 4 and
+  rejected: no in-place text editing, no submit action, no multi-select, no
+  interleaved rows. Still the right component for a genuine settings screen.
 - Purpose-built components: colored diff rendering for edit/write receipts,
   fuzzy session selector, past-user-message selector (edit & re-run), footer
   with pwd + git branch + token/context stats.
@@ -90,6 +95,22 @@ is the strategic asset: any rendering layer can sit on it.
 5. **Keybinding registry** — their declarative pattern, even partially adopted.
 
 ## Status
+
+- 2026-07-26: **(1) Phase 4 shipped** — the four forms. `SettingsList` was
+  evaluated and does not fit (no in-place text editing, no submit action, no
+  multi-select, no interleaved preview rows), so the win came from elsewhere: the
+  four Ink forms were four copies of one keyboard loop, and writing it once
+  (`src/next/form.ts`, five row kinds) turns them into declarations. The engine adds
+  what Ink could not — row windowing, because pi-tui's `maxHeight` truncates rather
+  than shrinks, and explicit chip wrapping instead of Yoga's `flexWrap`. Real
+  stacking replaces the `picking` hack: a form pushes its picker on top of itself,
+  and the composer runs roster → member card → model catalogue three deep. Two
+  findings worth carrying: `overlay-frame.ts` was measuring width with `string-width`
+  for padding and with the stricter of two measures for fitting, and **both were
+  wrong** — `▶` is East Asian Ambiguous, so a focused row shipped one column short
+  of its border while a full-width row got cropped; there is one ruler now, pi-tui's,
+  and the tests no longer measure with the same wrong one as the code. And the member
+  card's legend said "esc cancel" beside a key that commits.
 
 - 2026-07-26: **(1) Phase 3 shipped** — the five generic overlays. pi-tui's
   overlay system (9 anchors, %-sizing, real stacking, focus restore) replaces the

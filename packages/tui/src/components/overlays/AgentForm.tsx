@@ -8,26 +8,13 @@ import type { RoomStore } from "@pipeline-moe/client-core"
 // Orchestration tools are gated at runtime by ctx.orchestrator/ctx.parentLink
 // (buildCustomTools), not by this list — assigning them here just makes them
 // grantable to any persona through the chip UI, same as via the API.
-export const ALL_TOOLS = [
-  "read",
-  "bash",
-  "edit",
-  "write",
-  "grep",
-  "find",
-  "ls",
-  "web_search",
-  "web_read",
-  "youtube_transcript",
-  "arxiv_search",
-  "youcom_search",
-  "spawn_room",
-  "check_room",
-  "stop_room",
-  "destroy_room",
-  "answer_room",
-]
-const DEFAULT_TOOLS = ["read", "grep", "find", "ls"]
+//
+// The list itself moved to preset-composer.ts (framework-free) when the pi-tui
+// client's forms needed it: it was already duplicating TOOL_GROUPS there, and two
+// copies of the server's allowlist is one too many. Re-exported so this file's
+// importers (EditAgentForm) are unaffected.
+export { ALL_TOOLS, DEFAULT_TOOLS } from "../../preset-composer"
+import { ALL_TOOLS, DEFAULT_TOOLS } from "../../preset-composer"
 
 interface Field {
   key: "name" | "systemPrompt" | "icon"

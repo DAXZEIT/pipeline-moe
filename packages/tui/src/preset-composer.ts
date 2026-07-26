@@ -13,6 +13,12 @@ export const TOOL_GROUPS: { label: string; tools: string[] }[] = [
   { label: "orch", tools: ["spawn_room", "check_room", "stop_room", "destroy_room", "answer_room"] },
 ]
 
+/** The flat allowlist, in group order. The agent forms show one undifferentiated
+ *  chip row and the member card shows the groups, but there is now ONE list —
+ *  `AgentForm.tsx` re-exports this rather than keeping a second copy that could
+ *  drift from the server's VALID_TOOLS at a different rate. */
+export const ALL_TOOLS: string[] = TOOL_GROUPS.flatMap((g) => g.tools)
+
 export const DEFAULT_TOOLS = ["read", "grep", "find", "ls"]
 
 /** Same palette as EditAgentForm — new members rotate through it so a fresh

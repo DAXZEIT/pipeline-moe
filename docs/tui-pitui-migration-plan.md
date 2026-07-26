@@ -372,7 +372,7 @@ check its last four characters.
 
 ---
 
-## Phase 4 — the forms
+## Phase 4 — the forms ✅ DONE (2026-07-26)
 
 **Goal: the irreducible cost, done deliberately.**
 
@@ -383,18 +383,71 @@ check its last four characters.
 | `RoomForm` | 326 | the `picking` hack **deletes itself** — it was faking the two-level modal that real overlay stacking provides |
 | `PresetComposerOverlay` | 613 | 19 `useState`; the single largest file in the migration |
 
-Do them one per session, in that order — ascending size, and `RoomForm` before
-`PresetComposer` so the stacking pattern is established on the smaller case.
+**Exit met.** All four are live on `pmoe-next` and the registry dispatches them
+unchanged. Verified end to end against a scratch server: an agent created with a
+hand-toggled tool grant (server confirms `bash` added), an agent's name and colour
+PATCHed, a room created from a picked preset with a goal that auto-started it, and
+a preset remixed → member card → model catalogue filtered to `grm` → committed →
+renamed → saved, with `local/GRM 2.6` pinned in the document on disk.
 
-For `PresetComposerOverlay`, evaluate pi-tui's `SettingsList` before writing a
-custom form; if it fits, this drops from 613 lines to a few dozen. **Unknown —
-check first.** Whatever is left of the composer's state machine should move into
-`preset-composer.ts` (already framework-free, already tested) rather than being
-re-implemented in the new component.
+**`SettingsList` does NOT fit — the named unknown, answered.** It is a
+label→value list where ⏎ cycles a fixed `values` array or opens a submenu that
+*replaces* the list's render. Four things our forms need are not in it: text
+edited **in place** (nine of the member card's fourteen rows are free text, and
+routing each through a submenu turns "type a name" into a modal dive); a **submit
+action** with validation that runs once and an error that stays next to the field;
+**multi-select** (`tools` is seventeen checkboxes with a horizontal cursor, not a
+one-at-a-time cycle); and **interleaved non-rows** (the room form prints a live
+persona preview *between* its fields).
 
-**Exit:** roster editing, room creation, preset composition all work.
+**What shrinks 1 340 lines is not a library component — it is not writing the
+keyboard loop four times.** The four Ink forms were four copies of the same loop
+(↑↓ between rows, type to edit, ←→ to cycle, space to toggle, ⏎ to advance or
+submit, esc to cancel), and `MemberEditor` had already half-extracted it into a
+local `Row` union. Finished and made framework-free, that union is
+`src/next/form.ts` (~330 lines): five row kinds (`text`, `cycle`, `chips`, `note`,
+`action`), windowing, chip wrapping, the error line and the contextual legend. The
+four forms are then declarations — `src/next/forms.ts` for the three wizards
+(~330 lines for all three) and `src/next/composer.ts` for the roster screen plus
+the member card (~430).
 
-**Size:** the bulk. ~1 340 lines rewritten, minus whatever `SettingsList` absorbs.
+**The engine does two things the Ink forms could not.** It **windows**: pi-tui's
+`maxHeight` truncates rather than shrinks (the Phase 3 finding), so on a short
+screen `[ Create ]` and the key legend were the first things off the bottom —
+rows are now windowed around the focused one with `▲/▼ more` markers, verified on
+a 14-row screen where the Create row stays reachable and the legend survives. And
+it **wraps its own chips**, explicitly and measurably, instead of handing that to
+Yoga's `flexWrap` (which is also where nested `<Text>` runs came back with
+fragmented widths — the lesson in `CommandLine.tsx`).
+
+**The `picking` hack is deleted, not ported.** `open()` keeps replacing for the
+registry; forms get `push()`. The room form's Preset row raises the roster picker
+*on top of itself* and the typed name is still there behind it. The composer goes
+three deep — roster → member card → model picker — and pi-tui hands focus back one
+layer at a time on each hide. That also removes the composer's three
+`isActive && !thatOtherThing` conjunctions.
+
+**One correction to Phase 1, found live.** `overlay-frame.ts` was measuring width
+two different ways at once, and both were wrong. `▶` is East Asian Ambiguous:
+`string-width` says 2 columns, pi-tui and the terminal say 1. Padding used
+string-width, so a focused form row — the only line in the app carrying a `▶` —
+came out one column short of its own border (measured at 120 columns: every framed
+line 108 wide except the focused one, at 107). Fitting used the *stricter* of the
+two, which cropped a line that exactly filled the box (`@scout` → `@s…`). There is
+one ruler now, pi-tui's, because that is what its compositor, its line-length
+check and the terminal all use. **The gate-3 tests did not catch either half
+because they measured with the same overcounting ruler as the code** — they use
+`visibleWidth` now.
+
+**Two smaller findings.** `ALL_TOOLS` lived in the Ink `AgentForm.tsx` while
+`preset-composer.ts` separately kept the same list as `TOOL_GROUPS`; it moved to
+the framework-free module and the Ink component re-exports it, so there is one
+copy of the server's allowlist. And the member card's legend said "esc cancel"
+next to a key that *commits* — the engine now takes a `cancelHint`, because a
+legend that lies about a destructive-looking key is worse than no legend.
+
+**Size:** ~1 090 lines written (engine + three wizards + composer) and 76 tests,
+against 1 342 booked for deletion in Phase 6.
 
 ---
 
@@ -442,8 +495,10 @@ point, `pmoe` still works.
   (Phase 2).~~ **Resolved 2026-07-26** — `getExpandedText()` + `onChange` carry
   our half, their bracketed-paste buffering carries the structural half. See
   Phase 2.
-- **`SettingsList` fit** for `PresetComposerOverlay` (Phase 4). Worth an hour of
-  reading before committing to a 613-line rewrite.
+- ~~**`SettingsList` fit** for `PresetComposerOverlay` (Phase 4).~~ **Resolved
+  2026-07-26 — it does not fit**, for four concrete reasons (no in-place text, no
+  submit action, no multi-select, no interleaved rows). The saving came from
+  writing the keyboard loop once instead of four times. See Phase 4.
 - **Resize behaviour** with a long conversation. A width change is a full redraw
   that clears the scrollback — unavoidable in this architecture (claude_code
   pays it too), but confirm it is not worse than that. Phase 0 saw a height
