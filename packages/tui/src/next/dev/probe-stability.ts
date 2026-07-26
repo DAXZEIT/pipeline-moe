@@ -1,7 +1,7 @@
 #!/usr/bin/env -S npx tsx
 // Does a finalized line ever change?
 //
-//   npx tsx packages/tui/proto/probe-stability.ts --server http://localhost:5399
+//   npx tsx packages/tui/src/next/dev/probe-stability.ts --server http://localhost:5399
 //
 // The whole native-scrollback bet rests on one property: once a line has
 // scrolled above the viewport it is never rewritten. pi-tui enforces that
@@ -14,8 +14,8 @@
 // versions of it. Anything that isn't "appended at the end" is a migration bug.
 
 import { createRoomStore, preloadRoomState } from "@pipeline-moe/client-core"
-import { nodeEventSourceFactory } from "../src/nodeEventSource"
-import { transcriptLines, paint, type Line } from "./lines"
+import { nodeEventSourceFactory } from "../../nodeEventSource"
+import { transcriptLines, paint, type Line } from "../../transcript-lines"
 
 function arg(flag: string, fallback: string): string {
   const i = process.argv.indexOf(flag)
@@ -39,7 +39,7 @@ const render = (s: ReturnType<typeof store.getSnapshot>): string[] =>
       receipts: s.receipts,
     },
     WIDTH,
-  ).map((l: Line) => paint(l))
+  ).lines.map((l: Line) => paint(l))
 
 const initialState = await preloadRoomState(apiBase, roomId).catch(() => undefined)
 const store = createRoomStore({

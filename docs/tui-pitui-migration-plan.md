@@ -22,7 +22,7 @@ actually use every day while the other one is half-built.
       src/            Ink client — frozen except for shared-module extractions
       src/next/       pi-tui client — grows phase by phase
       src/<pure>.ts   framework-free modules, imported by BOTH
-      proto/          deleted at the end of Phase 0 (absorbed into src/next/)
+      src/next/dev/   bench + stability probe (excluded from the published files)
 
 ## The gates
 
@@ -33,11 +33,11 @@ and each regression visible. A phase is not done until all five hold.
    `--stats` on a live room. Any increase means a line above the viewport was
    rewritten, which means the terminal scrollback was cleared — the entire
    reason for the migration, silently lost.
-2. **No history rewrite.** `proto/probe-stability.ts` (moving to
-   `src/next/dev/`) reports the first differing line index per state change.
-   Nothing may change below `lines.length - terminalRows` except the two known
-   turn-finalization rewrites (header rule gains its duration, `💭 thinking…`
-   becomes `💭 thought`).
+2. **No history rewrite.** `src/next/dev/probe-stability.ts` reports the first
+   differing line index per state change. Nothing may change above the viewport
+   except the two known turn-finalization rewrites (header rule gains its
+   duration, `💭 thinking…` becomes `💭 thought`) — and Phase 1 is where those
+   two stop being tolerated, see below.
 3. **Every rendered line fits the width.** pi-tui throws otherwise, with a crash
    log. Cheap to satisfy (`truncateToWidth`), fatal to forget.
 4. **The pure test suite stays green.** 1 797 lines, 18 files, zero Ink. It is
@@ -52,30 +52,55 @@ Verification is live, on an isolated instance: `PORT=5399` with
 pointed at a scratch dir (the manifest lives under `sessionsDir`, so setting
 only the workspace still restores the real rooms).
 
+**Never pipe the client's stdout when measuring.** A pipe hides the terminal
+size, pi-tui falls back to 24 rows, and every turn then looks taller than the
+viewport — which reads exactly like a gate-1 failure and is not one. Capture
+with `tmux capture-pane` and read `PI_DEBUG_REDRAW=1`'s log at
+`~/.pi/agent/pi-debug.log` instead. This cost one wrong measurement on
+2026-07-26.
+
 ---
 
-## Phase 0 — foundation
+## Phase 0 — foundation ✅ DONE (2026-07-26)
 
 **Goal: one transcript renderer, two clients, and a declared dependency.**
 
-- Declare `@earendil-works/pi-tui` in `packages/tui`'s dependencies. Today the
-  prototype only works because npm hoists it out of `pi-coding-agent`.
-- **Extract, don't copy.** `proto/lines.ts` is currently a copy of
-  `Transcript.tsx`'s flatten. Promote it to `src/transcript-lines.ts`
-  (framework-free) and make `Transcript.tsx` call it. The Ink client keeps its
-  windowing (`offset`, `bodyHeight`) and slices the returned array; the pi-tui
-  client returns it whole. One renderer, two consumers — and the copy that would
-  otherwise drift disappears immediately.
-- Add `src/next/` with the prototype's `main.ts` as its entry, plus the
-  `pmoe-next` bin. Move `probe-stability.ts` and `bench.ts` to `src/next/dev/`.
-- Add a `transcript-lines.test.ts` covering the flatten directly. It currently
-  has none — `Transcript.tsx` was never unit-testable, which is exactly the
-  problem the extraction fixes.
+- Declare `@earendil-works/pi-tui` in `packages/tui`'s dependencies. **Done at
+  `^0.82.1`.** The premise was wrong in an interesting way: it was never hoisted
+  out of `pi-coding-agent` — the repo ROOT declares it, pinned exact at 0.80.6 so
+  it stays in step with the pi stack the server runs. The client uses pi-tui
+  alone, with no sibling to agree with, so it takes the caret; npm nests 0.82.1
+  under `packages/tui`, which is what an npm install of the client gets. The two
+  versions export the same API surface (verified: no additions, no removals) and
+  the bench re-measures identically on 0.82.1.
+- **Extract, don't copy.** Done: `src/transcript-lines.ts` is the single
+  framework-free flatten, and `Transcript.tsx` (403 → 141 lines) is now a call
+  site that keeps only the windowing (`offset`, `bodyHeight`), the keys that move
+  it, and the Ink painting. It returns `{ lines, hasThoughts }` — `hasThoughts`
+  had to come out too, since it is computed while walking the turns and the ⌃T
+  hint is only honest when something can actually be folded.
+- Done: `src/next/main.ts` + the `pmoe-next` bin; `bench.ts` and
+  `probe-stability.ts` under `src/next/dev/`, excluded from the published
+  `files`. `proto/` is gone.
+- Done: `transcript-lines.test.ts`, 23 tests. The load-bearing one asserts the
+  architecture's premise directly — while a live block streams, every line above
+  it is byte-identical across five growth steps. The live probe measures that
+  against a real server; this measures it in CI, where a regression is cheap.
 
-**Exit:** `pmoe` and `pmoe-next` both run against the same room and render an
-identical transcript. Gates 1–5.
+**Exit — met.** Both bins run against the same room and render the same
+transcript (verified live on `:5399`, 7-persona roster, interleaved turns). Gate
+1: 1 full redraw across a whole streaming turn at 120×40, 58 lines of native
+scrollback retained. Gate 3: `truncateToWidth` on every line, no crash log. Gate
+4: 212 tests green in `packages/tui`, 1 503 across the repo. Gate 5:
+`client-core` diff empty.
 
-**Size:** small. The code exists; this is mostly moving it and deleting a copy.
+**Found on the way, and deliberately NOT fixed:** `wrap()` destroys leading
+indentation (it splits on `" "` and rejoins with single spaces), so shell output
+loses its indenting — the very thing the comment above it says markdown would do.
+Verified byte-identical to the `wrap()` that already shipped, so it is a
+pre-existing defect and not a migration regression. A phase is a translation, so
+it is asserted as-is in the test suite with a note, and the fix belongs after
+Phase 6 with the web renderer checked at the same time.
 
 ---
 
@@ -103,6 +128,36 @@ roster en bas ça ne me dérange pas"*).
 mutates on agent state. If `fullRedraws` climbs, something is still rendering
 above the conversation, or a component's height changes on update (which shifts
 every line below it).
+
+### The turn-finalization rewrite — Phase 1's real blocker
+
+Measured in Phase 0, and larger than the prototype doc claimed. When a turn
+lands, exactly two lines change, and they are the **first two lines of the
+turn's block**, with the whole streamed body appended below them:
+
+    line 169  "── 🔍 Scout ──…"  →  "── 🔍 Scout · 7.3s ──…"   (duration appears)
+    line 170  "💭 thinking…"     →  "💭 thought"
+
+So any turn taller than the viewport rewrites above `viewportTop` at the moment
+it completes → full redraw → the scrollback it was preserving is cleared.
+Measured on the same live room: **120×40 → 1 full redraw** (the first render);
+**120×16 → 6**. A 27B model that thinks in 20-line traces clears a 40-row bar
+routinely, so this is not an edge case, it is the common case on a laptop.
+
+Both causes are ours and both are fixable in the flatten, not in pi-tui:
+
+- The live header renders at `width - 2` with a streaming cursor, the finalized
+  one at `width` with a duration. Make the two identical: render the live header
+  at full `width`, move the cursor off the rule, and put the duration on the
+  turn's CLOSING line instead of its opening one — the bottom of a block is
+  always below the fold, which is precisely why it is safe there.
+- `💭 thinking…` → `💭 thought` is a word change on a line that never needed to
+  carry state. The state is already visible: the thought is either still growing
+  or it is not.
+
+Do this FIRST in Phase 1, before any chrome moves. It is a change to
+`transcript-lines.ts`, so it lands in both clients at once and the Ink client
+must be re-checked (gate 4 covers the flatten; the header text is asserted).
 
 **Exit:** chrome complete and `fullRedraws === 1` across three consecutive
 agent turns on a live room.
@@ -250,7 +305,9 @@ point, `pmoe` still works.
   reading before committing to a 613-line rewrite.
 - **Resize behaviour** with a long conversation. A width change is a full redraw
   that clears the scrollback — unavoidable in this architecture (claude_code
-  pays it too), but confirm it is not worse than that.
+  pays it too), but confirm it is not worse than that. Phase 0 saw a height
+  change alone also trigger one (`height=16` → `height=40` in the redraw log),
+  which is expected but worth knowing before blaming a component for it.
 - **tmux + `PI_HARDWARE_CURSOR`.** The prototype ran with the hardware cursor
   on; verify it behaves under tmux, which is where it usually goes wrong.
 

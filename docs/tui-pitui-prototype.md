@@ -3,9 +3,14 @@
 `docs/tui-lessons-from-pi.md` parked backlog item #1 ("native scrollback for the
 transcript") on 2026-07-19 with a note: *a throwaway prototype (pi-tui transcript
 fed by client-core) would price the migration honestly*. This is that prototype's
-report. Code: `packages/tui/proto/` (throwaway — nothing in `src/` imports it).
+report. Code has since been promoted out of `proto/` into `packages/tui/src/` by Phase 0 —
+`src/transcript-lines.ts` (the shared renderer), `src/next/` (the client), `src/next/dev/`
+(bench + probe).
 
-Read on disk at `@earendil-works/pi-tui@0.82.1`. The published `.js.map` files
+Source read on disk at `@earendil-works/pi-tui@0.82.1`; the prototype RAN against
+0.80.6 (what the repo root pinned). Phase 0 declared `^0.82.1` in `packages/tui`
+and re-ran the bench there — identical numbers, and the two versions export the
+same API surface with no additions or removals. The published `.js.map` files
 carry `sourcesContent`, so the numbers below cite the original TypeScript, not a
 build.
 
@@ -25,7 +30,7 @@ improving a scroller.
 
 ## The number
 
-`packages/tui/proto/bench.ts` hands **the same line array** to both write paths —
+`packages/tui/src/next/dev/bench.ts` hands **the same line array** to both write paths —
 Ink's is `ink/build/log-update.js` verbatim (`write(eraseLines(previousLineCount)
 + output)`), pi-tui's is the real `TUI` driven by a counting `Terminal`. Steady
 state only; the first render is excluded. 200 streamed tokens into a 40-message
@@ -64,12 +69,23 @@ Our Ink layout puts `RoomTabs`, `RosterStrip`, `TaskSummary` and `HeaderDivider`
 above the conversation. **All of it has to move below.** pi puts its status line
 at the bottom; the reason turns out to be structural, not aesthetic.
 
-`packages/tui/proto/probe-stability.ts` measures the same property directly — for
+`src/next/dev/probe-stability.ts` measures the same property directly — for
 every state change it reports the first line index that differs. Two rewrites per
-turn are ours and are unavoidable at the tail (`── 🔨 Builder ──` gains its
-duration, `💭 thinking…` becomes `💭 thought` when the turn lands); both sit near
-the bottom of a turn's block, so they only bite if a single turn is taller than
-the screen.
+turn are ours: `── 🔨 Builder ──` gains its duration, and `💭 thinking…` becomes
+`💭 thought` when the turn lands.
+
+**Corrected 2026-07-26 (Phase 0):** this doc originally said those two "sit near
+the bottom of a turn's block". They do not — they are the block's FIRST TWO
+LINES, and the probe now says so verbatim:
+
+    line 169  "── 🔍 Scout ──…"  →  "── 🔍 Scout · 7.3s ──…"
+    line 170  "💭 thinking…"     →  "💭 thought"
+
+with the entire streamed body appended below them. The conclusion survives
+(they only bite when a turn is taller than the viewport) but the exposure is far
+larger than "near the bottom" implied: a 27B model that thinks in 20-line traces
+clears that bar routinely. Measured on a live room — 40 rows: 1 full redraw
+across a whole turn; 16 rows: 6. See the migration plan's Phase 1 for the fix.
 
 ## What survives untouched
 
@@ -77,8 +93,9 @@ the screen.
   changes. The prototype imports `createRoomStore` / `preloadRoomState` /
   `nodeEventSourceFactory` and subscribes `tui.requestRender`. That was the
   strategic bet and it paid.
-- **The transcript renderer.** `proto/lines.ts` is `Transcript.tsx` with React
-  removed and nothing else: same `markdown.ts`, `activity.ts`, `parts.ts`,
+- **The transcript renderer.** `src/transcript-lines.ts` is `Transcript.tsx` with React
+  removed and nothing else — and since Phase 0 it is the ONLY copy, rendered by
+  both clients: same `markdown.ts`, `activity.ts`, `parts.ts`,
   `transcript-format.ts`, same windowing, same thought gutter. It already *was*
   a `render(width): string[]` — Ink was only painting the result.
 - **What disappears**: `offset`, `maxOffset`, `pageRef`, PgUp/PgDn, `⌃↑`/`⌃↓`,
@@ -170,7 +187,7 @@ and `useRoomStore` (30) become a TUI property and a `store.subscribe`. Most of
 Ink painting over `roster-strip.ts`, which is 229 framework-free lines that
 already return pre-painted ANSI strings. Its port is about ten lines. Same shape
 for `TaskSummary`, `RoomTabs`, `Notices`, `HeaderDivider`, `StatusBar`. And
-`Transcript.tsx` is done: `proto/lines.ts` is the whole thing, proven live.
+`Transcript.tsx` is done: `src/transcript-lines.ts` is the whole thing, proven live.
 
 **The real work — ~2 830 lines.** The 11 overlays (2 209) and `App.tsx`'s wiring
 (621). But even that splits:
@@ -208,15 +225,22 @@ one.
 
 ## How to run it
 
-    npx tsx packages/tui/proto/bench.ts [--history 40] [--tokens 200] [--rows 45]
-    npx tsx packages/tui/proto/main.ts --server http://localhost:5300 --stats
-    npx tsx packages/tui/proto/probe-stability.ts --server http://localhost:5300
+    npx tsx packages/tui/src/next/dev/bench.ts [--history 40] [--tokens 200] [--rows 45]
+    node packages/tui/bin/pmoe-next.mjs --server http://localhost:5300 --stats
+    npx tsx packages/tui/src/next/dev/probe-stability.ts --server http://localhost:5300
+
+Run the client WITHOUT piping stdout. A pipe hides the terminal size, pi-tui
+falls back to 24 rows, and every turn then looks taller than the viewport — which
+reads exactly like a gate-1 failure. That cost a wrong measurement on 2026-07-26.
 
 `PI_DEBUG_REDRAW=1` makes pi-tui log every full redraw and its reason to
 `~/.pi/agent/pi-debug.log` — the fastest way to catch a line that rewrites
 history.
 
-One caveat on the prototype's own wiring: `@earendil-works/pi-tui` is not a
-declared dependency here. It resolves because npm hoists it out of
-`pi-coding-agent`, which we do depend on. Fine for a throwaway (`proto/` is
-outside `packages/tui`'s published `files`); a real migration declares it.
+The prototype's dependency caveat is closed: `packages/tui` now declares
+`@earendil-works/pi-tui: ^0.82.1` itself. It was never hoisted out of
+`pi-coding-agent` as this doc first claimed — the repo ROOT declares it, pinned
+exact at 0.80.6 so it stays in step with the pi stack the server runs. The TUI
+uses pi-tui alone, with no sibling to agree with, so it takes the caret and npm
+nests 0.82.1 under `packages/tui` — which is what anyone installing the client
+from npm gets.

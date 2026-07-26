@@ -1,9 +1,10 @@
 #!/usr/bin/env -S npx tsx
 // What does one streaming token cost, on each renderer?
 //
-//   npx tsx packages/tui/proto/bench.ts [--history 40] [--tokens 200] [--rows 45] [--cols 120]
+//   npx tsx packages/tui/src/next/dev/bench.ts [--history 40] [--tokens 200] [--rows 45] [--cols 120]
 //
-// Both renderers are given the SAME line array (proto/lines.ts) and the same
+// Both renderers are given the SAME line array (src/transcript-lines.ts, the
+// one BOTH clients render — that is what makes this apples-to-apples) and the same
 // synthetic turn: a conversation of N finalized messages, then one agent
 // streaming M tokens into the tail. Neither writes to a real terminal — stdout
 // is a counting sink — so the number is bytes-the-terminal-would-have-to-parse,
@@ -17,7 +18,7 @@
 import { TUI, type Component, type Terminal } from "@earendil-works/pi-tui"
 import { truncateToWidth } from "@earendil-works/pi-tui"
 import type { Message, RosterItem } from "@pipeline-moe/client-core"
-import { transcriptLines, paint, type Line } from "./lines"
+import { transcriptLines, paint, type Line } from "../../transcript-lines"
 
 function num(flag: string, fallback: number): number {
   const i = process.argv.indexOf(flag)
@@ -70,7 +71,7 @@ function linesAt(chars: number): Line[] {
       receipts: {},
     },
     COLS - 2,
-  )
+  ).lines
 }
 
 const paintAll = (ls: Line[]): string[] => ls.map((l) => truncateToWidth(paint(l), COLS - 2))

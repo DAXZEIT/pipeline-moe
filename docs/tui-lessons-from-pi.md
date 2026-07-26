@@ -86,6 +86,13 @@ is the strategic asset: any rendering layer can sit on it.
 
 ## Status
 
+- 2026-07-26: **(1) Phase 0 shipped** — see `docs/tui-pitui-migration-plan.md`.
+  One transcript renderer (`src/transcript-lines.ts`) now serves both clients;
+  `pmoe` (Ink) is untouched and `pmoe-next` (pi-tui) ships beside it. All five
+  gates pass. The phase found the real blocker for Phase 1: a turn's two
+  finalization rewrites sit at the TOP of its block, so any turn taller than the
+  viewport clears the scrollback when it lands (120×40 → 1 full redraw, 120×16 →
+  6). Both causes are ours, and the fix is in the flatten.
 - 2026-07-26: **(1) prototyped and priced** — see `docs/tui-pitui-prototype.md`.
   Ink's write path costs 22–55× more bytes per streamed token than pi-tui's
   (it scales with the SCREEN, not the change); client-core survives untouched;
