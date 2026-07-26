@@ -134,6 +134,70 @@ command palette, images, notices. That is the migration's real bulk. Known costs
   split `\x1b[<35;20;5m` is never read as keystrokes. Exactly the class of bug
   the CSI-u incident cost us.
 
+## How big is the current TUI, really
+
+dax: *"un découpage propre de chaque fonctionnalité de mon TUI actuel serait déjà
+un boulot monstre, non ?"* — counted rather than estimated, on
+`packages/tui/src` at `86b2598`.
+
+**7 080 lines** of source across 46 files, plus **1 797 lines** of tests in 18
+files. 35 slash commands, 11 overlays, 130 commits over 26 days (2026-06-30 →
+2026-07-26).
+
+The split that decides everything:
+
+| | lines | share |
+|---|---|---|
+| framework-free (no `ink`, no `react` import) | 2 696 | 38 % |
+| Ink-coupled | 4 384 | 62 % |
+
+And inside those 4 384, four very different fates:
+
+**Survives verbatim — ~2 420 lines.** Every framework-free module except the
+input helpers that die with `CommandLine`. Plus **the entire test suite**: not
+one of the 18 files renders Ink, they all test pure modules. 1 797 lines of
+tests cross the migration untouched.
+
+**Deleted, not ported — ~1 030 lines.** `CommandLine.tsx` (571) is replaced by
+pi-tui's `Editor`, and its three hand-built companions die with it —
+`multiline-input.ts` (148), `paste-markers.ts` (61), `prompt-history.ts` (66),
+all of which re-implement what their Editor already does. `useTerminalSize` (30)
+and `useRoomStore` (30) become a TUI property and a `store.subscribe`. Most of
+`cli.tsx` — alt screen, the DEC 2026 wrapper, the CSI-u pop — is pi-tui's
+`terminal.ts`. Plus `Transcript.tsx`'s scroll block.
+
+**Mechanical, and they shrink — ~700 lines.** `RosterStrip.tsx` is 34 lines of
+Ink painting over `roster-strip.ts`, which is 229 framework-free lines that
+already return pre-painted ANSI strings. Its port is about ten lines. Same shape
+for `TaskSummary`, `RoomTabs`, `Notices`, `HeaderDivider`, `StatusBar`. And
+`Transcript.tsx` is done: `proto/lines.ts` is the whole thing, proven live.
+
+**The real work — ~2 830 lines.** The 11 overlays (2 209) and `App.tsx`'s wiring
+(621). But even that splits:
+
+- ~510 lines are *replaced by library components*, not ported: `SelectOverlay`
+  (114), `TextInputOverlay` (95), `PresetPickerOverlay` (143), `TasksOverlay`
+  (77), `LineupOverlay` (80) all become pi-tui's `SelectList` (with fuzzy filter
+  built in), `Input`, and `Box`/`Text`.
+- ~1 340 lines are genuine forms: `PresetComposerOverlay` (613, 19 `useState`),
+  `RoomForm` (326), `EditAgentForm` (206), `AgentForm` (197). This is the
+  irreducible cost. `RoomForm`'s `picking` hack disappears — real overlay
+  stacking is what it was faking.
+- `GraphOverlay` (223) is mostly string generation and ports cleanly.
+
+**So: yes, big — but ~2 800 lines of true rewrite out of 7 080, and a third of
+that is one file.** The "monstrous" framing assumes every feature is re-derived;
+38 % of the code never learns which renderer it is under, and that was the point
+of extracting client-core in the first place.
+
+### It does not have to be a big bang
+
+`packages/tui` already publishes one bin (`pmoe`). A second entry point on the
+same `client-core` — the prototype IS that entry point — lets the two clients
+coexist: migrate overlay by overlay, flip the default when parity lands, delete
+the Ink tree last. Nothing about the server, the protocol, or the store changes,
+which is exactly what the 38 % measures.
+
 ## Verdict
 
 The transcript half of the migration is cheap and already proven: client-core
