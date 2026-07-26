@@ -614,7 +614,17 @@ export const SEED_PERSONAS: Persona[] = [
  *  assembled prompt (ORCHESTRATOR_NOTE), never in systemPrompt: writing
  *  anything here would flip seat-runtime's `purePi` test and silently stop
  *  serving the operator's SYSTEM.md, which is the reason /solo exists.
- *  pipeline_status rides along with the command tools, listed for clarity. */
+ *  pipeline_status rides along with the command tools, listed for clarity.
+ *
+ *  Skills are the other half of the grant, and they are safe here where a
+ *  prompt is not: `skills` does not touch the `purePi` test, and a skill is
+ *  read on demand rather than injected always-on, so the console keeps a bare
+ *  prompt and still knows how to use what it holds. `orchestrator` is the
+ *  dispatch playbook the planner already carries; `roster-author` is what makes
+ *  "a roster from scratch" reachable at all — `spawn_room` takes a preset NAME,
+ *  so composing a team means writing `presets/<name>.json` first, and the
+ *  format has a silent trap (an invented persona id inherits no systemPrompt,
+ *  and a promptless seat on a local model is served pi's own identity). */
 export function soloPersona(model?: string): Persona {
   return {
     id: "pi",
@@ -626,6 +636,7 @@ export function soloPersona(model?: string): Persona {
       "web_search", "web_read", "youtube_transcript", "arxiv_search", "youcom_search",
       "spawn_room", "check_room", "stop_room", "destroy_room", "answer_room", "pipeline_status",
     ],
+    skills: ["orchestrator", "roster-author"],
     systemPrompt: "",
     ...(model ? { model } : {}),
   }

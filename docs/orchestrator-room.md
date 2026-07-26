@@ -279,6 +279,63 @@ console that spawns consoles makes three latent bugs structural:
 - **Does the console keep bypassing routing forever?** Yes for now (dax:
   "bypass la pipeline mais contrôle sur celle-ci").
 
+## Where this is going — parity with the operator
+
+dax, 2026-07-26: *"j'ai l'intention en finalité que l'orchestrateur dans la room
+solo ait la même capacité que l'utilisateur, c'est-à-dire créer un roster from
+scratch à la demande de l'utilisateur, créer, gérer, fermer une room, la
+totale."*
+
+So the five tools are a floor, not a ceiling. What they cannot express today:
+
+- **A roster from scratch.** `spawn_room` takes a `preset` name. Every roster an
+  agent can create must therefore already exist as a file in `presets/` — which
+  makes "from scratch" strictly impossible, not merely awkward.
+- **Reshaping a room already running.** Nothing commands a room's *roster*; the
+  five tools command rooms.
+- **Making a roster reusable.** No preset authoring.
+
+**The first needed no code.** dax, same day: *"le roster from scratch est
+faisable avec un simple skill et une explication de cette nomenclature, non ?"*
+— and he is right. `presetsDir()` is `join(config.workspaceDir, "presets")`, a
+room without its own scope inherits `config.workspaceDir`, `buildConfinedTools`
+confines `write` to exactly that root, and `readPreset` hits the disk at spawn
+time. So `write presets/<name>.json` → `spawn_room({ preset })` already works,
+one tool call apart. What was missing was not a mechanism but the **nomenclature
+and its trap**, which is now `skills/roster-author/SKILL.md`:
+
+- `rehydrateSeedFields` resolves `systemPrompt`/`skills` by persona **id**
+  against the seven seed ids. An invented id inherits nothing.
+- A persona with no `systemPrompt` on a **local** model matches `purePi`
+  (per-SEAT, not per-room) and is served the operator's pi identity. A roster
+  of invented ids with no prompts is N copies of bare pi, silently.
+- `downgradeModels` falls back to the default rather than failing the spawn, so
+  a hallucinated model ref is invisible. `pipeline_status` is therefore step 0.
+- A malformed preset reports as `preset "X" not found` — `readPreset` cannot
+  distinguish a parse error from a missing file.
+
+`soloPersona` now carries `skills: ["orchestrator", "roster-author"]`. Skills
+are the half of the grant a prompt cannot be: the field does not touch `purePi`,
+and a skill is read on demand instead of injected always-on, so the console
+keeps its bare prompt and still knows how to use what it holds.
+
+What remains, in order: **preset authoring is unbounded** — files written by an
+agent stay in the operator's UI forever (the skill asks for cleanup; nothing
+enforces it). **The scoped-room asymmetry**: a room with its own `workspaceDir`
+(local scope or sshfs) is confined to a root that is not `config.workspaceDir`,
+so `write` refuses `presets/` there — a console in the main room can author
+rosters, the same console in a scoped room cannot. That is the real argument for
+a `personas: [...]` array on `spawn_room` (same shape the preset file carries,
+so `rehydrateSeedFields` handles it unchanged, and the roster stays ephemeral),
+but it is not urgent while the console lives in the main room. Mutating another
+room's roster mid-run is last and is not a tool problem — it is live seat
+reconciliation (`reconcileLoneFraming`, seat rebuild) driven from outside the
+room that owns the registry.
+
+Note what parity implies for depth: a console that can build rosters can build a
+console. Depth stays uncapped by decision, and cascade is what makes that
+survivable.
+
 ## Open
 
 - **A restored room does not re-run `soloPersona()`.** A conversation persists
@@ -290,6 +347,12 @@ console that spawns consoles makes three latent bugs structural:
   persisted roster should ever pick up a capability its persona factory grew is
   the general question, and it is the same class as preset rehydration —
   which solved it, for presets only.
+
+  The parity goal above **re-prices this**. If the console's grant is meant to
+  keep growing, a persisted roster freezing it is not a one-off migration cost,
+  it is a bug that recurs at every grant. That argues for re-deriving the tool
+  list from `soloPersona()` on restore when the room is a pure-pi solo, rather
+  than for a one-time fixup.
 
 ---
 

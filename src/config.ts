@@ -3,7 +3,20 @@
 // semantics as node --env-file). Skipped under vitest so tests stay hermetic.
 // Defaults are chosen to work out of the box on a local llama-server stack.
 
+import { existsSync } from "node:fs"
 import { resolve } from "node:path"
+
+/** Skills ship WITH the package, but the process runs from the operator's
+ *  directory — so `<cwd>/skills` is the right default only in a checkout. On an
+ *  npm install it names a directory that does not exist, and every persona
+ *  skill silently resolves to nothing (a missing skill root is a no-op, not an
+ *  error). Prefer the operator's own dir when it exists, fall back to the one
+ *  bundled next to this source. PIPELINE_SKILLS_DIR overrides both. */
+function defaultSkillsDir(): string {
+  const local = resolve(process.cwd(), "skills")
+  if (existsSync(local)) return local
+  return resolve(import.meta.dirname, "..", "skills")
+}
 
 if (!process.env.VITEST) {
   try {
@@ -35,7 +48,7 @@ export const config = {
    *  with a SKILL.md (agentskills.io layout). Personas opt in by name via
    *  `skills: ["orchestrator"]`; the dirs are also granted read-only access
    *  so the agent can open the skill body on demand. */
-  skillsDir: resolve(process.env.PIPELINE_SKILLS_DIR ?? resolve(process.cwd(), "skills")),
+  skillsDir: resolve(process.env.PIPELINE_SKILLS_DIR ?? defaultSkillsDir()),
   /** Persist each agent's pi session to disk (context survives restarts and
    *  room resume). Set PIPELINE_EPHEMERAL_AGENTS=1 for the old in-memory
    *  behavior where agents catch up by replaying the room transcript. */

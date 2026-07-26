@@ -29,6 +29,7 @@
     "src",
     "!src/__tests__",
     "presets",
+    "skills",
     "web/dist",
     ".env.example",
     "tsconfig.json"

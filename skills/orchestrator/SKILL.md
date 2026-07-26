@@ -115,10 +115,17 @@ escalating (default 10; 3–5 for tight fix loops).
 ## Heterogeneous parallelism
 
 Parallelism buys you nothing if every worker queues behind the same GPU. The
-local backend (llama-server) runs `--parallel 1`: two local agents in two
-rooms still execute one-at-a-time at the model, so a "parallel wave" of local
-agents is sequential in wall-clock — you pay the coordination cost for no
-throughput.
+pipeline holds a local-slot semaphore (`PIPELINE_LOCAL_SLOTS`, default 1): local
+turns are serialized before they ever reach the backend, so a "parallel wave" of
+local agents is sequential in wall-clock and you pay the coordination cost for
+no throughput. `pipeline_status` reports the real capacity, how many slots are
+in use and who holds them — read it rather than assuming.
+
+Raising the slot count does not change that conclusion. Even where the backend
+accepts concurrent requests, two local flows measured ~45% SLOWER in wall-clock
+than the same two run back-to-back: they share one GPU's compute. More slots buy
+the absence of head-of-line blocking (a long turn stops hogging the queue), not
+speed.
 
 Real concurrency comes from mixing BACKENDS, not from spawning more rooms.
 Agents pinned to API models (Anthropic, OpenRouter) run on remote inference
@@ -126,8 +133,9 @@ that does not contend with the local GPU. So the parallelism that pays is:
 
 - A LOCAL room doing one workstream while a sub-room on an ALL-API preset
   does another — the local GPU and the API backends run genuinely at once.
-- Never two local-heavy rooms "in parallel": they serialize at llama-server
-  and you have only added coordination overhead.
+- Never two local-heavy rooms "in parallel": they serialize on the local slot
+  (or contend for the same GPU when slots allow both through), and you have
+  only added coordination overhead.
 
 Recipe: keep the coordinating/analysis work local, push the parallel branch
 to an API-backed sub-room:

@@ -81,6 +81,19 @@ describe("the solo console — grant", () => {
     }
   })
 
+  test("it carries the playbooks for what it holds — and they exist on disk", () => {
+    // Skills are the half of the grant that a prompt cannot be: `skills` does
+    // not touch purePi, and a skill is read on demand instead of injected
+    // always-on. A name that resolves to nothing is a silent no-op (the loader
+    // just gets a path with no SKILL.md), so assert the files, not the strings.
+    expect(soloPersona().skills).toEqual(["orchestrator", "roster-author"])
+    for (const s of soloPersona().skills!) {
+      expect(
+        readFileSync(join(import.meta.dirname, "..", "..", "skills", s, "SKILL.md"), "utf8"),
+      ).toContain(`name: ${s}`)
+    }
+  })
+
   test("its systemPrompt stays EMPTY — that emptiness is the pure-pi marker", () => {
     // seat-runtime's purePi test is `!systemPrompt`: writing the orchestration
     // briefing here would silently stop serving ~/.pi/agent/SYSTEM.md, which is
@@ -148,6 +161,13 @@ describe("the solo console — prompt/toolset agreement", () => {
     expect(prompt).toContain(ORCHESTRATOR_NOTE)
     expect(tools).toContain("spawn_room")
     expect(tools).toContain("pipeline_status")
+    // And the playbooks are actually mounted: pi's loader advertises each
+    // resolved skill (name + description + location) in the prompt, and the
+    // agent reads the body on demand. A skill dir that does not resolve is a
+    // silent no-op, so asserting the NAME in the prompt is what proves the
+    // grant reached the seat — the persona field alone would not.
+    expect(prompt).toContain("orchestrator")
+    expect(prompt).toContain("roster-author")
   })
 
   test("no orchestration tools → no note", async () => {
