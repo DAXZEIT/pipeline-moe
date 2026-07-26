@@ -42,7 +42,12 @@ and each regression visible. A phase is not done until all five hold.
    log. Cheap to satisfy (`truncateToWidth`), fatal to forget.
 4. **The pure test suite stays green.** 1 797 lines, 18 files, zero Ink. It is
    the contract between the two clients; if a migration step needs to change a
-   test, the step is wrong.
+   test, the step is wrong — *unless the step is a behaviour fix this plan names*,
+   in which case the test moves with it and the phase notes why (dax, 2026-07-26:
+   *"oui tu peux modifier un test, c'est cohérent qu'il faudra faire des
+   modifications sur les tests pour faire fonctionner la nouvelle stack"*). The
+   line to hold is that a test never changes to accommodate a RENDERER swap.
+   Phase 1 changed two, both named here; Phase 2 changed none.
 5. **`packages/client-core` diff is empty.** If a phase seems to need a change
    there, stop: it means renderer detail is leaking into the protocol layer.
    (One legitimate exception is pre-approved in Phase 2 — see there.)
@@ -192,7 +197,7 @@ deleted yet — the Ink components die in Phase 6.
 
 ---
 
-## Phase 2 — input: delete `CommandLine`, adopt their `Editor`
+## Phase 2 — input: delete `CommandLine`, adopt their `Editor` ✅ DONE (2026-07-26)
 
 **Goal: the single biggest deletion in the migration.**
 
@@ -207,15 +212,27 @@ Three things their Editor does **not** have, and which we must not lose:
   roster (their interface: `getSuggestions` / `applyCompletion`), and wire
   `editor.onChange` → `previewRouting()` → the status bar's draft targets.
 - **The paste-dispatch guard** (session `mrff3qwe`): pasted text must not be
-  able to trigger an agent wave. Their Editor knows about pastes internally;
-  the guard must be re-expressed against whatever it exposes. **Unknown — verify
-  before committing to this phase**, and if it exposes nothing usable, keep our
-  bracketed-paste handling as an input listener in front of it.
-- **`!` shell mode.** Simpler now: with no alternate screen there is nothing to
-  leave. But the command's output currently lands in the real terminal
-  scrollback *below* the app; with an append-only transcript it must be posted
-  as a transcript entry instead (the server already records it —
-  `POST /api/shell/record`).
+  able to trigger an agent wave. **Resolved — their Editor exposes exactly what
+  the guard needs, and closes the other half itself.** The guard rests on one
+  property: the routing preview and the send must agree on which string routes.
+  `editor.getExpandedText()` provides it (a marker hides `@mentions`; the preview
+  must show what send will dispatch), and `onChange` fires it per keystroke. The
+  structural half is theirs: `ProcessTerminal` enables bracketed paste and the
+  Editor buffers until the end marker (`components/editor.js:498`), so a newline
+  inside a paste can no longer be read as ⏎ — the hazard our own accumulator
+  existed to prevent. Their `handlePaste` is also more careful than ours: it
+  decodes the CSI-u re-encoding tmux popups apply to control bytes inside a
+  paste. Verified live: a 7-line report quoting `@builder` and `@tester` pasted
+  without dispatching, and the status bar read `⏎⇒ @builder @tester` before ⏎.
+- **`!` shell mode.** This plan said: with no alternate screen there is nothing
+  to leave, so post the output as a transcript entry instead. Half right. There
+  IS something to protect — the scrollback the whole migration exists for — but
+  the local interactive run did not have to be given up to protect it, and giving
+  it up would have cost `sudo`, `ssh` and anything else that prompts. Both are
+  kept: the command runs locally with the terminal handed over, its output stays
+  in native scrollback, and the capture is still offered to the room
+  (`POST /api/shell/record`) rather than posted silently. See the resume finding
+  below for how coming back works.
 
 The 35 slash commands map onto their `SlashCommand` type
 (`name` / `description` / `argumentHint` / `getArgumentCompletions`) and
@@ -226,10 +243,60 @@ framework-free and does not change — only the palette that drives it.
 change to work from `onChange` instead of Ink state, that is a legitimate
 `client-core` diff. Nothing else is.
 
-**Exit:** send, multiline, history, paste markers, `@` routing preview,
-slash-command palette, `!` shell — all working on `pmoe-next`. Gates 1–5.
+**Exit — met.** All verified live on the scratch instance: send, Alt+⏎ multiline,
+↑ history, paste markers, the `@` routing preview, the slash palette (Tab
+completes, ⏎ runs the highlighted command, `/route semi` reached the server and
+came back in the status bar), `!` shell in both its local and shared forms, ⇧⇥
+routing cycle, and Esc arbitrated three ways. 1 full redraw across a 6-message
+multi-agent wave, 837 frames, 1 MiB written. No crash at 60 columns.
 
-**Size:** ~400 lines written, 846 deleted.
+Written: `next/autocomplete.ts` (the palette + `@` completion as a pure function
+of the draft), `next/submit.ts` (what ⏎ means), `next/commands.ts` (the registry's
+`CommandContext`, built from pi-tui pieces), `next/shell.ts`, `pty-capture.ts`
+(extracted from `App.tsx`, now shared and finally tested), plus the wiring — ~570
+lines, 44 tests. Nothing deleted yet: `CommandLine.tsx` and its three companions
+(846 lines) still serve the shipping Ink client and die in Phase 6 with the rest
+of `src/components/`.
+
+**Three things this phase found:**
+
+- **Their Editor resets itself BEFORE calling `onSubmit`, and hands you the text
+  as the argument** (`submitValue()`: state, paste store and undo stack cleared,
+  then `onSubmit(result)`). That is the opposite contract from our
+  `CommandLine`, which read its own state at submit time — and reading the editor
+  back inside the handler is silently EMPTY rather than an error. It cost every
+  slash command a no-op, invisible in a typecheck and in every unit test, caught
+  only by typing `/zzz` into a live client and seeing no notice.
+  It also decides what history stores: Ink kept the line as typed, markers
+  included, because its paste store outlived the send. Theirs does not, so a
+  marker in history could never expand again — history gets the expanded text.
+- **`clearOnShrink` is OFF by default, and the type declaration says the
+  opposite.** `tui.d.ts` documents "when true (default)"; `tui.js:127` reads
+  `process.env.PI_CLEAR_ON_SHRINK === "1"`. This matters more than a doc typo:
+  with it ON, every disappearing notice — content one line shorter than the
+  high-water mark — costs a full redraw WITH the scrollback clear. Phase 1's
+  freely-changing chrome height is only free because of this default. Anything
+  that sets that env var, or a future `setClearOnShrink(true)` for an overlay,
+  pays for it everywhere.
+- **`!` shell resumes *below* the output instead of clearing.** `requestRender(true)`
+  is the wrong tool: it invalidates the width and height, which routes into
+  `fullRender(clear)` — screen and scrollback — erasing both the command output
+  and the conversation. Forgetting only the previous frame and keeping the
+  dimensions makes pi-tui take its "first render, assumes clean screen" branch and
+  re-print the app under the shell output, with everything above preserved.
+  Verified: `history_size` 16 → 74, `$ echo hello-from-shell` and its output still
+  selectable in the terminal's own history. There is no public API for it
+  (`tui.js:1060` is the branch), so `next/shell.ts` reaches the private field with
+  a guarded fallback. This is better than the Ink behaviour, where local output
+  landed in a different screen buffer from the app.
+
+**On the gate-1 counter:** a `!` run increments `fullRedraws`, and that increment
+is not a failure. pi-tui counts clearing and non-clearing full renders together;
+the shell resume is deliberately the non-clearing kind. Read the counter with
+`PI_DEBUG_REDRAW=1`'s log beside it — `first render` entries are free, everything
+else is not.
+
+**Size:** ~570 lines written and 44 tests; 846 lines booked for deletion in Phase 6.
 
 ---
 
@@ -324,9 +391,10 @@ point, `pmoe` still works.
 
 ## Known unknowns, to resolve before the phase that needs them
 
-- **Paste-dispatch guard** against their Editor's internal paste handling
-  (Phase 2). The guard exists because a pasted `@builder` used to dispatch a
-  wave; losing it is a real regression, not a cosmetic one.
+- ~~**Paste-dispatch guard** against their Editor's internal paste handling
+  (Phase 2).~~ **Resolved 2026-07-26** — `getExpandedText()` + `onChange` carry
+  our half, their bracketed-paste buffering carries the structural half. See
+  Phase 2.
 - **`SettingsList` fit** for `PresetComposerOverlay` (Phase 4). Worth an hour of
   reading before committing to a 613-line rewrite.
 - **Resize behaviour** with a long conversation. A width change is a full redraw

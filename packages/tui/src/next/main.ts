@@ -8,22 +8,39 @@
 // this one reaches parity. See docs/tui-pitui-migration-plan.md for the phase
 // order and the five gates every phase must re-pass.
 //
-// Phase 0 status: transcript + a minimal chrome line + the Editor. Not yet
-// ported: room tabs, the roster strip's gauges, overlays, slash commands,
-// notices, images. Those are phases 1-5.
+// Phase 2 status: transcript, the full chrome, and the input — pi-tui's Editor
+// with multiline, history, kill-ring, undo, paste markers, the slash-command
+// palette, @mention completion with a routing preview, and `!` shell. Not yet
+// ported: overlays and the forms behind them (phases 3-4), the graph, the prompt
+// pager, OAuth, images and room switching (phase 5).
 //
 // The one thing this client does NOT have, by design: scroll state. No offset,
 // no maxOffset, no PgUp/PgDn, no reservedRows arithmetic, no bodyHeight. The
 // conversation grows into the terminal's OWN scrollback, so the wheel, text
 // selection and terminal search are the terminal's — not a re-implementation.
 
-import { TUI, ProcessTerminal, Editor, Text, truncateToWidth, matchesKey, type Component } from "@earendil-works/pi-tui"
+import {
+  TUI,
+  ProcessTerminal,
+  Editor,
+  KeybindingsManager,
+  Text,
+  TUI_KEYBINDINGS,
+  setKeybindings,
+  truncateToWidth,
+  matchesKey,
+  type Component,
+} from "@earendil-works/pi-tui"
 import chalk from "chalk"
-import { createRoomStore, preloadRoomState } from "@pipeline-moe/client-core"
+import { createApi, createRoomStore, preloadRoomState, previewRouting } from "@pipeline-moe/client-core"
 import type { RoomState, RoomSummary } from "@pipeline-moe/client-core"
 import { nodeEventSourceFactory } from "../nodeEventSource"
 import { transcriptLines, paint } from "../transcript-lines"
 import { chromeLines } from "../chrome-lines"
+import { PmoeAutocompleteProvider } from "./autocomplete"
+import { createCommandRunner } from "./commands"
+import { createShellRunner } from "./shell"
+import { classifySubmit, nextRoutingMode } from "./submit"
 
 function arg(flag: string, fallback: string): string {
   const i = process.argv.indexOf(flag)
@@ -206,6 +223,17 @@ async function main(): Promise<void> {
     })
     .catch(() => {})
 
+  // Alt+⏎ is the multiline gesture this client's users already have in their
+  // fingers, and pi-tui does not bind it (shift+enter / ctrl+j). Add it rather
+  // than replace: a terminal that swallows one chord still has the others, which
+  // is the whole reason our Ink version also accepted a trailing "\" — and the
+  // Editor already implements that one (`shouldSubmitOnBackslashEnter`).
+  setKeybindings(
+    new KeybindingsManager(TUI_KEYBINDINGS, {
+      "tui.input.newLine": ["alt+enter", "shift+enter", "ctrl+j"],
+    }),
+  )
+
   const editor = new Editor(tui, {
     borderColor: (s: string) => chalk.dim(s),
     selectList: {
@@ -216,24 +244,82 @@ async function main(): Promise<void> {
       noMatch: (s: string) => chalk.dim(s),
     },
   })
-  editor.onSubmit = (text: string): void => {
-    const t = text.trim()
-    if (!t) return
-    if (t === "/quit" || t === "/exit") {
-      tui.stop()
-      store.stop()
-      process.exit(0)
+
+  const { api } = createApi(apiBase)
+  const runCommand = createCommandRunner({ store, api, getState })
+  const runShell = createShellRunner({
+    tui,
+    store,
+    workspaceDir: () => chrome.rooms.find((r) => r.roomId === roomId)?.workspaceDir,
+    refocus: () => tui.setFocus(editor),
+  })
+
+  // The palette and @mention completion. The Editor owns trigger detection,
+  // debouncing and the dropdown; the provider is a pure function of the draft.
+  editor.setAutocompleteProvider(new PmoeAutocompleteProvider(() => getState().roster))
+
+  // THE PASTE-DISPATCH GUARD (session mrff3qwe: a pasted report routed @builder
+  // and @tester). It rests on one thing — that the preview and the send agree on
+  // exactly which string routes — and `getExpandedText()` is what makes that
+  // true here: a paste marker hides @mentions, and the preview must show what
+  // send will actually dispatch. Their Editor also closes the other half of the
+  // hazard for free: bracketed paste is buffered until the end marker, so a
+  // newline inside a paste can no longer be read as ⏎.
+  editor.onChange = (): void => {
+    const s = getState()
+    const text = editor.getExpandedText()
+    const p =
+      !text.startsWith("/") && !text.startsWith("!") && text.trim() && s.roster.length > 0
+        ? previewRouting(text, s.roster, s.defaultAgent ?? null)
+        : null
+    chrome.draftTargets = p && (p.kind === "mentions" || p.kind === "all") ? { t: p.targetIds, d: p.dropped } : null
+    tui.requestRender()
+  }
+
+  // The submitted text arrives as the ARGUMENT, already paste-expanded, and the
+  // Editor has ALREADY reset itself — state, paste store and undo stack — before
+  // calling this (components/editor.js: submitValue). That is the opposite
+  // contract from our Ink CommandLine, which read its own state at submit time,
+  // and reading the editor back here is silently empty rather than an error: it
+  // cost every slash command a no-op until it was caught live.
+  //
+  // It also decides what history stores. Ink kept the line as TYPED, markers
+  // included, because its paste store outlived the send. This one's does not, so
+  // a marker in history could never expand again — history gets the expanded
+  // text, and recalling a large paste recalls the paste.
+  editor.onSubmit = (expanded: string): void => {
+    const sub = classifySubmit(expanded)
+    if (sub.kind === "empty") return
+    chrome.draftTargets = null
+    editor.addToHistory(expanded)
+    switch (sub.kind) {
+      case "noop":
+        break
+      case "command":
+        if (sub.input === "/quit" || sub.input === "/exit") {
+          tui.stop()
+          store.stop()
+          process.exit(0)
+        }
+        runCommand(sub.input)
+        break
+      case "shell":
+        runShell(sub.command)
+        break
+      case "send":
+        store.actions.send(sub.text)
+        break
     }
-    store.actions.send(t)
-    editor.setText("")
   }
   tui.addChild(editor)
-  tui.addChild(new Text(chalk.dim("  /quit to exit · ⌃O tools · ⌃T thoughts · scroll with your terminal, not with this app")))
+  tui.addChild(
+    new Text(chalk.dim("  /help · ⌃O tools · ⌃T thoughts · ⇧⇥ routing · scroll with your terminal, not with this app")),
+  )
   tui.setFocus(editor)
 
-  // ⌃O / ⌃T. An input listener runs BEFORE the focused component, so the Editor
-  // never sees these — the same arbitration Ink gave us for free by having
-  // CommandLine ignore ctrl-chords.
+  // ⌃O / ⌃T / ⇧⇥ / Esc. An input listener runs BEFORE the focused component, so
+  // the Editor never sees these — the same arbitration Ink gave us for free by
+  // having CommandLine ignore ctrl-chords.
   tui.addInputListener((data: string) => {
     if (matchesKey(data, "ctrl+o")) {
       transcript.showTools = !transcript.showTools
@@ -244,6 +330,28 @@ async function main(): Promise<void> {
       transcript.showThoughts = !transcript.showThoughts
       tui.requestRender()
       return { consume: true }
+    }
+    if (matchesKey(data, "shift+tab")) {
+      const next = nextRoutingMode(getState().routingMode)
+      store.actions.setRoutingMode(next)
+      store.pushNotice(`Routing mode → ${next}.`)
+      return { consume: true }
+    }
+    // Esc aborts a running turn — but only when there is nothing nearer for it
+    // to close. The Editor uses Esc to dismiss its autocomplete, and an overlay
+    // uses it to cancel; stealing it here would make the dropdown unclosable.
+    if (matchesKey(data, "escape")) {
+      if (editor.isShowingAutocomplete() || tui.hasOverlay()) return undefined
+      if (editor.getText()) {
+        editor.setText("")
+        chrome.draftTargets = null
+        tui.requestRender()
+        return { consume: true }
+      }
+      if (getState().turnActive) {
+        runCommand("/abort")
+        return { consume: true }
+      }
     }
     return undefined
   })

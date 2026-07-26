@@ -46,7 +46,11 @@ Their `Editor` (~1900 lines) is a real editor:
 | grapheme-aware segmentation, IME hardware cursor | yes | no |
 | user-remappable keybindings (`tui.editor.*` registry) | yes | hardcoded |
 | @mention routing preview | no | yes (`previewRouting`) |
-| paste-dispatch guard (pasted text can't trigger an agent wave) | no | yes (session mrff3qwe) |
+| paste-dispatch guard (pasted text can't trigger an agent wave) | half — buffers bracketed paste so a newline in it is never ⏎, but has no routing preview | yes (session mrff3qwe) |
+
+The "our CommandLine" column is the state at 2026-07-19. Phase 2 of the migration
+closed every row of it for `pmoe-next` by adopting their Editor; `pmoe` (Ink) still
+reads as written above until Phase 6 deletes it.
 
 ## Other pi-tui assets worth knowing about
 
@@ -86,6 +90,19 @@ is the strategic asset: any rendering layer can sit on it.
 
 ## Status
 
+- 2026-07-26: **(1) Phase 2 shipped** — the input. pi-tui's `Editor` replaces
+  `CommandLine` on `pmoe-next`: multiline, history, kill-ring, undo, paste markers
+  and grapheme segmentation come from the library, while the slash palette and
+  `@mention` completion became a pure function of the draft
+  (`src/next/autocomplete.ts`). Backlog items (2), (3) and (5) are absorbed by
+  this — their Editor already does prompt history, paste markers and a keybinding
+  registry, and Alt+⏎ is added back through it. `commands/registry.ts` dispatches
+  unchanged from both clients. Three findings: their `Editor` **resets itself
+  before** calling `onSubmit` and passes the text as the argument (reading it back
+  is silently empty — it cost every slash command a no-op); `clearOnShrink`
+  defaults OFF and the `.d.ts` claims the opposite, which is the only reason
+  height-changing chrome is free; and `!` shell can resume BELOW its output
+  instead of clearing, which is better than what Ink could do.
 - 2026-07-26: **(1) Phase 1 shipped** — chrome moved BELOW the conversation
   (`src/chrome-lines.ts`: tabs, roster strip, tasks, notices, status bar) and the
   turn-finalization rewrite is fixed: the header rule no longer gains a duration

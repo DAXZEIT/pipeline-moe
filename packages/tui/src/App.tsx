@@ -32,21 +32,7 @@ import { useTerminalSize } from "./useTerminalSize"
 import { pickerRows } from "./answer-picker"
 import { stripRowCount } from "./roster-strip"
 import { readClipboardImage, readClipboardText } from "./clipboard-image"
-
-/** Strip terminal escape sequences, CR rewrites (progress bars) and `script`
- *  chatter from a PTY capture so the shared transcript gets clean plain text. */
-function cleanPtyCapture(raw: string): string {
-  const noEsc = raw
-    .replace(/\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g, "") // OSC — titles, hyperlinks
-    .replace(/\x1b\[[0-9;:?]*[ -/]*[@-~]/g, "") // CSI — colors, cursor moves
-    .replace(/\x1b[@-_=>]/g, "") // bare ESC sequences
-  return noEsc
-    .split("\n")
-    .map((l) => l.split("\r").filter(Boolean).pop() ?? "")
-    .map((l) => l.replace(/[\x00-\x08\x0b-\x1f\x7f]/g, ""))
-    .filter((l) => !/^Script (?:started|done) on /.test(l))
-    .join("\n")
-}
+import { cleanPtyCapture, exitCodeOf } from "./pty-capture"
 
 export function App({
   makeStore,
@@ -292,14 +278,7 @@ export function App({
     } catch {}
 
     if (res.error) return serverSide("no `script` binary on this host")
-    // A user interrupt must not read as a failure. Signals map to their 128+n
-    // codes, and the pty's "^C" echo catches commands that trap SIGINT and
-    // then exit non-zero themselves (ping to an unreachable host, say) —
-    // the exit code alone can't distinguish that from a real error.
-    const userStopped = res.signal === "SIGINT" || /\^C/.test(output)
-    const exit = userStopped
-      ? 130
-      : res.status ?? (res.signal === "SIGTERM" ? 143 : res.signal ? 1 : 0)
+    const exit = exitCodeOf(res, output)
 
     // The user decides AFTER the run whether the capture becomes shared
     // context — an hour of ping output would otherwise spam every agent's
