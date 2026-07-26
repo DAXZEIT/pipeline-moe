@@ -85,6 +85,21 @@ the screen.
   `reservedRows` and its four-term arithmetic, `bodyHeight`, the scroll hint
   footer. The scroll code is not ported; it is deleted.
 
+## Not a finding: grouped tool calls on an old room
+
+First live test showed `🔧 7 tool calls · ctrl+o` instead of the chronological
+layout — which looks like the prototype losing `docs/interleaved-turns.md`. It is
+not. Those entries were recorded **2026-07-22 01:21–01:25**, three days before
+the segmenter landed (`8c98cab`, 2026-07-25 21:35), so they carry no `parts` and
+get the documented grouped fallback. Verified on a fresh room: a tool-using turn
+persists 4 parts in arrival order (reasoning → tool → reasoning → text) and the
+prototype renders them interleaved, tool line in place.
+
+The real gap the test exposed was smaller and is now closed: `ctrl+o` / `ctrl+t`
+were advertised in the rendered lines but not wired. `tui.addInputListener` runs
+before the focused component, so the Editor never sees the chords — the same
+arbitration Ink gave us for free by having `CommandLine` ignore ctrl-chords.
+
 ## What the prototype deliberately did not port
 
 Overlays, room tabs, the roster strip's context gauges, slash commands and the

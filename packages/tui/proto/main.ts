@@ -18,7 +18,7 @@
 // gauges, slash commands, images. Those are the migration's real bulk and the
 // prototype exists to price them, not to pre-pay them.
 
-import { TUI, ProcessTerminal, Editor, Text, truncateToWidth, type Component } from "@earendil-works/pi-tui"
+import { TUI, ProcessTerminal, Editor, Text, truncateToWidth, matchesKey, type Component } from "@earendil-works/pi-tui"
 import chalk from "chalk"
 import { createRoomStore, preloadRoomState } from "@pipeline-moe/client-core"
 import type { RoomState } from "@pipeline-moe/client-core"
@@ -44,6 +44,12 @@ const showStats = process.argv.includes("--stats")
  * path that would touch it, and finalized lines never change).
  */
 class TranscriptComponent implements Component {
+  // The collapsed tool line prints "· ctrl+o" and the fold hint prints "⌃T" —
+  // promises the transcript makes on screen, so the prototype has to keep them
+  // or it is measuring a different UI than the one we ship.
+  showThoughts = true
+  showTools = false
+
   constructor(private getState: () => RoomState) {}
 
   invalidate(): void {}
@@ -63,6 +69,7 @@ class TranscriptComponent implements Component {
         receipts: state.receipts,
       },
       w,
+      { showThoughts: this.showThoughts, showTools: this.showTools },
     )
     // pi-tui THROWS if a rendered line exceeds the width — the invariant our
     // Ink layer enforces silently with wrap="truncate-end". Same rule, but it
@@ -152,7 +159,8 @@ async function main(): Promise<void> {
   // Our Ink layout puts RoomTabs + RosterStrip + TaskSummary + divider on top.
   // All of it has to move below the conversation to migrate. pi does exactly
   // that, and now the reason is obvious rather than aesthetic.
-  tui.addChild(new TranscriptComponent(getState))
+  const transcript = new TranscriptComponent(getState)
+  tui.addChild(transcript)
   tui.addChild(new HeaderComponent(getState))
   tui.addChild(new StatsComponent(tui, () => bytes, () => frames))
 
@@ -178,8 +186,25 @@ async function main(): Promise<void> {
     editor.setText("")
   }
   tui.addChild(editor)
-  tui.addChild(new Text(chalk.dim("  /quit to exit · scroll with your terminal, not with this app")))
+  tui.addChild(new Text(chalk.dim("  /quit to exit · ⌃O tools · ⌃T thoughts · scroll with your terminal, not with this app")))
   tui.setFocus(editor)
+
+  // Ctrl+O / Ctrl+T. An input listener runs BEFORE the focused component, so
+  // the Editor never sees these — the same arbitration Ink gave us for free by
+  // having CommandLine ignore ctrl-chords.
+  tui.addInputListener((data: string) => {
+    if (matchesKey(data, "ctrl+o")) {
+      transcript.showTools = !transcript.showTools
+      tui.requestRender()
+      return { consume: true }
+    }
+    if (matchesKey(data, "ctrl+t")) {
+      transcript.showThoughts = !transcript.showThoughts
+      tui.requestRender()
+      return { consume: true }
+    }
+    return undefined
+  })
 
   store.subscribe(() => tui.requestRender())
   store.start()
