@@ -56,7 +56,8 @@ reads as written above until Phase 6 deletes it.
 
 - **Overlay system**: 9 anchor points, %-based sizing, stacking, `nonCapturing`
   overlays. Our single-overlay model forced the `picking` workaround in
-  `RoomForm.tsx` to fake a two-level modal.
+  `RoomForm.tsx` to fake a two-level modal. *Adopted in Phase 3; the `picking`
+  hack is deleted rather than ported in Phase 4.*
 - **Inline images** (Kitty / iTerm2 graphics protocols) with reserved-row
   bookkeeping in the diff. Relevant to us: kitty terminal, vision models,
   `/image` currently displays nothing.
@@ -90,6 +91,17 @@ is the strategic asset: any rendering layer can sit on it.
 
 ## Status
 
+- 2026-07-26: **(1) Phase 3 shipped** — the five generic overlays. pi-tui's
+  overlay system (9 anchors, %-sizing, real stacking, focus restore) replaces the
+  Ink client's single full-frame modal, and 509 lines of JSX become a `SelectList`
+  picker, an `Input` prompt and three components rendering into one pure
+  `overlay-frame.ts` box. The registry dispatches unchanged. Findings:
+  `SelectList.setFilter` is a prefix match on `value`, so the real fuzzy filter is
+  `fuzzyFilter` from `fuzzy.ts`; `SelectList` fixes its items and window height at
+  construction; and `maxHeight` truncates rather than shrinks, so a windowed list
+  must budget its own rows or lose its key legend on a short screen. The
+  `SelectOverlay`'s `▲/▼ more` markers and right-aligned hints are given up on
+  list pickers in exchange for code we no longer own.
 - 2026-07-26: **(1) Phase 2 shipped** — the input. pi-tui's `Editor` replaces
   `CommandLine` on `pmoe-next`: multiline, history, kill-ring, undo, paste markers
   and grapheme segmentation come from the library, while the slash palette and

@@ -8,11 +8,12 @@
 // this one reaches parity. See docs/tui-pitui-migration-plan.md for the phase
 // order and the five gates every phase must re-pass.
 //
-// Phase 2 status: transcript, the full chrome, and the input — pi-tui's Editor
-// with multiline, history, kill-ring, undo, paste markers, the slash-command
-// palette, @mention completion with a routing preview, and `!` shell. Not yet
-// ported: overlays and the forms behind them (phases 3-4), the graph, the prompt
-// pager, OAuth, images and room switching (phase 5).
+// Phase 3 status: transcript, the full chrome, the input, and the five generic
+// overlays — the list picker (nine commands live on it), the one-line prompt, the
+// task board, the line-up editor and the preset picker, all on pi-tui's overlay
+// system. Not yet ported: the four forms (phase 4 — agent, edit-agent, room,
+// preset composer), the handoff graph, the prompt pager, OAuth, images and room
+// switching (phase 5).
 //
 // The one thing this client does NOT have, by design: scroll state. No offset,
 // no maxOffset, no PgUp/PgDn, no reservedRows arithmetic, no bodyHeight. The
@@ -39,6 +40,7 @@ import { transcriptLines, paint } from "../transcript-lines"
 import { chromeLines } from "../chrome-lines"
 import { PmoeAutocompleteProvider } from "./autocomplete"
 import { createCommandRunner } from "./commands"
+import { OverlayHost } from "./overlay-host"
 import { createShellRunner } from "./shell"
 import { classifySubmit, nextRoutingMode } from "./submit"
 
@@ -246,7 +248,21 @@ async function main(): Promise<void> {
   })
 
   const { api } = createApi(apiBase)
-  const runCommand = createCommandRunner({ store, api, getState })
+  // The host is built before the runner it calls into, so the callback is late-
+  // bound: /lineup's `a` raises /agent, which is a registry command.
+  const overlays = new OverlayHost({
+    tui,
+    store,
+    refocus: () => tui.setFocus(editor),
+    runCommand: (input) => runCommand(input),
+  })
+  const runCommand = createCommandRunner({
+    store,
+    api,
+    getState,
+    openOverlay: (o) => overlays.open(o),
+    closeOverlay: () => overlays.close(),
+  })
   const runShell = createShellRunner({
     tui,
     store,
@@ -313,14 +329,38 @@ async function main(): Promise<void> {
   }
   tui.addChild(editor)
   tui.addChild(
-    new Text(chalk.dim("  /help · ⌃O tools · ⌃T thoughts · ⇧⇥ routing · scroll with your terminal, not with this app")),
+    new Text(
+      chalk.dim("  /help · ⌃O tools · ⌃T thoughts · ⌃P tasks · ⌃R roster · ⇧⇥ routing · scroll with your terminal"),
+    ),
   )
   tui.setFocus(editor)
 
-  // ⌃O / ⌃T / ⇧⇥ / Esc. An input listener runs BEFORE the focused component, so
-  // the Editor never sees these — the same arbitration Ink gave us for free by
-  // having CommandLine ignore ctrl-chords.
+  // ⌃O / ⌃T / ⌃P / ⌃R / ⇧⇥ / Esc. An input listener runs BEFORE the focused
+  // component, so the Editor never sees these — the same arbitration Ink gave us
+  // for free by having CommandLine ignore ctrl-chords.
+  //
+  // An OPEN OVERLAY owns the keyboard first. Every chord below would otherwise
+  // fire straight through a modal: ⌃T while a picker is up would fold the
+  // thoughts behind it, and ⇧⇥ would cycle routing from inside an API-key prompt.
+  // The one exception is ⌃P, which closes the task board it opened — a toggle has
+  // to work in both directions or it is a trap.
   tui.addInputListener((data: string) => {
+    if (overlays.isOpen()) {
+      if (matchesKey(data, "ctrl+p")) return undefined // the board handles its own close
+      if (matchesKey(data, "escape")) return undefined // so does every overlay's cancel
+      if (matchesKey(data, "ctrl+o") || matchesKey(data, "ctrl+t") || matchesKey(data, "shift+tab")) {
+        return { consume: true }
+      }
+      return undefined
+    }
+    if (matchesKey(data, "ctrl+p")) {
+      runCommand("/tasks")
+      return { consume: true }
+    }
+    if (matchesKey(data, "ctrl+r")) {
+      runCommand("/roster")
+      return { consume: true }
+    }
     if (matchesKey(data, "ctrl+o")) {
       transcript.showTools = !transcript.showTools
       tui.requestRender()
@@ -338,8 +378,8 @@ async function main(): Promise<void> {
       return { consume: true }
     }
     // Esc aborts a running turn — but only when there is nothing nearer for it
-    // to close. The Editor uses Esc to dismiss its autocomplete, and an overlay
-    // uses it to cancel; stealing it here would make the dropdown unclosable.
+    // to close. The Editor uses Esc to dismiss its autocomplete; stealing it here
+    // would make the dropdown unclosable. (Overlays are handled above.)
     if (matchesKey(data, "escape")) {
       if (editor.isShowingAutocomplete() || tui.hasOverlay()) return undefined
       if (editor.getText()) {

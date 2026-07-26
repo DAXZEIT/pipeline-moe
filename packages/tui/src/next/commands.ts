@@ -5,13 +5,15 @@
 // clients dispatch the same code. All this module does is build that context out
 // of the pi-tui client's pieces.
 //
-// Two callbacks are not honoured yet, and say so rather than failing silently:
+// Two callbacks are not fully honoured yet, and say so rather than failing
+// silently:
 //
-//   - `openOverlay` — the five generic overlays are Phase 3 and the four forms
-//     are Phase 4. A command that raises one posts a notice naming the phase.
-//     A silent no-op here would read as a broken command; an error would read as
-//     a bug. Naming the phase is the only honest option while the client is
-//     half-migrated.
+//   - `openOverlay` — Phase 3 serves the five generic overlays (select,
+//     textInput, tasks, lineup, presetPicker); the four forms are Phase 4 and
+//     the graph and prompt pager are Phase 5. A command that raises one of those
+//     posts a notice naming the phase. A silent no-op would read as a broken
+//     command; an error would read as a bug. Naming the phase is the only honest
+//     option while the client is half-migrated.
 //   - `switchRoom` — needs the tab strip and store rebinding, which is Phase 5.
 //
 // Everything else works: the commands that act through the store or the API are
@@ -45,6 +47,7 @@ export interface CommandRunnerDeps {
   /** Overlays the client CAN raise. Returns false when it cannot, which is what
    *  makes the phase notice appear. */
   openOverlay?: (o: Overlay) => boolean
+  closeOverlay?: () => void
 }
 
 export function createCommandRunner(deps: CommandRunnerDeps): (input: string) => void {
@@ -74,7 +77,7 @@ export function createCommandRunner(deps: CommandRunnerDeps): (input: string) =>
         if (deps.openOverlay?.(o)) return
         store.pushNotice(`/${head}: the ${o.kind} overlay lands in Phase ${OVERLAY_PHASE[o.kind]}.`, "error")
       },
-      closeOverlay: () => {},
+      closeOverlay: () => deps.closeOverlay?.(),
     }
     Promise.resolve(cmd.run(ctx, args)).catch((err: unknown) => {
       store.pushNotice(err instanceof Error && err.message ? err.message : `/${head} failed.`, "error")

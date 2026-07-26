@@ -300,17 +300,17 @@ else is not.
 
 ---
 
-## Phase 3 — the generic overlays
+## Phase 3 — the generic overlays ✅ DONE (2026-07-26)
 
 **Goal: five overlays become library calls.**
 
 | overlay | lines | becomes |
 |---|---|---|
-| `SelectOverlay` | 114 | `SelectList` (fuzzy filter built in) |
-| `TextInputOverlay` | 95 | `Input` |
-| `PresetPickerOverlay` | 143 | `SelectList` + `preset-picker.ts` (unchanged) |
-| `TasksOverlay` | 77 | `SelectList` / `Text` |
-| `LineupOverlay` | 80 | `Text` |
+| `SelectOverlay` | 114 | `SelectList` + `fuzzyFilter` |
+| `TextInputOverlay` | 95 | `Input` (masking stays ours) |
+| `PresetPickerOverlay` | 143 | `overlay-frame` + `preset-picker.ts` (unchanged) |
+| `TasksOverlay` | 77 | `overlay-frame` |
+| `LineupOverlay` | 80 | `overlay-frame` |
 
 These are replaced, not ported. Their logic already lives in framework-free
 modules (`preset-picker.ts`, `roster-menu.ts`, `seats-menu.ts`,
@@ -319,9 +319,56 @@ modules (`preset-picker.ts`, `roster-menu.ts`, `seats-menu.ts`,
 Also here: adopt pi-tui's **overlay stack** (9 anchors, `showOverlay` /
 `hideOverlay`, `nonCapturing`). This is what the Ink client fakes.
 
-**Exit:** every command that opens a list works on `pmoe-next`.
+**Exit — met.** All five work on `pmoe-next`, verified live: `/help` (35 commands,
+fuzzy filter, `(1/35)` counter), `/providers` chaining into a masked key prompt,
+`/roster` → submenu → Esc reopening its parent, `/lineup` pausing and reordering
+agents through real store actions, `/preset` with its live preview, and ⌃P
+toggling the task board both ways. One full redraw across the whole session —
+five overlays opened and closed, one of them raised DURING a streaming turn, and
+the transcript restored with no ghost. Every redraw after the first was a terminal
+width change, the one unavoidable case.
 
-**Size:** ~250 lines written, 509 deleted.
+Written: `next/overlay-frame.ts` (the box, pure — 90 lines), `next/overlays.ts`
+(the five components — 370), `next/overlay-host.ts` (the registry bridge — 150),
+plus 55 tests. The 509 Ink lines are booked for Phase 6 with the rest of
+`src/components/`.
+
+**Four things this phase found:**
+
+- **`SelectList.setFilter` is not what the table above promised.** It is a
+  case-insensitive PREFIX match on `item.value` (select-list.js:25) — which for us
+  is the opaque id, so it would match neither the label nor the hint. The fuzzy
+  filter is real but lives in `fuzzy.ts` as `fuzzyFilter`, and it takes any text
+  extractor. What it buys over our `includes()` is the ORDER: a one-character
+  query matches half the list, and the best match is the one ⏎ picks.
+- **`SelectList` fixes its items AND its window height at construction.** No
+  setters. So a new filter or a resize means a new list — cheap (it holds two
+  arrays) and it resets the cursor to the top, which is what our Ink version did
+  on every filter change anyway.
+- **`maxHeight` TRUNCATES, it does not shrink.** Handing pi-tui a tall overlay and
+  a `maxHeight` cuts the bottom rows off — the key legend, which is exactly the
+  row a cramped screen needs most. So a windowed list has to compute its own row
+  budget from the terminal height, which `render(width)` does not provide.
+  Verified on a 14-row screen: the roster list windows to 3 rows, keeps its
+  `(1/7)` counter and keeps its legend.
+- **Registry overlays must REPLACE, not stack, and that is the faithful
+  translation.** `commands/registry.ts` was written for a single-modal client and
+  compensates with `onCancel` callbacks that reopen the parent by hand (/model is a
+  loop of pickers built that way). If `openOverlay` pushed, Esc would pop back to
+  the parent AND `onCancel` would reopen it — two parents, one a ghost. The stack
+  is adopted and available; Phase 4 is where a form raising a picker finally needs
+  it.
+
+**One deliberate visible loss:** `SelectList` prints an `(n/total)` counter where
+our Ink overlay printed `▲ more` / `▼ more` markers and pushed each hint to the
+right edge. Taking the library's layout gives up the markers and the ragged right
+edge on list pickers; the three overlays that are not list pickers keep theirs,
+because there is no library component to defer to. Masking also costs the cursor:
+`Input` renders its own value and keeps its cursor private, so a masked field
+shows bullets with no cursor. Acceptable — the field exists to paste a key and
+check its last four characters.
+
+**Size:** ~610 lines written and 55 tests; 509 booked for deletion in Phase 6.
 
 ---
 
