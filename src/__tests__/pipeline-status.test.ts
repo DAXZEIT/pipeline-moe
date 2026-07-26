@@ -20,7 +20,7 @@ function mockOrchestrator(s: PipelineStatus): RoomOrchestrator {
     spawnRoom: vi.fn(async () => ({ roomId: "x", name: "x", goalStatus: "running" })),
     checkRoom: vi.fn(() => ({ found: false, roomId: "x" })),
     stopRoom: vi.fn(async () => true),
-    destroyRoom: vi.fn(async () => true),
+    destroyRoom: vi.fn(async (roomId: string) => [roomId]),
     answerRoom: vi.fn(() => true),
     pipelineStatus: vi.fn(async () => s),
   }

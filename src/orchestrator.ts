@@ -92,8 +92,12 @@ export interface RoomOrchestrator {
    *  transcript intact so the caller can inspect why it ran away. Returns false
    *  when the room is absent or protected (the default room cannot be stopped). */
   stopRoom(roomId: string): Promise<boolean>
-  /** Destroy a sub-room (aborts it, then unmounts any sshfs target). Returns false if absent. */
-  destroyRoom(roomId: string): Promise<boolean>
+  /** Destroy a sub-room AND every room spawned beneath it, deepest first: each
+   *  is aborted and awaited before its sshfs target is unmounted. Cascading is
+   *  deliberate — an orphaned child keeps working and reports into a room that
+   *  no longer exists, which fails silently. Returns the ids destroyed,
+   *  deepest-first; empty when the room is absent or protected. */
+  destroyRoom(roomId: string): Promise<string[]>
   /** Send a message into a sub-room. If the sub-room is paused on an
    *  ask_orchestrator/ask_user question, this is the answer and resumes it.
    *  Returns false when the room is absent. */

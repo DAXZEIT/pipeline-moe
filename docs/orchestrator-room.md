@@ -227,14 +227,26 @@ pertinence de la stack."*
 Today exactly one seat spawns (the planner) and the tree is one level deep. A
 console that spawns consoles makes three latent bugs structural:
 
-1. **Orphaned children.** `destroy_room` does not cascade
-   (`src/server.ts:576`). Destroy a parent and its children keep running; their
-   `report()` resolves `getRoom(parentId)` → `undefined` → a silent no-op
-   (`src/server.ts:441`). Their work disappears without a line in any
-   transcript. This is the worst of the three: it fails quietly.
-2. **No depth cap.** Nothing counts or limits solo → solo → solo. `parentLink`
-   carries `parentRoomId`, so depth is derivable and never derived. The room cap
-   of 8 bounds the total but not the shape.
+1. **Orphaned children.** `destroy_room` did not cascade. Destroy a parent and
+   its children kept running; their `report()` resolved `getRoom(parentId)` →
+   `undefined` → a silent no-op (`src/server.ts:441`). Their work disappeared
+   without a line in any transcript — the worst of the three, because it failed
+   quietly. **DECIDED (dax): cascade, with a clean abort. Built** —
+   `roomManager.destroySubtree()` walks the tree post-order, so each room is
+   aborted and awaited before the room above it is torn down and its sshfs
+   target unmounted. Both entry points cascade (the tool and `DELETE
+   /api/rooms/:id` — closing a console from the UI would otherwise orphan its
+   sub-rooms), one `destroyed` event is broadcast per room, and `destroy_room`
+   names the subtree that went with the room the agent actually asked for. The
+   parent→child relation is persisted in `rooms.json`, so cascade still knows
+   the shape after a restart — unlike the live `ParentLink`, whose report-back
+   closure has never survived one.
+2. **No depth cap.** Nothing counts or limits solo → solo → solo. The room cap
+   of 8 bounds the total but not the shape. **DECIDED (dax): none for now** —
+   field feel first, on the argument that his agents are not going to spawn
+   without bound in practice. Noted here so the decision is visible if that
+   turns out false: the failure mode to watch is a console spawning a console
+   with the SAME goal, which no current mechanism detects.
 3. **The capacity lie.** `LocalModelLock` was a semaphore of 1 while
    llama-server runs `--parallel 2`. Whatever `pipeline_status` reports about
    the local slot is only as true as the lock — so the capacity setting stopped
@@ -246,23 +258,38 @@ console that spawns consoles makes three latent bugs structural:
    `PIPELINE_LOCAL_SLOTS=2` is set, the report is honest about a pipeline that
    under-uses the server.
 
+## Settled
+
+- **Orphan policy** — cascade, clean abort. Built; see "What this exposes" §1.
+- **Depth cap** — none for now, by decision. See §2.
+- **The pure-pi marker** — emptiness stays the signal, and there is nothing to
+  migrate: `~/.pi/agent/SYSTEM.md` is **deliberately parked**
+  (`SYSTEMpause.md`, since 2026-07-19). dax is running pi's stock prompt on
+  purpose while the operator prompt is rewritten for GRM, which does not share
+  Qwopus's weaknesses. So `purePi` currently gates a file that does not exist,
+  and that is the intended state, not drift. What the grilling exposed is that
+  nothing in the product would have told him either way — the marker is silent
+  in both directions. If that becomes a problem, the fix is to make the RESULT
+  observable (`pi (SYSTEM.md)` vs `pi (stock)` on the room), not to make the
+  intent explicit on `Persona`.
+- **Naming** — unchanged. `solo` describes the roster rather than the job, but
+  `spawn_room({ solo: true })` reads correctly either way and renaming the room
+  kind would touch persisted `solo-…` ids. Revisit only if a console ever needs
+  more than one seat.
+- **Does the console keep bypassing routing forever?** Yes for now (dax:
+  "bypass la pipeline mais contrôle sur celle-ci").
+
 ## Open
 
-- **The pure-pi marker.** Keep emptiness as the signal, or introduce an explicit
-  `purePi: true` on `Persona`? Explicit is honest and survives someone adding a
-  prompt for an unrelated reason; it costs a field on the type and a migration
-  path for persisted rooms.
-- **Orphan policy.** Cascade destroy, refuse to destroy a room with live
-  children, or re-parent them to the grandparent? A cascade is the only one that
-  cannot silently lose work.
-- **Depth cap** — a number, or a rule ("a solo room may spawn rosters but not
-  solos")? The second kills the recursion class outright at the cost of the tree.
-- **Naming.** The persona is `pi` and the room is `solo/<model>`. Once it
-  commands the pipeline, "solo" describes its roster and not its job. Rename the
-  room kind, or leave it and let the tools speak?
-- **Does the console keep bypassing routing forever?** DECIDED yes for now
-  (dax: "bypass la pipeline mais contrôle sur celle-ci"). Worth revisiting only
-  if the console ever needs more than one seat.
+- **A restored room does not re-run `soloPersona()`.** A conversation persists
+  its roster (`src/room.ts`, `personas: this.registry.personaStates()`) and
+  `init()` reapplies it, so a solo room created BEFORE the grant never receives
+  the orchestration tools — not on restart, and not on a new discussion either
+  (its `seedRoster()` falls back to `SEED_PERSONAS`, i.e. the full default
+  roster, not pi). Today the answer is "create a new solo room". Whether a
+  persisted roster should ever pick up a capability its persona factory grew is
+  the general question, and it is the same class as preset rehydration —
+  which solved it, for presets only.
 
 ---
 

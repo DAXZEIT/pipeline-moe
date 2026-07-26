@@ -146,6 +146,81 @@ describe("RoomManager", () => {
     expect(manager.getRoom("busy")).toBeUndefined()
   })
 
+  // ── Cascading destroy (docs/orchestrator-room.md) ─────────────────────────
+  //
+  // An orphaned child keeps running with a dead report path: its report()
+  // resolves an absent room and returns silently, so its work finishes into
+  // nothing. Losing the subtree WITH its parent is a loss the operator asked
+  // for and can see; the orphan is a loss nobody asked for and nobody sees.
+
+  const spawn = (id: string, parent: string) =>
+    manager.createRoom(id, id, undefined, undefined, undefined, undefined, undefined, parent)
+
+  test("childrenOf lists only direct children", () => {
+    manager.createRoom("root", "root")
+    spawn("a", "root")
+    spawn("b", "root")
+    spawn("a1", "a")
+    expect(manager.childrenOf("root").sort()).toEqual(["a", "b"])
+    expect(manager.childrenOf("a")).toEqual(["a1"])
+    expect(manager.childrenOf("a1")).toEqual([])
+  })
+
+  test("destroySubtree takes the whole subtree, deepest first", async () => {
+    manager.createRoom("root", "root")
+    spawn("a", "root")
+    spawn("a1", "a")
+    spawn("a1x", "a1")
+    const destroyed = await manager.destroySubtree("root")
+    // Deepest-first: a room is never torn down while a live child is still
+    // writing into a workspace about to be unmounted.
+    expect(destroyed.indexOf("a1x")).toBeLessThan(destroyed.indexOf("a1"))
+    expect(destroyed.indexOf("a1")).toBeLessThan(destroyed.indexOf("a"))
+    expect(destroyed.at(-1)).toBe("root")
+    for (const id of ["root", "a", "a1", "a1x"]) expect(manager.getRoom(id)).toBeUndefined()
+  })
+
+  test("every room in the subtree is aborted before removal, not just the target", async () => {
+    manager.createRoom("root", "root")
+    const child = spawn("c", "root")
+    const grandchild = spawn("g", "c")
+    const spies = [child, grandchild].map((r) => vi.spyOn(r, "abortCurrent"))
+    await manager.destroySubtree("root")
+    for (const spy of spies) expect(spy).toHaveBeenCalledTimes(1)
+  })
+
+  test("a sibling subtree is untouched", async () => {
+    manager.createRoom("root", "root")
+    spawn("keep", "root")
+    spawn("keep-child", "keep")
+    spawn("drop", "root")
+    spawn("drop-child", "drop")
+    const destroyed = await manager.destroySubtree("drop")
+    expect(destroyed.sort()).toEqual(["drop", "drop-child"])
+    expect(manager.getRoom("keep")).toBeDefined()
+    expect(manager.getRoom("keep-child")).toBeDefined()
+  })
+
+  test("a childless room behaves exactly like the old single destroy", async () => {
+    manager.createRoom("lonely", "lonely")
+    expect(await manager.destroySubtree("lonely")).toEqual(["lonely"])
+  })
+
+  test("an unknown room destroys nothing", async () => {
+    expect(await manager.destroySubtree("ghost")).toEqual([])
+  })
+
+  test("a cycle in the parent links terminates instead of spinning", async () => {
+    // Not reachable through spawn_room — but a hand-edited rooms.json is.
+    manager.createRoom("x", "x")
+    manager.createRoom("y", "y")
+    const rooms = (manager as unknown as { rooms: Map<string, { parentRoomId?: string }> }).rooms
+    rooms.get("x")!.parentRoomId = "y"
+    rooms.get("y")!.parentRoomId = "x"
+    const destroyed = await manager.destroySubtree("x")
+    expect(destroyed.sort()).toEqual(["x", "y"])
+  })
+
   // ── Resume support: meta.json + listResumableRooms ────────────────────────
 
   test("createRoom persists meta.json with the name (default scope omits workspaceDir)", async () => {
@@ -432,6 +507,30 @@ describe("RoomManager", () => {
       const ids = (await manager.loadManifest()).map((e) => e.roomId)
       expect(ids).toContain("keep")
       expect(ids).not.toContain("drop")
+    })
+
+    test("the spawn tree is persisted, so cascade survives a restart", async () => {
+      manager.createRoom("parent", "Parent")
+      manager.createRoom("child", "Child", undefined, undefined, undefined, undefined, undefined, "parent")
+      await manager.saveManifest()
+      const byId = Object.fromEntries((await manager.loadManifest()).map((e) => [e.roomId, e]))
+      expect(byId["child"].parentRoomId).toBe("parent")
+      // A root room stores nothing — the field is absent, not null.
+      expect(byId["parent"]).toEqual({ roomId: "parent", name: "Parent" })
+    })
+
+    test("restoreRooms rebuilds the tree from the manifest", async () => {
+      writeFileSync(
+        manifestFile(),
+        JSON.stringify([
+          { roomId: "default", name: "main-room" },
+          { roomId: "p", name: "Parent" },
+          { roomId: "c", name: "Child", parentRoomId: "p" },
+        ]),
+      )
+      manager.createDefaultRoom()
+      await manager.restoreRooms()
+      expect(manager.childrenOf("p")).toEqual(["c"])
     })
 
     test("renameRoom triggers a manifest write", async () => {

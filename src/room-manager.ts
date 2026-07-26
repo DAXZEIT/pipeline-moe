@@ -46,6 +46,10 @@ export interface RoomManifestEntry {
   name: string
   workspaceDir?: string
   sshTarget?: string
+  /** The room that spawned this one. Persisted so the parent→child tree — and
+   *  therefore cascading destroy — survives a restart. Distinct from the live
+   *  `ParentLink`, which carries the report-back closure and is NOT restored. */
+  parentRoomId?: string
 }
 
 /** Durable per-room metadata, persisted to `sessions/<roomId>/meta.json`. Unlike
@@ -86,6 +90,8 @@ export class RoomManager {
       sshTarget?: string
       /** Creation timestamp, persisted into meta.json and stable across renames. */
       createdAt: number
+      /** The room that spawned this one, when any. Drives cascading destroy. */
+      parentRoomId?: string
     }
   >()
   /** Process-global semaphore for serializing local-model inference across all
@@ -155,6 +161,10 @@ export class RoomManager {
     /** Link to the parent room when this room was spawned by an agent
      *  (spawn_room). Grants its participants the ask_orchestrator tool. */
     parentLink?: ParentLink,
+    /** The spawning room, for the durable tree. Normally implied by
+     *  `parentLink`; passed explicitly on restore, where the link's report-back
+     *  closure is gone but the parent→child relation must survive. */
+    parentRoomId?: string,
   ): Room {
     if (this.rooms.has(roomId)) {
       throw new Error(`Room "${roomId}" already exists`)
@@ -194,6 +204,9 @@ export class RoomManager {
       mount,
       sshTarget: mount?.sshTarget ?? sshTarget,
       createdAt: Date.now(),
+      ...(parentRoomId ?? parentLink?.parentRoomId
+        ? { parentRoomId: parentRoomId ?? parentLink?.parentRoomId }
+        : {}),
     })
     void this.saveManifest()
     void this.saveRoomMeta(roomId)
@@ -224,6 +237,49 @@ export class RoomManager {
     const removed = this.rooms.delete(roomId)
     if (removed) void this.saveManifest()
     return removed
+  }
+
+  /** Ids of the rooms spawned directly by `roomId`. */
+  childrenOf(roomId: string): string[] {
+    return [...this.rooms.entries()]
+      .filter(([, e]) => e.parentRoomId === roomId)
+      .map(([id]) => id)
+  }
+
+  /** Destroy a room AND everything spawned beneath it, deepest first.
+   *
+   *  Without this, destroying a parent leaves its children running with a dead
+   *  report path: their `report()` resolves an absent room and returns silently,
+   *  so their work finishes into nothing and no transcript ever mentions it.
+   *  Losing the subtree WITH the parent is a loss the operator asked for and can
+   *  see; the orphan is a loss nobody asked for and nobody sees.
+   *
+   *  Deepest-first so a room is never torn down while a live child is still
+   *  writing into a workspace we are about to unmount. Each room goes through
+   *  the single-room path, which aborts its in-flight pipeline and awaits the
+   *  running agents BEFORE unmounting.
+   *
+   *  Returns the ids actually destroyed, deepest-first; empty when the room does
+   *  not exist. */
+  async destroySubtree(roomId: string): Promise<string[]> {
+    if (!this.rooms.has(roomId)) return []
+    // Post-order, cycle-guarded: the parent links form a tree by construction,
+    // but a hand-edited manifest must not spin here.
+    const order: string[] = []
+    const seen = new Set<string>()
+    const visit = (id: string): void => {
+      if (seen.has(id)) return
+      seen.add(id)
+      for (const child of this.childrenOf(id)) visit(child)
+      order.push(id)
+    }
+    visit(roomId)
+
+    const destroyed: string[] = []
+    for (const id of order) {
+      if (await this.destroyRoom(id)) destroyed.push(id)
+    }
+    return destroyed
   }
 
   /** Unmount every active sshfs mount. Called on process exit (SIGINT/SIGTERM)
@@ -389,6 +445,10 @@ export class RoomManager {
         // Custom local-path scope: store the path. Default scope stores nothing.
         entry.workspaceDir = e.workspaceDir
       }
+      // The spawn tree, so cascading destroy still knows the shape after a
+      // restart. A parent destroyed while down leaves the child parentless on
+      // the next boot — the entry simply lacks the field, as for any root room.
+      if (e.parentRoomId) entry.parentRoomId = e.parentRoomId
       return entry
     })
   }
@@ -497,6 +557,11 @@ export class RoomManager {
           workspaceDir,
           mount,
           entry.sshTarget,
+          // No live ParentLink on restore — the report-back closure is gone
+          // either way — but the tree relation is restored so a cascading
+          // destroy after a reboot still takes the subtree with it.
+          undefined,
+          entry.parentRoomId,
         )
         await room.init()
         console.log(`[room-restore] restored "${entry.roomId}" (${entry.name})`)

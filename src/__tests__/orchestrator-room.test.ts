@@ -32,7 +32,7 @@ const orchestrator = (): RoomOrchestrator => ({
   spawnRoom: vi.fn(async (o) => ({ roomId: "room-x", name: o.name, goalStatus: "running" })),
   checkRoom: vi.fn((roomId) => ({ found: false, roomId })),
   stopRoom: vi.fn(async () => true),
-  destroyRoom: vi.fn(async () => true),
+  destroyRoom: vi.fn(async (roomId: string) => [roomId]),
   answerRoom: vi.fn(() => true),
   pipelineStatus: vi.fn(async () => ({
     rooms: [], maxRooms: 8,

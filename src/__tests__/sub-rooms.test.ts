@@ -22,7 +22,7 @@ function mockOrchestrator(overrides: Partial<RoomOrchestrator> = {}): RoomOrches
       lastMessages: ["Builder: done", "Auditor: looks good"],
     })),
     stopRoom: vi.fn(async () => true),
-    destroyRoom: vi.fn(async () => true),
+    destroyRoom: vi.fn(async (roomId: string) => [roomId]),
     answerRoom: vi.fn(() => true),
     pipelineStatus: vi.fn(async () => ({
       rooms: [],
@@ -193,8 +193,28 @@ describe("destroy_room tool", () => {
     expect(textOf(result)).toContain("Destroyed room")
   })
 
+  test("names the subtree that went with it — the caller asked for one room", async () => {
+    const orch = mockOrchestrator({
+      destroyRoom: vi.fn(async (roomId: string) => ["room-leaf", "room-mid", roomId]),
+    })
+    const tool = createDestroyRoomToolDefinition(orch)
+    const result = await tool.execute("tc1", { roomId: "room-abc" }, undefined, undefined, {} as any)
+    const text = textOf(result)
+    expect(text).toContain('Destroyed room "room-abc"')
+    expect(text).toContain("2 sub-room(s) went with it")
+    expect(text).toContain("room-leaf")
+    expect(text).toContain("room-mid")
+  })
+
+  test("a childless room reports no collateral", async () => {
+    const orch = mockOrchestrator()
+    const tool = createDestroyRoomToolDefinition(orch)
+    const result = await tool.execute("tc1", { roomId: "room-abc" }, undefined, undefined, {} as any)
+    expect(textOf(result)).not.toContain("went with it")
+  })
+
   test("reports when the room cannot be destroyed", async () => {
-    const orch = mockOrchestrator({ destroyRoom: vi.fn(async () => false) })
+    const orch = mockOrchestrator({ destroyRoom: vi.fn(async () => []) })
     const tool = createDestroyRoomToolDefinition(orch)
     const result = await tool.execute("tc1", { roomId: "default" }, undefined, undefined, {} as any)
     expect(textOf(result)).toContain("no room with id \"default\"")

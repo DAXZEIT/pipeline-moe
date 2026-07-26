@@ -323,7 +323,7 @@ describe("ask_orchestrator / answer_room tools", () => {
       spawnRoom: async () => ({ roomId: "x", name: "x", goalStatus: "running" }),
       checkRoom: () => ({ found: false, roomId: "x" }),
       stopRoom: async () => true,
-      destroyRoom: async () => true,
+      destroyRoom: async (roomId: string) => [roomId],
       answerRoom: (roomId: string, text: string) => {
         answered.push({ roomId, text })
         return true

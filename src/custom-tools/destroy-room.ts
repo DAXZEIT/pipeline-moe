@@ -19,16 +19,24 @@ export function createDestroyRoomToolDefinition(
     label: "Destroy Sub-Room",
     description:
       "Destroy a sub-room once you have collected its result. Unmounts any sshfs target. " +
-      "Call this after check_room shows the goal is completed or failed, to free resources.",
+      "Call this after check_room shows the goal is completed or failed, to free resources. " +
+      "This CASCADES: any room the target itself spawned is destroyed with it, so collect what " +
+      "you need from the whole subtree first.",
     parameters: destroyRoomSchema,
     execute: async (_toolCallId, params) => {
       try {
-        const ok = await orchestrator.destroyRoom(params.roomId)
+        const destroyed = await orchestrator.destroyRoom(params.roomId)
+        // Name the collateral: the caller asked for one room and may have taken
+        // down a subtree it never listed.
+        const others = destroyed.filter((id) => id !== params.roomId)
         return {
           content: [{
             type: "text",
-            text: ok
-              ? `Destroyed room "${params.roomId}".`
+            text: destroyed.length > 0
+              ? `Destroyed room "${params.roomId}".` +
+                (others.length > 0
+                  ? ` Its ${others.length} sub-room(s) went with it: ${others.join(", ")}.`
+                  : "")
               : `destroy_room: no room with id "${params.roomId}" (or it cannot be destroyed).`,
           }],
           details: undefined,

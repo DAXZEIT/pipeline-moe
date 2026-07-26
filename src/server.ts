@@ -576,10 +576,12 @@ async function main(): Promise<void> {
       return true
     },
     async destroyRoom(roomId) {
-      if (roomId === "default") return false
-      const removed = await roomManager.destroyRoom(roomId)
-      if (removed) hub.broadcast("room", { type: "destroyed", roomId })
-      return removed
+      if (roomId === "default") return []
+      const destroyed = await roomManager.destroySubtree(roomId)
+      // One event per room: the UI drops each of them, not just the one the
+      // agent named.
+      for (const id of destroyed) hub.broadcast("room", { type: "destroyed", roomId: id })
+      return destroyed
     },
     answerRoom(roomId, text) {
       const r = roomManager.getRoom(roomId)
@@ -1715,13 +1717,15 @@ async function main(): Promise<void> {
       res.status(400).json({ error: "cannot delete the default room" })
       return
     }
-    // destroyRoom unmounts the room's sshfs mount (if any) before removal.
-    const removed = await roomManager.destroyRoom(roomId)
-    if (!removed) {
+    // Cascades: a room's spawned sub-rooms go with it, deepest first, each
+    // aborted and unmounted before removal. Closing a console from the UI would
+    // otherwise leave its sub-rooms running with a dead report path.
+    const destroyed = await roomManager.destroySubtree(roomId)
+    if (destroyed.length === 0) {
       res.status(404).json({ error: `room "${roomId}" not found` })
       return
     }
-    hub.broadcast("room", { type: "destroyed", roomId })
+    for (const id of destroyed) hub.broadcast("room", { type: "destroyed", roomId: id })
     res.status(204).end()
   })
 
