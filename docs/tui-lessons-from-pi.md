@@ -86,6 +86,13 @@ is the strategic asset: any rendering layer can sit on it.
 
 ## Status
 
+- 2026-07-26: **(1) prototyped and priced** — see `docs/tui-pitui-prototype.md`.
+  Ink's write path costs 22–55× more bytes per streamed token than pi-tui's
+  (it scales with the SCREEN, not the change); client-core survives untouched;
+  our transcript renderer already *is* a `render(width): string[]`. The cost is
+  overlays plus one visible product change: all chrome must move BELOW the
+  conversation, or every roster update clears the scrollback it was meant to
+  preserve. Route (b) — migrate to pi-tui — is the one that was prototyped.
 - 2026-07-19: doc written from source study. (1) parked pending grill.
 - 2026-07-19: quick wins (2) and (3) shipped — prompt history
   (`prompt-history.ts`: ↑/↓ on a non-empty draft, draft parked/restored;
