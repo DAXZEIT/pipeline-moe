@@ -86,6 +86,15 @@ is the strategic asset: any rendering layer can sit on it.
 
 ## Status
 
+- 2026-07-26: **(1) Phase 1 shipped** — chrome moved BELOW the conversation
+  (`src/chrome-lines.ts`: tabs, roster strip, tasks, notices, status bar) and the
+  turn-finalization rewrite is fixed: the header rule no longer gains a duration
+  (it closes the turn instead) and the thought head no longer flips word. Gate 1
+  now holds on a 16-row screen, which used to cost 6 full redraws. Two new
+  findings: chrome height has a per-token streaming cost (~39 B/line), so the
+  honest advantage over Ink is ~5× with real chrome rather than 39×; and
+  `string-width` and pi-tui disagree on `▶`, which silently breaks line
+  accounting unless the stricter measure wins.
 - 2026-07-26: **(1) Phase 0 shipped** — see `docs/tui-pitui-migration-plan.md`.
   One transcript renderer (`src/transcript-lines.ts`) now serves both clients;
   `pmoe` (Ink) is untouched and `pmoe-next` (pi-tui) ships beside it. All five

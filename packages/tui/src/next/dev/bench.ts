@@ -29,6 +29,14 @@ const HISTORY = num("--history", 40)
 const TOKENS = num("--tokens", 200)
 const ROWS = num("--rows", 45)
 const COLS = num("--cols", 120)
+// Chrome lines appended BELOW the transcript, as the pi-tui client draws them.
+// This prices the layout decision: pi-tui writes the contiguous range
+// firstChanged..lastChanged, so whenever the transcript's line COUNT changes
+// (the streamed paragraph wrapping to a new row) every chrome line below it
+// shifts index and has to be rewritten too. Chrome height therefore has a
+// per-token cost it never had under Ink — where the whole screen was rewritten
+// regardless, so eight more lines were free.
+const CHROME = num("--chrome", 0)
 
 /* ── The fixture ─────────────────────────────────────────────────────────── */
 
@@ -74,7 +82,23 @@ function linesAt(chars: number): Line[] {
   ).lines
 }
 
-const paintAll = (ls: Line[]): string[] => ls.map((l) => truncateToWidth(paint(l), COLS - 2))
+const paintAll = (ls: Line[]): string[] => [
+  ...ls.map((l) => truncateToWidth(paint(l), COLS - 2)),
+  // Stand-ins with the real chrome's shape: a rule, then static rows (tabs,
+  // roster strip, model row) and ONE mutating row at the bottom — the status
+  // bar's elapsed clock. Making them all mutate every frame would measure a
+  // pessimistic bound the real client never pays.
+  ...Array.from({ length: CHROME }, (_, i) =>
+    truncateToWidth(
+      i === 0
+        ? "─".repeat(COLS - 2)
+        : i === CHROME - 1
+          ? `● connected  ▶ running 🔍 Scout · ${Date.now() % 100}s  routing:auto  msgs:40`
+          : `chrome row ${i} — static`,
+      COLS - 2,
+    ),
+  ),
+]
 
 /* ── Renderer A: pi-tui ──────────────────────────────────────────────────── */
 

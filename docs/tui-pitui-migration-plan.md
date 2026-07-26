@@ -104,7 +104,7 @@ Phase 6 with the web renderer checked at the same time.
 
 ---
 
-## Phase 1 — chrome, below the conversation
+## Phase 1 — chrome, below the conversation ✅ DONE (2026-07-26)
 
 **Goal: the layout inversion, with real components.**
 
@@ -159,10 +159,36 @@ Do this FIRST in Phase 1, before any chrome moves. It is a change to
 `transcript-lines.ts`, so it lands in both clients at once and the Ink client
 must be re-checked (gate 4 covers the flatten; the header text is asserted).
 
-**Exit:** chrome complete and `fullRedraws === 1` across three consecutive
-agent turns on a live room.
+**Exit — met.** All six live in `src/chrome-lines.ts` (~200 lines), a pure
+function of state producing painted lines, plus a ~40-line `ChromeComponent`.
+`fullRedraws === 1` across turns on a live room at 120×40 AND at 120×16, the
+short screen that used to cost 6; 309 lines of native scrollback retained. The
+status bar's per-second tick is included and costs nothing above the fold.
 
-**Size:** ~300 lines written, ~300 deleted.
+**Two things this phase found that were not in the plan:**
+
+- **Chrome height now has a streaming cost.** pi-tui writes the contiguous range
+  `firstChanged..lastChanged`, so whenever the transcript's line count shifts,
+  every chrome line below it is rewritten. Measured: 99 B/token with no chrome,
+  805 with the real eight lines, ~39 B/token per additional line. The migration
+  still wins ~5× over Ink at the same terminal instead of 39×, and the answer is
+  to keep the chrome compact — not to move it back up, where it costs the
+  scrollback instead of bytes.
+- **The two width measures disagree.** `▶` (U+25B6) is East Asian Ambiguous:
+  `string-width` calls it 2 columns, pi-tui's measure calls it 1. A status bar
+  pi-tui believed fitted was one column too wide by the other measure, and if the
+  terminal sides with string-width the row soft-wraps and every chrome line below
+  it shifts — silently corrupting pi-tui's accounting for the session.
+  `chrome-lines.ts:fit()` now satisfies the stricter of the two. Any future
+  component using ambiguous-width glyphs inherits the same trap.
+
+**Deliberate duplication:** the Ink client keeps its own six JSX components,
+frozen, until Phase 6. Rewriting a working client's chrome to consume line arrays
+would be churn on code scheduled for deletion. This is the OPPOSITE call from the
+transcript, which was extracted precisely because it must survive the migration.
+
+**Size:** ~200 lines written (chrome-lines) + ~40 (component) + 21 tests; nothing
+deleted yet — the Ink components die in Phase 6.
 
 ---
 

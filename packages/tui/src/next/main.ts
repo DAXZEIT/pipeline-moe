@@ -20,9 +20,10 @@
 import { TUI, ProcessTerminal, Editor, Text, truncateToWidth, matchesKey, type Component } from "@earendil-works/pi-tui"
 import chalk from "chalk"
 import { createRoomStore, preloadRoomState } from "@pipeline-moe/client-core"
-import type { RoomState } from "@pipeline-moe/client-core"
+import type { RoomState, RoomSummary } from "@pipeline-moe/client-core"
 import { nodeEventSourceFactory } from "../nodeEventSource"
 import { transcriptLines, paint } from "../transcript-lines"
+import { chromeLines } from "../chrome-lines"
 
 function arg(flag: string, fallback: string): string {
   const i = process.argv.indexOf(flag)
@@ -76,22 +77,52 @@ class TranscriptComponent implements Component {
   }
 }
 
-/** One-line chrome: room, roster, who is running. A placeholder for the real
- *  RosterStrip / RoomTabs / StatusBar, which land in Phase 1 — its job here is
- *  to hold the POSITION, below the transcript, which is the load-bearing part. */
-class HeaderComponent implements Component {
-  constructor(private getState: () => RoomState) {}
+/** The chrome — tabs, roster strip, tasks, notices, status bar — all BELOW the
+ *  conversation, which is the migration's one load-bearing layout constraint
+ *  (see chrome-lines.ts for the measurement that forced it).
+ *
+ *  Nothing here is windowed or budgeted. The Ink client had to book every one of
+ *  these rows in `reservedRows` and subtract them from the transcript's height,
+ *  because overflowing the frame corrupted Ink's row diffing. Here the chrome
+ *  simply occupies the lines after the transcript and may change height freely. */
+class ChromeComponent implements Component {
+  rooms: RoomSummary[] = []
+  plusSelected = false
+  draftTargets: { t: string[]; d: string[] } | null = null
+
+  constructor(
+    private getState: () => RoomState,
+    private connection: () => "connecting" | "connected" | "reconnecting",
+  ) {}
 
   invalidate(): void {}
 
   render(width: number): string[] {
     const s = this.getState()
-    const names = s.roster
-      .filter((r) => r.active)
-      .map((r) => (r.id === s.runningAgentId ? chalk.bold.green(`▶ ${r.name}`) : chalk.hex(r.color)(r.name)))
-      .join(chalk.dim(" · "))
-    const head = `${chalk.bold(roomId)} ${chalk.dim("│")} ${names}`
-    return [chalk.dim("─".repeat(Math.max(0, width))), truncateToWidth(head, width)]
+    return chromeLines(
+      {
+        roomId,
+        rooms: this.rooms.length > 0 ? this.rooms : [{ roomId, name: roomId, goalStatus: "idle" } as RoomSummary],
+        plusSelected: this.plusSelected,
+        conversationTitle: s.conversations?.find((c) => c.id === s.currentConversationId)?.title,
+        roster: s.roster,
+        runningAgentId: s.runningAgentId,
+        defaultModel: s.defaultModel,
+        tasks: s.tasks,
+        notices: s.notices,
+        connection: this.connection(),
+        turnActive: s.turnActive,
+        runningSince: s.runningSince,
+        paused: s.paused,
+        pausedAskerId: s.pausedAskerId,
+        routingMode: s.routingMode,
+        messageCount: s.messages.length,
+        drift: s.drift,
+        roomUsage: s.roomUsage,
+        draftTargets: this.draftTargets,
+      },
+      width,
+    ) // already fitted to the width — chrome-lines.ts owns that invariant
   }
 }
 
@@ -147,6 +178,12 @@ async function main(): Promise<void> {
   const tui = new TUI(terminal, true)
   const getState = (): RoomState => store.getSnapshot()
 
+  // The store only exposes a `connected` boolean, but the EventSource keeps
+  // retrying after a drop — so "was connected, isn't now" means reconnecting,
+  // not merely offline.
+  let everConnected = false
+  let connection: "connecting" | "connected" | "reconnecting" = "connecting"
+
   // Layout order is LOAD-BEARING, and it is the migration's sharpest finding.
   // Mutating chrome ABOVE the transcript sits at a line index that never grows,
   // so every roster change rewrites a line that scrolled above the viewport
@@ -155,8 +192,19 @@ async function main(): Promise<void> {
   // full redraw per turn; header below → one, ever.
   const transcript = new TranscriptComponent(getState)
   tui.addChild(transcript)
-  tui.addChild(new HeaderComponent(getState))
+  const chrome = new ChromeComponent(getState, () => connection)
+  tui.addChild(chrome)
   tui.addChild(new StatsComponent(tui, () => bytes, () => frames))
+
+  // The room list feeds the tab strip. Fetched once; Phase 5 wires ←→ switching
+  // and the "+ room" form, which is what would make it change.
+  void fetch(`${apiBase}/api/rooms`)
+    .then((r) => r.json() as Promise<RoomSummary[]>)
+    .then((rs) => {
+      chrome.rooms = rs
+      tui.requestRender()
+    })
+    .catch(() => {})
 
   const editor = new Editor(tui, {
     borderColor: (s: string) => chalk.dim(s),
@@ -200,8 +248,21 @@ async function main(): Promise<void> {
     return undefined
   })
 
-  store.subscribe(() => tui.requestRender())
+  store.subscribe(() => {
+    const s = getState()
+    if (s.connected) everConnected = true
+    connection = s.connected ? "connected" : everConnected ? "reconnecting" : "connecting"
+    tui.requestRender()
+  })
   store.start()
+
+  // The elapsed counter in the status bar. One line, below the conversation, so
+  // a tick costs a single line's worth of writes and never touches history —
+  // which is exactly why the Ink client had to isolate this tick in its own
+  // component to stop it re-rendering the whole app once a second.
+  setInterval(() => {
+    if (getState().turnActive) tui.requestRender()
+  }, 1000).unref()
 
   tui.start()
   // The store drives renders; nothing polls.

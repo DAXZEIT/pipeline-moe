@@ -42,8 +42,29 @@ conversation:
 | 120×45 | 99 B/token | 3 893 B/token | 39.4× |
 | 120×60 | 99 B/token | 5 436 B/token | 55.0× |
 
-The shape matters more than the ratio: **pi-tui's cost is proportional to the
-change, Ink's to the screen.** A 300-message conversation measures identically to
+**These numbers are the transcript ALONE.** Phase 1 measured what chrome costs
+once it sits below the conversation, and it is not free: pi-tui writes the
+contiguous range `firstChanged..lastChanged`, so every time the streamed
+paragraph wraps to a new row, every chrome line below it shifts index and gets
+rewritten too.
+
+| chrome lines below the transcript | pi-tui | Ink (120×45) | ratio |
+|---|---|---|---|
+| 0 (transcript only) | 99 B/token | 3 899 B/token | 39× |
+| 4 | 649 B/token | — | 6.0× |
+| 8 (the real chrome) | 805 B/token | — | 4.8× |
+| 12 | 963 B/token | — | 4.0× |
+
+So the honest headline is **~5× cheaper with the chrome we actually ship**, not
+22-55×. The marginal cost is ~39 B/token per chrome line, and the divider is the
+single most expensive row (a full width of box-drawing glyphs, 3 bytes each).
+Chrome height now has a streaming cost it never had under Ink, where the whole
+screen was rewritten regardless and eight more lines were free. That is an
+argument for keeping the chrome compact, not for putting it back on top — on top
+it does not cost bytes, it costs the scrollback.
+
+The shape still matters more than the ratio: **pi-tui's cost is proportional to
+the change, Ink's to the screen.** A 300-message conversation measures identically to
 a 40-message one on both — but the bigger your terminal, the worse Ink gets,
 which is the opposite of the intuition. Ink writes a full screen per frame
 because `log-update` erases the previous frame entirely before writing the next.
@@ -85,7 +106,15 @@ with the entire streamed body appended below them. The conclusion survives
 (they only bite when a turn is taller than the viewport) but the exposure is far
 larger than "near the bottom" implied: a 27B model that thinks in 20-line traces
 clears that bar routinely. Measured on a live room — 40 rows: 1 full redraw
-across a whole turn; 16 rows: 6. See the migration plan's Phase 1 for the fix.
+across a whole turn; 16 rows: 6.
+
+**Fixed in Phase 1.** Both causes were ours. The header rule no longer carries a
+duration — it closes the turn instead, right-aligned and dim, where the bottom of
+a block is always on screen. The thought head is a constant `💭 thought`, and the
+liveness signal moved to the streaming cursor, which now rides the LAST line of a
+live block rather than the header. Result: the dirty region is 3-4 lines from the
+end and stays there while the turn grows 8× (asserted in
+`transcript-lines.test.ts`), and the 16-row screen went from 6 full redraws to 1.
 
 ## What survives untouched
 

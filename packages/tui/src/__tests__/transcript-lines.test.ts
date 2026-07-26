@@ -1,6 +1,6 @@
 import { beforeAll, describe, expect, test } from "vitest"
 import chalk from "chalk"
-import type { Message, RosterItem, ToolActivity, TurnPart } from "@pipeline-moe/client-core"
+import type { LivePart, Message, RosterItem, ToolActivity, TurnPart } from "@pipeline-moe/client-core"
 import { transcriptLines, paint, type TranscriptInput } from "../transcript-lines.js"
 
 // The flatten was inside Transcript.tsx and therefore untestable: asserting
@@ -94,6 +94,122 @@ describe("append-only", () => {
   })
 })
 
+describe("a turn's shape does not change above its tail", () => {
+  // Gate 2, in CI. A turn is rendered three times — reasoning in flight, prose
+  // in flight, landed — and what matters is not WHERE the lines differ but how
+  // far from the END, and whether that distance stays BOUNDED as the turn grows.
+  //
+  // It did not, before 2026-07-26. The header rule gained its duration and
+  // "💭 thinking…" became "💭 thought", both at the block's FIRST TWO lines, so
+  // the rewrite distance was the whole turn's height. On any turn taller than
+  // the viewport that repaints a line which has already scrolled away, and
+  // pi-tui answers that by clearing the terminal's scrollback — the one thing
+  // the native-scrollback architecture exists to protect. Measured live: 6 full
+  // redraws on a 16-row screen.
+  //
+  // Ink does not care (it repaints everything anyway), which is exactly why
+  // this needs a test rather than an eyeball.
+
+  const CHUNK =
+    "The user asks what a seat is. I should check the roster format before answering, " +
+    "because guessing a definition is exactly the failure mode I keep hitting. Let me look. "
+  const BODY = "A seat is a running model instance — a local serving slot several agents share."
+
+  const stages = (reasoningChunks: number) => {
+    const reason = CHUNK.repeat(reasoningChunks)
+    const parts: TurnPart[] = [
+      { type: "reasoning", content: reason, ts: 0 },
+      { type: "tool", toolCallId: "t1" },
+      { type: "text", content: BODY, ts: 2 },
+    ]
+    const activity = [act("t1", "read")]
+    return {
+      // A: the reasoning is the in-flight segment.
+      thinking: state({
+        liveActivity: { scout: [] },
+        liveParts: { scout: [{ type: "reasoning", content: reason, ts: 0, seq: 0 }] },
+        liveReasoning: { scout: reason },
+      }),
+      // B: reasoning done, prose streaming.
+      answering: state({
+        streaming: { scout: BODY },
+        liveActivity: { scout: activity },
+        // The server stamps `seq` on every live frame; the flatten only reads
+        // order, but the type is honest about where the order comes from.
+        liveParts: { scout: parts.map((p, seq) => ({ ...p, seq }) as LivePart) },
+      }),
+      // C: landed, with the duration the server measured.
+      landed: state({
+        messages: [msg({ index: 0, author: "scout", text: BODY, parts, activity, durationMs: 7300 })],
+      }),
+    }
+  }
+
+  /** How many lines from the end the first difference sits. */
+  const distanceFromEnd = (a: TranscriptInput, b: TranscriptInput): number => {
+    const render = (s: TranscriptInput): string[] =>
+      transcriptLines(s, W).lines.map((l) => l.text + (l.cursor ? " ▌" : ""))
+    const [x, y] = [render(a), render(b)]
+    const max = Math.max(x.length, y.length)
+    for (let i = 0; i < max; i++) if (x[i] !== y[i]) return max - i
+    return 0
+  }
+
+  test("the rewrite distance stays bounded while the turn grows 8×", () => {
+    const distances = [1, 5, 20].map((n) => {
+      const s = stages(n)
+      return [distanceFromEnd(s.thinking, s.answering), distanceFromEnd(s.answering, s.landed)]
+    })
+    // Identical at every size — the turn's body grew from 5 to 38 lines and the
+    // dirty region did not move. Asserting the exact values, not just "small":
+    // a regression here reintroduces a scrollback-clearing rewrite, and it is
+    // worth failing loudly on the first line that drifts.
+    expect(distances).toEqual([
+      [4, 3],
+      [4, 3],
+      [4, 3],
+    ])
+  })
+
+  test("the header rule is byte-identical live and landed", () => {
+    const s = stages(6)
+    const head = (i: TranscriptInput): string => transcriptLines(i, W).lines[0]!.text
+    expect(head(s.thinking)).toBe(head(s.landed))
+    expect(head(s.answering)).toBe(head(s.landed))
+    // …and it carries no duration, which is what used to break the identity.
+    expect(head(s.landed)).not.toMatch(/\d+(\.\d+)?s/)
+  })
+
+  test("the duration closes the turn instead of opening it", () => {
+    const ls = transcriptLines(stages(2).landed, W).lines
+    const i = ls.findIndex((l) => l.text.trim() === "7.3s")
+    expect(i).toBeGreaterThan(0)
+    expect(i).toBe(ls.length - 2) // last content line, then the blank separator
+    expect(ls[i]!.dim).toBe(true)
+  })
+
+  test("the streaming cursor rides the last line, never the header", () => {
+    const s = stages(4)
+    for (const stage of [s.thinking, s.answering]) {
+      const ls = transcriptLines(stage, W).lines
+      const at = ls.findIndex((l) => l.cursor)
+      expect(at).toBe(ls.length - 2) // the blank separator is last
+      expect(at).not.toBe(0)
+    }
+    // A landed turn has no cursor at all.
+    expect(transcriptLines(s.landed, W).lines.some((l) => l.cursor)).toBe(false)
+  })
+
+  test("the thought head never changes as the thought stops streaming", () => {
+    const s = stages(3)
+    const thoughtHead = (i: TranscriptInput): string =>
+      transcriptLines(i, W).lines.find((l) => l.text.startsWith("💭"))!.text
+    expect(thoughtHead(s.thinking)).toBe("💭 thought")
+    expect(thoughtHead(s.answering)).toBe("💭 thought")
+    expect(thoughtHead(s.landed)).toBe("💭 thought")
+  })
+})
+
 describe("hasThoughts", () => {
   // The ⌃T hint is only honest when something can actually be folded.
   test("false with no reasoning anywhere", () => {
@@ -136,7 +252,10 @@ describe("folding", () => {
   test("a collapsed LIVE thought still shows its tail, so you can watch it move", () => {
     const s = state({ liveReasoning: { builder: reasoning }, reasoningActive: { builder: true } })
     const shut = texts(s, { showThoughts: false, showTools: false })
-    expect(shut).toContain("💭 thinking…")
+    // The head is "💭 thought" whether or not it is streaming — see the
+    // bounded-rewrite suite for why the word no longer flips. Liveness is the
+    // cursor on the tail, which is where you are already looking.
+    expect(shut).toContain("💭 thought")
     expect(shut.filter((l) => l.startsWith("│ "))).toHaveLength(2)
   })
 
@@ -188,14 +307,18 @@ describe("layout contracts", () => {
     expect(out.filter((l) => l.includes("the answer"))).toHaveLength(1)
   })
 
-  test("only the live header carries the streaming cursor", () => {
+  test("exactly one line carries the streaming cursor, and it is in the live block", () => {
     const s = state({
       messages: [msg({ index: 0, author: "builder", text: "done" })],
       streaming: { scout: "still going" },
     })
-    const cursors = transcriptLines(s, W).lines.filter((l) => l.cursor)
+    const ls = transcriptLines(s, W).lines
+    const cursors = ls.filter((l) => l.cursor)
     expect(cursors).toHaveLength(1)
-    expect(cursors[0]!.text).toContain("Scout")
+    // On the last streamed line, NOT on the header rule — the header must stay
+    // byte-identical to the one the finalized message will render.
+    expect(cursors[0]!.text).toContain("still going")
+    expect(ls[0]!.cursor).toBeUndefined()
   })
 
   test("an empty live buffer produces no block at all", () => {

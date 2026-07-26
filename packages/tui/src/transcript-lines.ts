@@ -130,6 +130,21 @@ export function transcriptLines(
     lines.push({ text: THOUGHT_GUTTER + text, ...THOUGHT })
   }
 
+  /** The head of a thought block, and it must NOT depend on whether the thought
+   *  is still streaming.
+   *
+   *  It used to read "💭 thinking…" live and "💭 thought" once the reasoning
+   *  stopped being the in-flight segment. That word swap happens at the TOP of
+   *  a turn's block, with the whole body appended below it — so on any turn
+   *  taller than the viewport it rewrote a line that had already scrolled away,
+   *  and pi-tui answers that by clearing the terminal's scrollback. Measured
+   *  2026-07-26: 6 full redraws on a 16-row screen, 1 on a 40-row one.
+   *
+   *  The liveness signal moved to where it costs nothing: the streaming cursor
+   *  now sits on the LAST line of a live block, which is the line your eye is on
+   *  anyway and is always inside the viewport. */
+  const THOUGHT_HEAD = "💭 thought"
+
   // The web UI's collapsible 💭 block, shown in full by default; ⌃T collapses
   // every thought to one line, for when a reasoning trace dwarfs the reply. The
   // key is advertised once in the chrome, which is always on screen and costs
@@ -139,13 +154,17 @@ export function transcriptLines(
     hasThoughts = true
     const wrapped = wrap(reasoning.trim(), Math.max(10, width - 2))
     if (showThoughts) {
-      lines.push({ text: live ? "💭 thinking…" : "💭 thought", ...THOUGHT })
+      lines.push({ text: THOUGHT_HEAD, ...THOUGHT })
       for (const l of wrapped) pushThoughtLine(l)
     } else if (live) {
-      lines.push({ text: "💭 thinking…", ...THOUGHT })
+      // Collapsed AND live: the tail of the thought, so you can watch it move.
+      // This head still differs from the finalized one below — accepted,
+      // because collapsing is what makes a turn SHORT, and the rewrite only
+      // costs anything when a single turn is taller than the viewport.
+      lines.push({ text: THOUGHT_HEAD, ...THOUGHT })
       for (const l of wrapped.slice(-2)) pushThoughtLine(l)
     } else {
-      lines.push({ text: `💭 thought (${wrapped.length} line${wrapped.length === 1 ? "" : "s"})`, ...THOUGHT })
+      lines.push({ text: `${THOUGHT_HEAD} (${wrapped.length} line${wrapped.length === 1 ? "" : "s"})`, ...THOUGHT })
     }
   }
 
@@ -196,11 +215,11 @@ export function transcriptLines(
     hasThoughts = true
     const wrapped = wrap(content, Math.max(10, width - 2))
     if (showThoughts) {
-      lines.push({ text: live ? "💭 thinking…" : "💭 thought", ...THOUGHT })
+      lines.push({ text: THOUGHT_HEAD, ...THOUGHT })
       for (const l of wrapped) pushThoughtLine(l)
     } else if (live) {
       // The tail of a thought in flight, so you can watch it move.
-      lines.push({ text: "💭 thinking…", ...THOUGHT })
+      lines.push({ text: THOUGHT_HEAD, ...THOUGHT })
       for (const l of wrapped.slice(-2)) pushThoughtLine(l)
     } else {
       lines.push({ text: `💭 ${wrapped.length} line${wrapped.length === 1 ? "" : "s"}`, ...THOUGHT })
@@ -252,13 +271,16 @@ export function transcriptLines(
   for (const m of s.messages) {
     // Full-width rule in the author's color — the TUI counterpart of the
     // WebUI's per-reply card border; replaces the bare name line (no extra row).
+    //
+    // NO duration here, deliberately. It used to read "── 🔨 Builder · 12s ──",
+    // which meant the live block and the finalized message disagreed on their
+    // very FIRST line, and a turn taller than the viewport therefore rewrote a
+    // line that had scrolled away — clearing the terminal scrollback the whole
+    // architecture exists to preserve. The duration is a RESULT, so it now
+    // closes the block instead of opening it (see durationLine below), where
+    // the bottom of a block is always on screen and a rewrite is free.
     lines.push({
-      text: headerRule(
-        nameOf(m.author, m.authorName),
-        iconOf(m.author),
-        width,
-        m.durationMs != null ? fmtDuration(m.durationMs) : undefined,
-      ),
+      text: headerRule(nameOf(m.author, m.authorName), iconOf(m.author), width),
       bold: true,
       color: colorOf(m.author),
     })
@@ -304,6 +326,14 @@ export function transcriptLines(
     // (observed live: tester silently handed to scribe twice, 2026-07-10).
     if (m.handoffTo) lines.push({ text: `↪ handoff → @${m.handoffTo}`, dim: true })
     if (s.receipts[m.index]) for (const l of receiptLines(s.receipts[m.index])) lines.push(l)
+    // The turn's closing line. Right-aligned and dim so it reads as a receipt
+    // and not as content — and placed last on purpose: this is the one line of
+    // a turn that appears only at finalization, so it must sit where a rewrite
+    // is guaranteed to be inside the viewport.
+    if (m.durationMs != null) {
+      const d = fmtDuration(m.durationMs)
+      lines.push({ text: " ".repeat(Math.max(0, width - d.length)) + d, dim: true })
+    }
     lines.push({ text: "" })
   }
 
@@ -318,9 +348,12 @@ export function transcriptLines(
     const acts = s.liveActivity[id] ?? []
     const parts = s.liveParts?.[id]
     if (!text && !reasoning && acts.length === 0) continue
-    // width - 2 leaves room for the appended streaming cursor (" ▌") — a
-    // full-width rule would push it past the truncate-end boundary.
-    lines.push({ text: headerRule(nameOf(id, id), iconOf(id), width - 2), bold: true, color: colorOf(id), cursor: true })
+    // Byte-identical to the rule the finalized message will render — same
+    // width, no duration, no cursor. That identity is the whole point: when the
+    // turn lands, this line must not change, because by then it may be far
+    // above the viewport.
+    const blockHead = lines.length
+    lines.push({ text: headerRule(nameOf(id, id), iconOf(id), width), bold: true, color: colorOf(id) })
     // The live sequence is the SAME sequence the entry will carry — the server
     // stamped the boundaries, so the turn does not visibly re-order when the
     // message lands (verified live, 2026-07-25: 9 segments assembled from the
@@ -335,6 +368,13 @@ export function transcriptLines(
         for (const l of renderStreamingMarkdownLines(text, width) ?? wrap(text, width)) lines.push({ text: l })
       }
     }
+    // The streaming cursor rides the LAST line of the block, not the header.
+    // It moves down as the turn grows, so the only lines it ever dirties are
+    // the last two — always on screen, never in the scrollback. Guarded to the
+    // body: a cursor parked on the header would have to be removed once the
+    // first body line arrived, which is the rewrite we just eliminated.
+    const last = lines.length - 1
+    if (last > blockHead) lines[last] = { ...lines[last]!, cursor: true }
     lines.push({ text: "" })
   }
 
