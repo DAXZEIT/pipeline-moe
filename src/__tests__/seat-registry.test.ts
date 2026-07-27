@@ -9,7 +9,7 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs"
 import { homedir, tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest"
-import { AuthStorage, ModelRegistry } from "@earendil-works/pi-coding-agent"
+import { scratchResolvedModel } from "./scratch-model.js"
 import { Registry } from "../registry.js"
 import { LONE_AGENT_NOTE, ROOM_NOTE } from "../seat-runtime.js"
 import { SseHub } from "../sse.js"
@@ -32,9 +32,7 @@ function persona(id: string, extra: Partial<Persona> = {}): Persona {
 
 beforeEach(async () => {
   dir = await mkdtemp(join(tmpdir(), "pmoe-seats-"))
-  const authStorage = AuthStorage.create(join(dir, "auth.json"))
-  const modelRegistry = ModelRegistry.create(authStorage, join(dir, "models.json"))
-  registry = new Registry({ authStorage, modelRegistry, model: undefined }, new SseHub(1), new Set(), dir)
+  registry = new Registry(await scratchResolvedModel(dir), new SseHub(1), new Set(), dir)
   registry.setSessionRoot(join(dir, "agents"))
 })
 
@@ -349,9 +347,7 @@ describe("personal SYSTEM.md gating (pure pi = bare persona + local brain)", () 
         },
       }),
     )
-    const authStorage = AuthStorage.create(join(dir2, "auth.json"))
-    const modelRegistry = ModelRegistry.create(authStorage, join(dir2, "models.json"))
-    const reg2 = new Registry({ authStorage, modelRegistry, model: undefined }, new SseHub(1), new Set(), dir2)
+    const reg2 = new Registry(await scratchResolvedModel(dir2), new SseHub(1), new Set(), dir2)
     reg2.setSessionRoot(join(dir2, "agents"))
     try {
       await reg2.create(persona("pi", { systemPrompt: "", model: "local/test.gguf" }))

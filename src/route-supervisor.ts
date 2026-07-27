@@ -206,8 +206,7 @@ export async function runSupervisorDecision(opts: {
       resourceLoader: loader,
       sessionManager: SessionManager.inMemory(opts.workspaceDir),
       settingsManager: SettingsManager.inMemory({ compaction: { enabled: false } }),
-      authStorage: opts.resolved.authStorage,
-      modelRegistry: opts.resolved.modelRegistry,
+      modelRuntime: opts.resolved.modelRuntime,
       ...(model ? { model } : {}),
     })
     session = created.session

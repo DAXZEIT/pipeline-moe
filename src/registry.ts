@@ -6,7 +6,7 @@ import { resolve } from "node:path"
 import { config } from "./config.js"
 import { checkHandoffGates } from "./handoff-gates.js"
 import { describeRosterBlock, type RosterMemberInfo } from "./roster-awareness.js"
-import { isAllowedModel as isAllowedModel_ } from "./model.js"
+import { isAllowedModel as isAllowedModel_, setProviderApiKey } from "./model.js"
 import { Participant } from "./participant.js"
 import { SeatRuntime, type SeatDeps } from "./seat-runtime.js"
 import { clusterBySeat, seatIdOf, validateSeatModels } from "./seats.js"
@@ -898,19 +898,22 @@ export class Registry implements HandoffSink, GoalVerdictSink {
     }))
   }
 
-  /** Set an API key for a provider (persisted). Returns auth status, not the key. */
-  setProviderKey(name: string, key: string): { name: string; configured: boolean } {
-    this.resolved.authStorage.set(name, { type: "api_key", key })
+  /** Set an API key for a provider (persisted). Returns auth status, not the key.
+   *
+   *  Async since pi 0.82: writing a credential goes through the runtime, and the
+   *  registry read that reports `configured` is only correct after its refresh
+   *  has settled — returning before that reported the OLD status. */
+  async setProviderKey(name: string, key: string): Promise<{ name: string; configured: boolean }> {
+    await setProviderApiKey(this.resolved, name, key)
     this.explicitlyEnabledProviders.add(name)
-    this.resolved.modelRegistry.refresh()
     return { name, configured: this.resolved.modelRegistry.getProviderAuthStatus(name).configured }
   }
 
   /** Remove credentials for a provider. Returns auth status. */
-  removeProviderKey(name: string): { name: string; configured: boolean } {
-    this.resolved.authStorage.remove(name)
+  async removeProviderKey(name: string): Promise<{ name: string; configured: boolean }> {
+    await this.resolved.modelRuntime.logout(name)
     this.explicitlyEnabledProviders.delete(name)
-    this.resolved.modelRegistry.refresh()
+    await this.resolved.modelRegistry.refresh()
     return { name, configured: this.resolved.modelRegistry.getProviderAuthStatus(name).configured }
   }
 }
