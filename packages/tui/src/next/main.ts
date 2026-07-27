@@ -39,6 +39,7 @@ import { nodeEventSourceFactory } from "../nodeEventSource"
 import { readClipboardImage, readClipboardText } from "../clipboard-image"
 import { transcriptLines, paint } from "../transcript-lines"
 import { chromeLines } from "../chrome-lines"
+import { inputBorderColor, inputMode } from "../input-mode"
 import { AnswerPickerComponent } from "./answers"
 import { PmoeAutocompleteProvider } from "./autocomplete"
 import { createCommandRunner } from "./commands"
@@ -296,8 +297,28 @@ async function main(): Promise<void> {
     }),
   )
 
+  // The input's ─── borders speak the mode, same contract as the Ink client
+  // (input-mode.ts): "/" yellow, "!" red, plain text follows the routing mode
+  // (cyan auto / blue semi / gray manual / magenta supervised), and a dead
+  // input — unfocused or disconnected — dims regardless. The Editor calls its
+  // theme's `borderColor` on every render, so a closure over the live state is
+  // all it takes; the color names come from the same shared table the Ink
+  // border and the status bar's routing segment read.
+  const BORDER_CHALK: Record<string, (s: string) => string> = {
+    yellow: chalk.yellow,
+    red: chalk.red,
+    cyan: chalk.cyan,
+    blue: chalk.blue,
+    gray: chalk.gray,
+    magenta: chalk.magenta,
+  }
   const editor = new Editor(tui, {
-    borderColor: (s: string) => chalk.dim(s),
+    borderColor: (s: string) => {
+      const live = editor.focused && connection === "connected"
+      if (!live) return chalk.dim(s)
+      const c = inputBorderColor(inputMode(editor.getText()), getState().routingMode ?? "auto", true)
+      return (BORDER_CHALK[c] ?? chalk.dim)(s)
+    },
     selectList: {
       selectedPrefix: (s: string) => chalk.cyan(s),
       selectedText: (s: string) => chalk.cyan(s),

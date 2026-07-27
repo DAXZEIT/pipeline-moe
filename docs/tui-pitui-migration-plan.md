@@ -626,3 +626,10 @@ anything while migrating. Every phase is a translation with a measurable
 before/after. Feature work resumes after Phase 6 — the whole point of the gates
 is that the client's behaviour is a constant while its renderer changes
 underneath.
+
+What the new renderer *makes* possible was noticed along the way and collected in
+`docs/tui-next-optimizations.md`, so that it stays out of the phases. That
+document also carries the one thing the migration made worse: the per-frame
+transcript build is now O(conversation) where Ink's clipping bounded it to the
+viewport (measured: 38 ms/frame at 600 messages, against a 0.033 ms floor).
+Nothing there lands before the flip.

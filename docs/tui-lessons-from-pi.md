@@ -99,6 +99,12 @@ is the strategic asset: any rendering layer can sit on it.
 4. ~~**Inline kitty images** for `/image` and agent screenshots.~~ *Done, Phase 5 —
    on `pmoe-next` only, which is one more reason the flip matters.*
 5. **Keybinding registry** — their declarative pattern, even partially adopted.
+   *Reachable now, deferred on purpose: a declarative rewrite of the input layer
+   is not a translation. See `docs/tui-next-optimizations.md`.*
+
+Everything else the new renderer opens up — including a **measured regression**
+it introduced (O(conversation) frame builds, 38 ms at 600 messages) — lives in
+`docs/tui-next-optimizations.md`. Nothing there lands before the Phase 6 flip.
 
 ## Status
 
