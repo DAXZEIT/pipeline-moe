@@ -1,0 +1,43 @@
+{
+  "name": "@pipeline-moe/preset-schema",
+  "version": "0.1.0",
+  "license": "MIT",
+  "type": "module",
+  "description": "Single source of truth for the pipeline-moe preset file format: TypeScript types, a non-transforming runtime validator (typed errors), and an emitted JSON Schema.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/DAXZEIT/pipeline-moe.git",
+    "directory": "packages/preset-schema"
+  },
+  "keywords": [
+    "pipeline-moe",
+    "preset",
+    "schema"
+  ],
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "prepare": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "typebox": "^1.2.16"
+  },
+  "devDependencies": {
+    "ajv": "^8.20.0",
+    "typescript": "^5.6.0"
+  }
+}
