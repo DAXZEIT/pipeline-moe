@@ -387,8 +387,9 @@ export class SeatRuntime {
       resourceLoader: loader,
       sessionManager,
       settingsManager: settings,
-      authStorage: deps.resolved.authStorage,
-      modelRegistry: deps.resolved.modelRegistry,
+      // pi 0.82: one runtime replaces the authStorage + modelRegistry pair —
+      // it is where credentials and the provider catalog now live together.
+      modelRuntime: deps.resolved.modelRuntime,
       ...(model ? { model } : {}),
     })
     session.setAutoCompactionEnabled(true)

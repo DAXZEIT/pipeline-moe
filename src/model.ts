@@ -1,19 +1,35 @@
-// Resolve the shared model registry / auth storage and pick a model once at
-// startup. All participants reuse these so we don't re-scan providers per agent.
+// Resolve the shared model runtime / registry and pick a model once at startup.
+// All participants reuse these so we don't re-scan providers per agent.
+//
+// pi 0.82 replaced `AuthStorage` with `ModelRuntime`, which owns credentials AND
+// the provider catalog in one object: `ModelRuntime.create()` where we used
+// `AuthStorage.create()`, `new ModelRegistry(runtime)` where the registry used to
+// be built FROM the auth storage. The registry survives as the read-side
+// convenience wrapper (find / getAll / getAvailable / auth status); everything
+// that MUTATES credentials now goes through the runtime.
+//
+// `ModelRuntime.create()` does not touch the network by default
+// (`allowModelNetwork`), which is what this stack wants: every provider we care
+// about ships a static catalog, and a local-only box should not phone home to
+// list models it will not call.
 
-import { AuthStorage, ModelRegistry } from "@earendil-works/pi-coding-agent"
+import { ModelRegistry, ModelRuntime } from "@earendil-works/pi-coding-agent"
 import { config } from "./config.js"
 
 export interface ResolvedModel {
-  authStorage: AuthStorage
+  modelRuntime: ModelRuntime
   modelRegistry: ModelRegistry
   /** undefined → let createAgentSession use pi's default resolution. */
-  model: Awaited<ReturnType<ModelRegistry["getAvailable"]>>[number] | undefined
+  model: ReturnType<ModelRegistry["getAvailable"]>[number] | undefined
 }
 
 export async function resolveModel(): Promise<ResolvedModel> {
-  const authStorage = AuthStorage.create()
-  const modelRegistry = ModelRegistry.create(authStorage)
+  const modelRuntime = await ModelRuntime.create()
+  const modelRegistry = new ModelRegistry(modelRuntime)
+  // The registry's synchronous reads (find/getAll/getAvailable) serve whatever
+  // the last refresh loaded — await one before the first read or a cold start
+  // sees an empty catalog and "resolves" to no model at all.
+  await modelRegistry.refresh()
 
   let model: ResolvedModel["model"]
 
@@ -28,7 +44,7 @@ export async function resolveModel(): Promise<ResolvedModel> {
   }
 
   if (!model) {
-    const available = await modelRegistry.getAvailable()
+    const available = modelRegistry.getAvailable()
     // This stack is local-only by policy: always prefer the `local` provider
     // (llama-server :5000) over any cloud model that happens to have a key.
     model = available.find((m) => m.provider === "local") ?? available[0]
@@ -47,7 +63,29 @@ export async function resolveModel(): Promise<ResolvedModel> {
       : `[model] no explicit model resolved; relying on pi defaults`,
   )
 
-  return { authStorage, modelRegistry, model }
+  return { modelRuntime, modelRegistry, model }
+}
+
+/** Store an API key for a provider so it SURVIVES A RESTART, and refresh the
+ *  catalog so the provider's models are immediately assignable.
+ *
+ *  The obvious-looking `modelRuntime.setRuntimeApiKey()` is a trap: it is an
+ *  in-memory override (pi's `runtime-credentials.ts` keeps a Map), meant for
+ *  process-lifetime flags like `--api-key`. It makes the provider work, writes
+ *  nothing, and the key is gone on the next boot — which is worse than failing,
+ *  because it fails later and somewhere else.
+ *
+ *  `login(provider, "api_key", …)` is the persisting path. A provider's api-key
+ *  auth declares its own `login` that asks for what it needs (`envApiKeyAuth`
+ *  prompts once for the key), and pi writes the returned credential through the
+ *  store to auth.json. So the interaction here simply answers every prompt with
+ *  the key the caller supplied. */
+export async function setProviderApiKey(resolved: ResolvedModel, name: string, key: string): Promise<void> {
+  await resolved.modelRuntime.login(name, "api_key", {
+    prompt: async () => key,
+    notify: () => {},
+  })
+  await resolved.modelRegistry.refresh()
 }
 
 /** A model the UI can offer for per-agent selection. */

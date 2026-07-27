@@ -69,7 +69,8 @@ function printBanner(): void {
       `${reset}\n${dim}local-first multi-agent chat room${version}${reset}\n`,
   )
 }
-import { downgradeUnavailableModels, isAllowedModel, listModels, resolveModel, type ResolvedModel } from "./model.js"
+import { downgradeUnavailableModels, isAllowedModel, listModels, resolveModel, setProviderApiKey, type ResolvedModel } from "./model.js"
+import { oauthProgressPayload } from "./oauth-events.js"
 import { listWorkspace } from "./receipts.js"
 import { BASE_PROMPT, BUILDER_OVERLAY, PLANNER_OVERLAY, SEED_PERSONAS, soloPersona } from "./personas.js"
 import { type PresetPersona, stripSeedFields, rehydrateSeedFields } from "./preset-hydration.js"
@@ -255,9 +256,15 @@ async function seedDefaultPresets(): Promise<void> {
 async function getProviderList(resolved: ResolvedModel, explicitlyEnabled: Set<string>) {
   const allModels = resolved.modelRegistry.getAll()
   const providerSet = new Set(allModels.map((m) => m.provider))
-  // Pre-compute which providers support OAuth login
+  // Which providers support OAuth login. pi 0.82 dropped
+  // `authStorage.getOAuthProviders()`; the fact now lives on the provider
+  // itself — `Provider.auth` carries an `apiKey` and/or an `oauth` branch, and
+  // the presence of the latter IS the capability.
   const oauthProviderIds = new Set(
-    resolved.authStorage.getOAuthProviders().map((p) => p.id),
+    resolved.modelRuntime
+      .getProviders()
+      .filter((p) => p.auth.oauth !== undefined)
+      .map((p) => p.id),
   )
   return Array.from(providerSet).map((name) => {
     const authStatus = resolved.modelRegistry.getProviderAuthStatus(name)
@@ -893,19 +900,22 @@ async function main(): Promise<void> {
       return
     }
 
-    // Verify the provider exists in the registry
-    const allModels = resolved.modelRegistry.getAll()
-    const providerExists = allModels.some((m) => m.provider === name)
-    if (!providerExists && !body.baseUrl) {
+    // The provider has to be one pi knows: it owns the login that stores the
+    // key. (There used to be an escape hatch here for an unknown provider given
+    // a `baseUrl` — it let the request through and then stored a credential for
+    // a provider nothing could look up, so no model ever appeared. pi 0.82 turns
+    // that silent no-op into a thrown "Unknown provider", which is the honest
+    // answer; the hatch is gone rather than dressed up as working.)
+    if (!resolved.modelRuntime.getProvider(name)) {
       res.status(404).json({ error: `provider "${name}" not found in model registry` })
       return
     }
 
     try {
-      resolved.authStorage.set(name, { type: "api_key", key: body.key })
+      // Persists to auth.json and refreshes the catalog — see setProviderApiKey
+      // for why the tempting `setRuntimeApiKey` would lose the key on restart.
+      await setProviderApiKey(resolved, name, body.key)
       explicitlyEnabledProviders.add(name)
-      // Refresh so getAvailable() picks up the new models immediately
-      resolved.modelRegistry.refresh()
 
       // Broadcast updated provider list to SSE clients
       hub.broadcast("providers", {
@@ -933,9 +943,10 @@ async function main(): Promise<void> {
   // Start OAuth login flow for a provider (device-code or auth URL).
   app.post("/api/providers/:name/login", async (req, res) => {
     const name = req.params.name
-    const oauthProviders = resolved.authStorage.getOAuthProviders()
-    const oauthProvider = oauthProviders.find((p) => p.id === name)
-    if (!oauthProvider) {
+    // Same capability check as getProviderList: an `oauth` branch on the
+    // provider's auth is what makes an OAuth login possible.
+    const oauthProvider = resolved.modelRuntime.getProvider(name)
+    if (!oauthProvider?.auth.oauth) {
       res.status(404).json({ error: `provider "${name}" does not support OAuth login` })
       return
     }
@@ -962,65 +973,63 @@ async function main(): Promise<void> {
     let myEntry: { resolve: (value: string) => void; reject: (err: Error) => void } | undefined
     setImmediate(async () => {
       try {
-        await resolved.authStorage.login(name, {
-          onDeviceCode: (info) => {
-            hub.broadcast("oauth_progress", {
-              provider: providerName,
-              type: "device_code",
-              userCode: info.userCode,
-              verificationUri: info.verificationUri,
-            })
+        // pi 0.82 collapsed the callback bag (onDeviceCode / onAuth / onProgress
+        // / onManualCodeInput / onPrompt / onSelect) into ONE interaction object:
+        // `notify(event)` for anything the user only reads, `prompt(p)` for
+        // anything the flow waits on. Same two jobs, so the SSE payloads this
+        // server already broadcasts are unchanged — only the shape that produces
+        // them moved.
+        await resolved.modelRuntime.login(name, "oauth", {
+          notify: (event) => {
+            hub.broadcast("oauth_progress", oauthProgressPayload(providerName, event))
           },
-          onAuth: (info) => {
-            hub.broadcast("oauth_progress", {
-              provider: providerName,
-              type: "auth_url",
-              url: info.url,
-              instructions: info.instructions,
-            })
-          },
-          onProgress: (message) => {
-            hub.broadcast("oauth_progress", {
-              provider: providerName,
-              type: "progress",
-              message,
-            })
-          },
-          // Manual completion path: providers like Anthropic race a localhost
-          // callback server against a pasted redirect URL. Without this
-          // callback the flow waits on the callback forever when the browser
-          // is on another machine. The promise resolves when a client POSTs
-          // /login/input; cleanup happens in the outer finally.
-          onManualCodeInput: () =>
-            new Promise<string>((resolve, reject) => {
-              myEntry = { resolve, reject }
-              pendingOAuthInputs.set(providerName, myEntry)
-            }),
-          onPrompt: async (prompt) => {
-            // Ask the clients for input over SSE and wait for /login/input.
+          prompt: async (p) => {
+            // A selection needs a list UI the OAuth panel does not have; failing
+            // loudly beats hanging on an answer no client can give.
+            if (p.type === "select") {
+              hub.broadcast("oauth_progress", {
+                provider: providerName,
+                type: "error",
+                message: "OAuth requires a selection — use the pi CLI for this provider.",
+              })
+              throw new Error("interactive selection not supported in headless mode")
+            }
+            // Everything else is "type something in": a pasted redirect URL /
+            // authorization code (`manual_code` — providers like Anthropic race
+            // a localhost callback against it, which is why the browser being on
+            // another machine used to hang the flow forever), or a plain
+            // text/secret question.
             hub.broadcast("oauth_progress", {
               provider: providerName,
               type: "prompt",
-              message: prompt.message,
-              placeholder: (prompt as { placeholder?: string }).placeholder,
+              message: p.message,
+              placeholder: p.placeholder,
             })
-            return new Promise<string>((resolve, reject) => {
-              myEntry = { resolve, reject }
-              pendingOAuthInputs.set(providerName, myEntry)
+            return await new Promise<string>((resolve, reject) => {
+              const entry = { resolve, reject }
+              myEntry = entry
+              pendingOAuthInputs.set(providerName, entry)
+              // 0.82 can cancel a SINGLE prompt without aborting the login — the
+              // callback server winning the race against a manual_code paste is
+              // exactly that. Drop our pending entry when it does, or the map
+              // keeps a resolver nobody will ever call and the next POST to
+              // /login/input feeds a dead flow.
+              p.signal?.addEventListener(
+                "abort",
+                () => {
+                  if (pendingOAuthInputs.get(providerName) === entry) {
+                    pendingOAuthInputs.delete(providerName)
+                  }
+                  reject(new Error("Prompt cancelled"))
+                },
+                { once: true },
+              )
             })
-          },
-          onSelect: async () => {
-            hub.broadcast("oauth_progress", {
-              provider: providerName,
-              type: "error",
-              message: "OAuth requires a selection — use the pi CLI for this provider.",
-            })
-            throw new Error("interactive selection not supported in headless mode")
           },
         })
 
         // Success — broadcast updated provider list
-        resolved.modelRegistry.refresh()
+        await resolved.modelRegistry.refresh()
         hub.broadcast("providers", {
           providers: await getProviderList(resolved, explicitlyEnabledProviders),
           explicitlyEnabled: Array.from(explicitlyEnabledProviders),
@@ -1100,9 +1109,11 @@ async function main(): Promise<void> {
     }).map((p) => p.name)
 
     try {
-      resolved.authStorage.remove(name)
+      // `logout` drops the stored credential whatever its type (api key or
+      // OAuth tokens) — the 0.80 `authStorage.remove` did the same job.
+      await resolved.modelRuntime.logout(name)
       explicitlyEnabledProviders.delete(name)
-      resolved.modelRegistry.refresh()
+      await resolved.modelRegistry.refresh()
 
       hub.broadcast("providers", {
         providers: await getProviderList(resolved, explicitlyEnabledProviders),

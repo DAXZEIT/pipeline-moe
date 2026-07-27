@@ -2223,7 +2223,7 @@ export class Room {
             this.notice("/provider add: usage — /provider add <name> <api_key>", "error")
           } else {
             try {
-              this.registry.setProviderKey(providerName, apiKey)
+              await this.registry.setProviderKey(providerName, apiKey)
               this.notice(`Provider "${providerName}" configured. Models should now be available.`)
             } catch (err) {
               this.notice(`/provider add failed: ${err instanceof Error ? err.message : String(err)}`, "error")
@@ -2235,7 +2235,7 @@ export class Room {
             this.notice("/provider remove: usage — /provider remove <name>", "error")
           } else {
             try {
-              this.registry.removeProviderKey(providerName)
+              await this.registry.removeProviderKey(providerName)
               this.notice(`Provider "${providerName}" removed.`)
             } catch (err) {
               this.notice(`/provider remove failed: ${err instanceof Error ? err.message : String(err)}`, "error")

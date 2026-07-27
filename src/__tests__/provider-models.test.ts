@@ -2,8 +2,8 @@ import { mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, beforeAll, describe, expect, test } from "vitest"
-import { AuthStorage, ModelRegistry } from "@earendil-works/pi-coding-agent"
-import { listModels, isAllowedModel } from "../model.js"
+import { scratchResolvedModel } from "./scratch-model.js"
+import { listModels, isAllowedModel, setProviderApiKey } from "../model.js"
 import type { ResolvedModel } from "../model.js"
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
@@ -13,13 +13,7 @@ let resolved: ResolvedModel
 
 async function setup(): Promise<void> {
   dir = await mkdtemp(join(tmpdir(), "provider-models-test-"))
-  const authPath = join(dir, "auth.json")
-  const modelsPath = join(dir, "models.json")
-
-  const authStorage = AuthStorage.create(authPath)
-  const modelRegistry = ModelRegistry.create(authStorage, modelsPath)
-
-  resolved = { authStorage, modelRegistry, model: undefined }
+  resolved = await scratchResolvedModel(dir)
 }
 
 async function teardown(): Promise<void> {
@@ -166,9 +160,9 @@ describe("provider auth status safety", () => {
   beforeAll(async () => { await setup() })
   afterEach(async () => { await teardown(); await setup() })
 
-  test("getProviderAuthStatus never exposes key material", () => {
-    resolved.authStorage.set("test-provider", { type: "api_key", key: "sk-super-secret-key-12345" })
-    const status = resolved.modelRegistry.getProviderAuthStatus("test-provider")
+  test("getProviderAuthStatus never exposes key material", async () => {
+    await setProviderApiKey(resolved, "openrouter", "sk-super-secret-key-12345")
+    const status = resolved.modelRegistry.getProviderAuthStatus("openrouter")
     const json = JSON.stringify(status)
     expect(json).not.toContain("sk-super-secret")
     expect(json).not.toContain("12345")

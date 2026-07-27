@@ -16,7 +16,7 @@ import { readFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest"
-import { AuthStorage, ModelRegistry } from "@earendil-works/pi-coding-agent"
+import { scratchResolvedModel } from "./scratch-model.js"
 import { Registry } from "../registry.js"
 import { LONE_AGENT_NOTE, ORCHESTRATOR_NOTE } from "../seat-runtime.js"
 import { soloPersona } from "../personas.js"
@@ -43,11 +43,10 @@ const orchestrator = (): RoomOrchestrator => ({
 
 /** A registry wired the way room-manager wires one — with, or without, the
  *  orchestrator capability. */
-function makeRegistry(orch?: RoomOrchestrator): Registry {
-  const authStorage = AuthStorage.create(join(dir, "auth.json"))
-  const modelRegistry = ModelRegistry.create(authStorage, join(dir, "models.json"))
+async function makeRegistry(orch?: RoomOrchestrator): Promise<Registry> {
+  const resolved = await scratchResolvedModel(dir)
   const r = new Registry(
-    { authStorage, modelRegistry, model: undefined },
+    resolved,
     new SseHub(1), new Set(), dir, "solo-test", orch,
   )
   r.setSessionRoot(join(dir, "agents"))
@@ -137,7 +136,7 @@ describe("presets/pi-audited.json — a solo worker WITH verifiers", () => {
   })
 
   test("three agents means pi keeps SYSTEM.md but gains team framing", async () => {
-    registry = makeRegistry(orchestrator())
+    registry = await makeRegistry(orchestrator())
     for (const p of rehydrateSeedFields(doc.personas)) await registry.create(p)
     const prompt = registry.get("pi")!.seat.session.systemPrompt
     expect(prompt).not.toContain(LONE_AGENT_NOTE)
@@ -149,7 +148,7 @@ describe("presets/pi-audited.json — a solo worker WITH verifiers", () => {
 
 describe("the solo console — prompt/toolset agreement", () => {
   test("a lone console gets BOTH notes: alone in the room, commanding the pipeline", async () => {
-    registry = makeRegistry(orchestrator())
+    registry = await makeRegistry(orchestrator())
     const p = await registry.create(soloPersona())
     const prompt = p.seat.session.systemPrompt
     const tools = p.seat.session.getActiveToolNames()
@@ -171,7 +170,7 @@ describe("the solo console — prompt/toolset agreement", () => {
   })
 
   test("no orchestration tools → no note", async () => {
-    registry = makeRegistry(orchestrator())
+    registry = await makeRegistry(orchestrator())
     const p = await registry.create(persona("scout"))
     expect(p.seat.session.systemPrompt).not.toContain(ORCHESTRATOR_NOTE)
     expect(p.seat.session.getActiveToolNames()).not.toContain("spawn_room")
@@ -181,14 +180,14 @@ describe("the solo console — prompt/toolset agreement", () => {
     // The prompt must never promise a mechanism the toolset doesn't carry.
     // Without a live orchestrator the tools are silently dropped, so the
     // briefing has to be dropped with them.
-    registry = makeRegistry(undefined)
+    registry = await makeRegistry(undefined)
     const p = await registry.create(soloPersona())
     expect(p.seat.session.getActiveToolNames()).not.toContain("spawn_room")
     expect(p.seat.session.systemPrompt).not.toContain(ORCHESTRATOR_NOTE)
   })
 
   test("the note reaches a roster seat too — the planner has the same blind spot", async () => {
-    registry = makeRegistry(orchestrator())
+    registry = await makeRegistry(orchestrator())
     const p = await registry.create(persona("planner", { tools: ["read", "spawn_room", "check_room"] }))
     await registry.create(persona("builder"))
     const prompt = registry.get("planner")!.seat.session.systemPrompt
@@ -208,7 +207,7 @@ describe("the solo console — prompt/toolset agreement", () => {
   test("a console that loses the capability loses the briefing on rebuild", async () => {
     // Roster mutations rebuild seats (reconcileLoneFraming); the two halves must
     // flip together, never one without the other.
-    registry = makeRegistry(orchestrator())
+    registry = await makeRegistry(orchestrator())
     await registry.create(soloPersona())
     expect(registry.get("pi")!.seat.session.systemPrompt).toContain(ORCHESTRATOR_NOTE)
 

@@ -2,7 +2,7 @@ import { mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, beforeAll, describe, expect, test } from "vitest"
-import { AuthStorage, ModelRegistry } from "@earendil-works/pi-coding-agent"
+import { scratchResolvedModel } from "./scratch-model.js"
 import { Registry } from "../registry.js"
 import { SseHub } from "../sse.js"
 
@@ -16,13 +16,12 @@ async function setup(): Promise<void> {
   const authPath = join(dir, "auth.json")
   const modelsPath = join(dir, "models.json")
 
-  const authStorage = AuthStorage.create(authPath)
-  const modelRegistry = ModelRegistry.create(authStorage, modelsPath)
+  const resolved = await scratchResolvedModel(dir)
   const hub = new SseHub()
   const explicitlyEnabled = new Set<string>()
 
   registry = new Registry(
-    { authStorage, modelRegistry, model: undefined },
+    resolved,
     hub,
     explicitlyEnabled,
   )
@@ -56,12 +55,12 @@ describe("Registry provider methods", () => {
     expect(list.length).toBeGreaterThan(0)
   })
 
-  test("setProviderKey stores the key and marks provider as configured", () => {
+  test("setProviderKey stores the key and marks provider as configured", async () => {
     const before = registry.getProviderList()
     const openrouterBefore = before.find((p) => p.name === "openrouter")
     const wasConfigured = openrouterBefore?.configured ?? false
 
-    const result = registry.setProviderKey("openrouter", "sk-test-key-123")
+    const result = await registry.setProviderKey("openrouter", "sk-test-key-123")
     expect(result.name).toBe("openrouter")
     expect(result.configured).toBe(true)
 
@@ -77,15 +76,15 @@ describe("Registry provider methods", () => {
     }
   })
 
-  test("removeProviderKey removes the key", () => {
+  test("removeProviderKey removes the key", async () => {
     // Set a key first
-    registry.setProviderKey("deepseek", "sk-deep-test-456")
+    await registry.setProviderKey("deepseek", "sk-deep-test-456")
     let result = registry.getProviderList()
     const dsBefore = result.find((p) => p.name === "deepseek")
     expect(dsBefore?.configured).toBe(true)
 
     // Remove it
-    const removeResult = registry.removeProviderKey("deepseek")
+    const removeResult = await registry.removeProviderKey("deepseek")
     expect(removeResult.name).toBe("deepseek")
 
     // Verify removed
@@ -96,16 +95,16 @@ describe("Registry provider methods", () => {
     expect(removeResult.configured).toBeDefined()
   })
 
-  test("setProviderKey adds to explicitly-enabled set", () => {
-    registry.setProviderKey("openrouter", "sk-explicit-test")
+  test("setProviderKey adds to explicitly-enabled set", async () => {
+    await registry.setProviderKey("openrouter", "sk-explicit-test")
     const list = registry.getProviderList()
     const openrouter = list.find((p) => p.name === "openrouter")
     expect(openrouter).toBeDefined()
   })
 
-  test("removeProviderKey removes from explicitly-enabled set", () => {
-    registry.setProviderKey("openrouter", "sk-explicit-test")
-    registry.removeProviderKey("openrouter")
+  test("removeProviderKey removes from explicitly-enabled set", async () => {
+    await registry.setProviderKey("openrouter", "sk-explicit-test")
+    await registry.removeProviderKey("openrouter")
     const list = registry.getProviderList()
     const openrouter = list.find((p) => p.name === "openrouter")
     expect(openrouter).toBeDefined()
