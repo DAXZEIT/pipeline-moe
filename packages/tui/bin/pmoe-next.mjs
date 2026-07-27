@@ -1,10 +1,7 @@
 #!/usr/bin/env node
-// pmoe-next — the pi-tui client, shipped alongside `pmoe` (Ink) until it
-// reaches parity. Same wrapper shape as pmoe.mjs: no build step, tsx loader,
-// tsconfig pinned to the package's own so it resolves wherever pmoe-next runs.
-//
-// Both bins drive the same @pipeline-moe/client-core and render the same
-// src/transcript-lines.ts. See docs/tui-pitui-migration-plan.md.
+// pmoe-next — now an alias of `pmoe`: the pi-tui client became the default at
+// the Phase 6 flip (2026-07-27). Kept for the muscle memory of the migration
+// weeks; dies with `pmoe-ink` once the post-flip release ships.
 
 import { fileURLToPath } from "node:url"
 import { dirname, resolve } from "node:path"

@@ -3,7 +3,7 @@
   "version": "0.1.40",
   "license": "MIT",
   "type": "module",
-  "description": "Terminal client for pipeline-moe — a multi-room, multi-agent orchestration TUI built on @pipeline-moe/client-core and Ink.",
+  "description": "Terminal client for pipeline-moe — a multi-room, multi-agent orchestration TUI built on @pipeline-moe/client-core and @earendil-works/pi-tui.",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/DAXZEIT/pipeline-moe.git",
@@ -14,7 +14,7 @@
     "multi-agent",
     "tui",
     "terminal",
-    "ink",
+    "pi-tui",
     "orchestration"
   ],
   "engines": {
@@ -22,7 +22,8 @@
   },
   "bin": {
     "pmoe": "./bin/pmoe.mjs",
-    "pmoe-next": "./bin/pmoe-next.mjs"
+    "pmoe-next": "./bin/pmoe-next.mjs",
+    "pmoe-ink": "./bin/pmoe-ink.mjs"
   },
   "files": [
     "bin",
@@ -35,7 +36,7 @@
     "access": "public"
   },
   "scripts": {
-    "start": "tsx src/cli.tsx",
+    "start": "tsx src/next/main.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

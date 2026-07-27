@@ -1,12 +1,12 @@
 #!/usr/bin/env -S npx tsx
-// pmoe-next — the pipeline-moe terminal client on @earendil-works/pi-tui.
+// pmoe — the pipeline-moe terminal client on @earendil-works/pi-tui.
 //
-//   pmoe-next [--server http://localhost:5300] [--room default] [--stats]
+//   pmoe [--server http://localhost:5300] [--room default] [--stats]
 //
-// This is the second client, growing beside the Ink one (`src/`) on the same
-// @pipeline-moe/client-core. Both are shipped; `pmoe` stays the default until
-// this one reaches parity. See docs/tui-pitui-migration-plan.md for the phase
-// order and the five gates every phase must re-pass.
+// THE DEFAULT since the Phase 6 flip (2026-07-27). The Ink client it replaced
+// stays reachable as `pmoe-ink` for one release, then src/components/ and the
+// react/ink dependencies are deleted and src/next/ becomes src/. See
+// docs/tui-pitui-migration-plan.md for the phase order and the five gates.
 //
 // Phase 5 status: FEATURE PARITY. Transcript, chrome, input, all eleven overlay
 // kinds, the QCM answer picker, the OAuth panel, ⌃V image staging, room switching

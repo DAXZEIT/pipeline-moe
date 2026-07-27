@@ -578,12 +578,22 @@ for deletion in Phase 6.
 
 ## Phase 6 — flip and delete
 
-1. Default `pmoe` to the pi-tui client; keep the Ink one reachable as
-   `pmoe-ink` for one release.
-2. Run both for a week of real use. This is a client used daily; the bug that
-   matters is the one that shows up on day four.
+1. ~~Default `pmoe` to the pi-tui client; keep the Ink one reachable as
+   `pmoe-ink` for one release.~~ **FLIPPED 2026-07-27**: `bin/pmoe.mjs` now
+   loads `src/next/main.ts`; the Ink client is `bin/pmoe-ink.mjs`; `pmoe-next`
+   stays as an alias of `pmoe` for the migration weeks' muscle memory and dies
+   with `pmoe-ink`. Both bins verified booting against a live server.
+2. **Run both for a week of real use — IN PROGRESS, clock started 2026-07-27.**
+   This is a client used daily; the bug that matters is the one that shows up
+   on day four. First real-use datum, from before the flip: 175 full redraws
+   over 11 864 frames on a long multi-room session — the counter moves only on
+   the legitimate whole-screen events.
 3. Delete `src/components/`, `src/App.tsx`, `src/cli.tsx`, `useRoomStore.ts`,
    `useTerminalSize.ts`. Drop `ink`, `react`, `@types/react` from dependencies.
+   **NOT before the week has spoken** — and note the freeze in
+   `docs/tui-next-optimizations.md` only lifts here: while `pmoe-ink` is the
+   escape hatch, an optimization that breaks a shared module breaks the escape
+   hatch with the client it was escaping.
 4. Rename `src/next/` to `src/`.
 
 **Exit:** one client. `react` and `ink` gone from `packages/tui`.

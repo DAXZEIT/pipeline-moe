@@ -13,6 +13,12 @@ shared module (`transcript-lines.ts`, `chrome-lines.ts`, `roster-strip.ts`,
 `markdown.ts`) would change the shipping client, which is exactly what the
 migration forbade.
 
+*Update 2026-07-27: the flip has happened — `pmoe` is the pi-tui client, the
+Ink one is `pmoe-ink` for one release. The freeze on shared modules holds until
+the deletion, not the flip: while `pmoe-ink` is the escape hatch, breaking a
+shared module breaks the hatch together with the client it escapes from.
+Entries 2 and 7 touch nothing shared and are fair game during the week.*
+
 Each entry says what changed structurally to make it possible, what it costs,
 and — the part that matters — whether the number in it was **measured** or
 **estimated**. Phase 4's `SettingsList` evaluation is the model: the honest
