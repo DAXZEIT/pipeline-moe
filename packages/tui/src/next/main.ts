@@ -253,7 +253,23 @@ async function main(): Promise<void> {
     rawWrite(data)
   }
 
-  const tui = new TUI(terminal, true)
+  // TWO CURSORS IS ONE TOO MANY. The Editor always paints its own block cursor
+  // (inverse video, at the insertion point); the HARDWARE cursor is a second,
+  // independent one that pi-tui moves for IME candidate-window placement. Phase
+  // 0 forced it on to check that it tracked the insertion point, and it does —
+  // but forcing it on also means the terminal draws a block wherever pi-tui
+  // last parked it, and pi-tui parks it AFTER the synchronized-output block
+  // closes. When only the trailing chrome changed (the `--stats` line ticks on
+  // every frame), that park lands at the end of the last line written, not at
+  // the insertion point: a stray block next to the stats, or out at the right
+  // edge of the input row (dax, 2026-07-27, with screenshots).
+  //
+  // `tmux capture-pane` does not render the hardware cursor, which is exactly
+  // why five phases of verification never saw it — the position was checked
+  // (`#{cursor_x},#{cursor_y}`, correct) and the second BLOCK was invisible to
+  // the tooling. Undefined = pi's own default: off unless PI_HARDWARE_CURSOR=1,
+  // so anyone who needs IME placement keeps the escape hatch.
+  const tui = new TUI(terminal)
 
   // The store only exposes a `connected` boolean, but the EventSource keeps
   // retrying after a drop — so "was connected, isn't now" means reconnecting,

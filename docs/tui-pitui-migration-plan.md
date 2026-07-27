@@ -628,6 +628,19 @@ point, `pmoe` still works.
   blaming a component for it. See Phase 5.
 - ~~**tmux + `PI_HARDWARE_CURSOR`.**~~ **Resolved 2026-07-27 — it behaves**: the
   pane cursor sat exactly at the insertion point under tmux. See Phase 5.
+  **Reopened and closed properly the same day**: it POSITIONS correctly, but the
+  client had forced it ON (`new TUI(terminal, true)`), and the Editor already
+  paints its own block cursor — so the terminal drew a SECOND one wherever
+  pi-tui last parked it, which is after the synchronized-output block closes and
+  therefore at the end of the last line written, not at the insertion point
+  (dax saw it beside the `--stats` line and at the right edge of the input).
+  `tmux capture-pane` does not render the hardware cursor, which is precisely
+  why five phases of verification missed it: the check that was run measured the
+  POSITION (`#{cursor_x},#{cursor_y}` — correct) while the extra block was
+  invisible to the tooling. Now `new TUI(terminal)` — pi's own default, off
+  unless `PI_HARDWARE_CURSOR=1`. **Verification lesson: `#{cursor_flag}` tells
+  you whether the cursor is drawn; `cursor_x/y` only tells you where it would
+  be.**
 
 ## What this plan deliberately does not do
 
