@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest"
 import type { ToolActivity, TurnPart } from "../types.js"
-import { toSegments } from "../parts.js"
+import { summarizeArgs, toSegments } from "../parts.js"
 
 // docs/interleaved-turns.md — the reduction both clients apply to a turn's
 // chronological parts before anything is drawn. What is asserted here is
@@ -59,5 +59,49 @@ describe("toSegments", () => {
   test("empty segments are skipped — a live run is not trimmed at the source", () => {
     const parts = [say("reasoning", "  \n "), say("text", "real")]
     expect(shape(toSegments(parts, []))).toBe("t")
+  })
+})
+
+// A summary that is not one line is not a summary — and in the TUI it is a
+// corrupted frame. dax hit this live on 2026-07-28: a seat ran a heredoc, the
+// bash line carried its newlines into the transcript, and the status bar
+// ("room:… msgs:…") started appearing in the middle of the conversation
+// because every row below the tool line was diffed against the wrong index.
+describe("summarizeArgs is single-line", () => {
+  const withArgs = (args: Record<string, unknown>): ToolActivity => ({
+    toolCallId: "c1",
+    toolName: "bash",
+    status: "ok",
+    ts: 0,
+    args,
+  })
+
+  test("a multi-line command collapses to one line", () => {
+    const s = summarizeArgs(withArgs({ command: "node - <<'EOF'\nconsole.log(1)\nEOF" }))
+    expect(s).not.toMatch(/[\r\n]/)
+    expect(s).toBe("node - <<'EOF' console.log(1) EOF")
+  })
+
+  test("CRLF and tabs collapse too", () => {
+    expect(summarizeArgs(withArgs({ command: "a\r\n\tb" }))).toBe("a b")
+  })
+
+  test("the JSON fallback is flattened as well", () => {
+    // No command/path/pattern/question key, so it stringifies - and a newline
+    // inside a value survives JSON.stringify as an escape, but one inside a KEY
+    // or a pretty-printed payload would not.
+    const s = summarizeArgs(withArgs({ payload: "x", note: "l1\nl2" }))
+    expect(s).not.toMatch(/[\r\n]/)
+  })
+
+  test("ask_user reads as its question, not as escaped JSON", () => {
+    const s = summarizeArgs({
+      toolCallId: "c2",
+      toolName: "ask_user",
+      status: "ok",
+      ts: 0,
+      args: { question: "How do you want to close this out?", options: ["stop", "retry"] },
+    })
+    expect(s).toBe("How do you want to close this out?")
   })
 })

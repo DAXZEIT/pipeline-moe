@@ -114,7 +114,15 @@ class TranscriptComponent implements Component {
       // pi-tui THROWS if a rendered line exceeds the width — the invariant the
       // Ink layer enforces silently with wrap="truncate-end". Same rule, but a
       // hard error instead of a cropped table nobody notices.
-      out.push(" " + truncateToWidth(paint(l) + (l.cursor ? chalk.yellow(" ▌") : ""), w))
+      //
+      // ONE ENTRY IS ONE ROW is the other half of that invariant, and it is not
+      // checked: an embedded newline costs no display width, so truncateToWidth
+      // waves it through and pi-tui then diffs every row below it against the
+      // wrong index — the chrome paints into the transcript. The source is fixed
+      // upstream (summarizeArgs), but the guarantee belongs at the boundary that
+      // depends on it, and ⏎ shows where a line was folded instead of hiding it.
+      const flat = paint(l).replace(/\r\n|[\r\n]/g, chalk.dim(" ⏎ "))
+      out.push(" " + truncateToWidth(flat + (l.cursor ? chalk.yellow(" ▌") : ""), w))
     }
     return out
   }

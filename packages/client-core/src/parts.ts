@@ -22,16 +22,29 @@ export const TOOL_ICON: Record<string, string> = {
   ls: "📂",
 }
 
-/** One-line summary of a tool's args: the command, path, or pattern it acted on. */
+/** ONE LINE, and the word is load-bearing. The TUI renders each string as one
+ *  terminal row and pi-tui diffs by row index, so a newline smuggled in here —
+ *  a heredoc, a multi-line `node -e`, a pasted script — makes one logical line
+ *  occupy three physical rows. Everything below it then paints at the wrong
+ *  index, and the chrome (`room:… msgs:…`) lands in the middle of the
+ *  transcript. Observed live by dax, 2026-07-28, mid-run.
+ *
+ *  The web renderer collapses whitespace in HTML and never saw it, which is
+ *  exactly why the rule belongs here and not in one client. */
+const oneLine = (s: string): string => s.replace(/\s+/g, " ").trim()
+
+/** One-line summary of a tool's args: the command, path, pattern, or question
+ *  it acted on. `question` is what makes an ask_user call read as a question
+ *  instead of a wall of escaped JSON. */
 export function summarizeArgs(a: ToolActivity): string {
   const args = a.args as Record<string, unknown> | undefined
   if (!args || typeof args !== "object") return ""
-  for (const key of ["command", "file_path", "path", "pattern"]) {
+  for (const key of ["command", "file_path", "path", "pattern", "question"]) {
     const v = args[key]
-    if (typeof v === "string") return v
+    if (typeof v === "string") return oneLine(v)
   }
   try {
-    return JSON.stringify(args)
+    return oneLine(JSON.stringify(args))
   } catch {
     return ""
   }
