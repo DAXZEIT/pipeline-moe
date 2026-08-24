@@ -508,9 +508,12 @@ export class RoomManager {
 
   /** Re-create non-default rooms from the manifest at startup. The default room
    *  must already exist (createDefaultRoom) — for it we only restore a renamed
-   *  name. sshfs rooms are re-mounted; a mount failure degrades the room to the
-   *  pipeline workspace (logged) rather than losing it. Each restored room is
-   *  init()'d so its saved conversation reloads. */
+   *  name. sshfs rooms are re-mounted; a mount failure does NOT restore the
+   *  room — the old fallback (createRoom with no scope = the pipeline
+   *  workspace) left it live in a shared scope it was never meant to see
+   *  (review 2026-08-24, #11). Its on-disk data survives, so it stays in
+   *  listResumableRooms() and a manual resume re-attempts the mount. Each
+   *  restored room is init()'d so its saved conversation reloads. */
   async restoreRooms(entries?: RoomManifestEntry[]): Promise<void> {
     // CRITICAL: callers must pass the manifest captured BEFORE createDefaultRoom
     // ran. createDefaultRoom() → createRoom("default") → `void saveManifest()`
@@ -532,19 +535,28 @@ export class RoomManager {
       let workspaceDir: string | undefined = entry.workspaceDir
       let mount: RoomMount | undefined
       if (entry.sshTarget) {
+        let mountpoint: string
         try {
-          const mountpoint = await mountSshfs(entry.roomId, entry.sshTarget)
-          workspaceDir = mountpoint
-          mount = { mountpoint, sshTarget: entry.sshTarget }
+          mountpoint = await mountSshfs(entry.roomId, entry.sshTarget)
         } catch (err) {
+          // Refuse the restore. The old fallback set workspaceDir = undefined,
+          // and createRoom resolves an empty scope to config.workspaceDir — so
+          // a remote room with its mount down came up ACTIVE in the shared
+          // pipeline workspace, a scope it was never meant to see (review
+          // 2026-08-24, #11). Skipping is lossless: sessions/<id>/meta.json +
+          // conversations are untouched, the room stays in
+          // listResumableRooms(), and the resume route re-mounts (surfacing a
+          // 400 on failure) instead of degrading silently.
           console.warn(
             `[room-restore] sshfs mount failed for "${entry.roomId}" (${entry.sshTarget}): ` +
               `${err instanceof Error ? err.message : String(err)}. ` +
-              `Restoring in degraded mode (pipeline workspace).`,
+              `NOT restoring — the room stays in the resumable list; ` +
+              `resume it manually once the remote is reachable.`,
           )
-          workspaceDir = undefined
-          mount = undefined
+          continue
         }
+        workspaceDir = mountpoint
+        mount = { mountpoint, sshTarget: entry.sshTarget }
       }
 
       try {
