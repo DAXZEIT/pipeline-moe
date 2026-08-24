@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest"
+import { describe, expect, test, vi } from "vitest"
 import { LocalModelLock } from "../local-model-lock.js"
 import { Room } from "../room.js"
 import { SseHub } from "../sse.js"
@@ -135,6 +135,9 @@ class MockParticipant {
   }
 
   async followUp(_text: string) { return this.run(_text) }
+  // Present on the real Participant — abortCurrent() sweeps this.running and
+  // awaits abort() on every member, so the mock must answer too.
+  async abort() {}
 
   getContextUsage() { return undefined }
   getSessionStats() { return undefined }
@@ -221,6 +224,36 @@ describe("Room + LocalModelLock integration", () => {
     // Cloud agent should NOT have seen the lock held by it (lock stays free the whole time)
     expect(participant.events).toContain("held:false")
     expect(lock.isHeld).toBe(false)
+  })
+
+  // Review 2026-08-24, #3: Stop pressed while the agent waits for the local
+  // slot. abortCurrent() ran abort() on a session that never streamed (no-op)
+  // and cleared the queue — without the room-level check in executeAgent the
+  // turn would start anyway the moment the slot frees.
+  test("abort while waiting for the lock: the turn never starts", async () => {
+    const lock = new LocalModelLock()
+    await lock.acquire() // this test plays the other room holding the slot
+    const hub = new SseHub(1)
+    const registry = new MockRegistry()
+    const participant = new MockParticipant(makePersona("builder"), "(done)", lock)
+    registry.add(participant)
+
+    const room = new Room(registry as any, hub, new MockStore() as any, [], "test-room", lock)
+    await room.init()
+
+    room.submit("go")
+    // Deterministic window: the agent is queued on the lock — not before
+    // (queue), not after (run would already be executing).
+    await vi.waitFor(() => expect(lock.waitCount).toBe(1))
+
+    await room.abortCurrent()
+    lock.release() // frees the slot; the turn must NOT start now
+
+    await vi.waitFor(() => expect(room.isGenerating()).toBe(false))
+
+    expect(participant.events).toEqual([]) // run() never called
+    expect(room.getTranscript().some((e) => e.author === "builder")).toBe(false)
+    expect(lock.isHeld).toBe(false) // finally released it
   })
 
   test("lock is released even when agent run() throws", async () => {

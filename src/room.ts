@@ -1852,6 +1852,17 @@ export class Room {
         await this.localLock.acquire(this.roomId)
         lockAcquired = true
       }
+      // Stop raced the lock wait: the agent is already in this.running (added
+      // above), so abortCurrent() ran p.abort() on a session that never
+      // streamed (a no-op) and cleared the queue — yet without this check the
+      // turn would start the moment the slot frees, running work the user
+      // already stopped. Real window with PIPELINE_LOCAL_SLOTS=1 + several
+      // rooms (review 2026-08-24, #3). This is the START side; the F7 fix
+      // below is the result side — nothing has run yet, so there is no
+      // TurnResult to salvage and null (infra skip) is the honest outcome.
+      // Chain serialization guarantees no new message can clear `aborted`
+      // before this point (submit() queues behind the in-flight process()).
+      if (this.aborted) return null
       // Turn timing starts after the lock: "how long was the agent active",
       // not "how long did it wait for the local model to free up".
       const startedAt = Date.now()
