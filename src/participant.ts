@@ -355,6 +355,16 @@ export class Participant {
     this.seat.resetGuard()
     this.setStatus("active")
     try {
+      // Stop raced the seat wait: abortCurrent() called abort() while we were
+      // queued on acquireTurn — the flag is set and session.abort() hit the
+      // OTHER hat's live generation on the shared seat session. Without this
+      // check, promptRounds' reset below would wipe the flag and run a turn
+      // the user already stopped (review 2026-08-24, #8). Consume it: the
+      // turn never starts; the empty aborted result matches the shape a
+      // zero-token streaming abort already produces.
+      if (this.externallyAborted) {
+        return { text: "", activity: [], stopReason: "aborted" }
+      }
       const images = await this.resolveImages(imagePaths)
       const prompt = this.withHatHeader(promptText)
       const thrown = await this.promptRounds(() =>
@@ -397,6 +407,9 @@ export class Participant {
       return result
     } finally {
       this.setStatus("idle")
+      // A stop during streaming is consumed by promptRounds; clearing here
+      // keeps the NEXT turn from seeing it as a wait-abort (stale-flag skip).
+      this.externallyAborted = false
       release()
     }
   }
@@ -512,6 +525,11 @@ export class Participant {
     this.seat.resetGuard()
     this.setStatus("active")
     try {
+      // Same wait-abort window as run(): a follow-up queued on acquireTurn
+      // behind another hat must not start after a Stop (review 2026-08-24, #8).
+      if (this.externallyAborted) {
+        return { text: "", activity: [], stopReason: "aborted" }
+      }
       const images = await this.resolveImages(imagePaths)
       // session.followUp() only delivers when the agent is currently streaming.
       // After ask_user (terminate=true) the session is idle — the followUp message
@@ -557,6 +575,7 @@ export class Participant {
       return result
     } finally {
       this.setStatus("idle")
+      this.externallyAborted = false
       release?.()
     }
   }
