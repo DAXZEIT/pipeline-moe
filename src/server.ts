@@ -71,6 +71,7 @@ function printBanner(): void {
 }
 import { downgradeUnavailableModels, isAllowedModel, listModels, resolveModel, setProviderApiKey, type ResolvedModel } from "./model.js"
 import { oauthProgressPayload } from "./oauth-events.js"
+import { assertInside } from "./path-guard.js"
 import { listWorkspace } from "./receipts.js"
 import { BASE_PROMPT, BUILDER_OVERLAY, PLANNER_OVERLAY, SEED_PERSONAS, soloPersona } from "./personas.js"
 import { type PresetPersona, stripSeedFields, rehydrateSeedFields } from "./preset-hydration.js"
@@ -830,8 +831,13 @@ async function main(): Promise<void> {
       res.status(400).json({ error: "unsupported file type" })
       return
     }
-    const filePath = join(mediaDir(), filename)
+    // Express percent-decodes params: "..%2F..%2Ffoo.png" arrives as "../../foo.png",
+    // so join() alone escapes mediaDir(). Contain it with the same guard the file
+    // tools use — any escape is a 404, not a disclosure (review 2026-08-24, #1).
+    const root = mediaDir()
+    const filePath = join(root, filename)
     try {
+      assertInside(root, filePath)
       await access(filePath)
       res.sendFile(filePath)
     } catch {
