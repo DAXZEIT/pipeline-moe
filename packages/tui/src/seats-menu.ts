@@ -101,10 +101,10 @@ export function openSeatsMenu(ctx: CommandContext): void {
 export function openSeatActions(ctx: CommandContext, agentId: string): void {
   const state = ctx.store.getSnapshot()
   const agent = state.roster.find((p) => p.id === agentId)
-  if (!agent) return ctx.notify(`No agent "${agentId}" in the room.`, "error")
+  if (!agent) return void ctx.notify(`No agent "${agentId}" in the room.`, "error")
   const items = seatActionItems(agent, state.roster)
   if (items.length === 0) {
-    return ctx.notify(`@${agentId} has nobody to share a seat with — add another agent first.`, "info")
+    return void ctx.notify(`@${agentId} has nobody to share a seat with — add another agent first.`, "info")
   }
   ctx.openOverlay({
     kind: "select",

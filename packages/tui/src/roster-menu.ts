@@ -74,7 +74,7 @@ export function openRosterMenu(ctx: CommandContext): void {
 export function openAgentActions(ctx: CommandContext, agentId: string): void {
   const state = ctx.store.getSnapshot()
   const agent = state.roster.find((p) => p.id === agentId)
-  if (!agent) return ctx.notify(`No agent "${agentId}" in the room.`, "error")
+  if (!agent) return void ctx.notify(`No agent "${agentId}" in the room.`, "error")
   const isDefault = state.defaultAgent === agentId
   const ctxUse = agent.contextUsage?.tokens != null
     ? ` · ${Math.round(agent.contextUsage.tokens / 1000)}K/${Math.round(agent.contextUsage.contextWindow / 1000)}K`
@@ -93,14 +93,14 @@ function runAgentAction(ctx: CommandContext, agent: RosterItem, isDefault: boole
   const id = agent.id
   switch (action) {
     case "edit":
-      return ctx.openOverlay({ kind: "editAgent", agentId: id })
+      return void ctx.openOverlay({ kind: "editAgent", agentId: id })
     case "prompt":
-      return ctx.openOverlay({ kind: "prompt", agentId: id })
+      return void ctx.openOverlay({ kind: "prompt", agentId: id })
     case "model":
       // The /model command owns the model→thinking picker chain.
       return void lookup("model")?.run(ctx, `@${id}`)
     case "steer":
-      return ctx.openOverlay({
+      return void ctx.openOverlay({
         kind: "textInput",
         title: `Steer @${id} — guidance lands mid-turn`,
         placeholder: "e.g. stop exploring, commit what you have",
@@ -133,7 +133,7 @@ function runAgentAction(ctx: CommandContext, agent: RosterItem, isDefault: boole
     case "kick":
       // The only destructive action in the menu — confirm first. Esc returns
       // to the agent's own menu, not all the way out.
-      return ctx.openOverlay({
+      return void ctx.openOverlay({
         kind: "select",
         title: `Kick ${agent.icon} ${agent.name} from the room?`,
         items: [

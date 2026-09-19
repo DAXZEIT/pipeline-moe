@@ -67,7 +67,7 @@ export function memberCard(
   // `color` comes off a preset document or a server-supplied persona template, so
   // it is only as reliable as whoever wrote that JSON. A missing one used to walk
   // straight into `.toLowerCase()`; here it just gets the first palette slot.
-  const draft: PresetPersona = { ...persona, color: persona.color || PALETTE[0]!, tools: [...persona.tools] }
+  const draft: PresetPersona = { ...persona, color: persona.color || PALETTE[0], tools: [...persona.tools] }
   let customModel = false
   let colorIdx = PALETTE.findIndex((c) => c.toLowerCase() === draft.color.toLowerCase())
   // -1 keeps a colour that is not in the palette rather than snapping to one.
@@ -109,9 +109,9 @@ export function memberCard(
 
   const finish = (): void => {
     const id = slugify(draft.id || draft.name)
-    if (!draft.name.trim()) return fail("Name is required.")
-    if (!id) return fail("Id is required.")
-    if (siblingIds.includes(id)) return fail(`Id "${id}" is already taken in this roster.`)
+    if (!draft.name.trim()) return void fail("Name is required.")
+    if (!id) return void fail("Id is required.")
+    if (siblingIds.includes(id)) return void fail(`Id "${id}" is already taken in this roster.`)
     // `skills: []` survives as an explicit opt-out (the hydration contract);
     // undefined keys are dropped by JSON.stringify on the wire.
     const skills = draft.skills === undefined ? undefined : draft.skills.map((s) => s.trim()).filter(Boolean)
@@ -156,11 +156,11 @@ export function memberCard(
           swatch: () => draft.color,
           left: () => {
             colorIdx = colorIdx === -1 ? 0 : (colorIdx - 1 + PALETTE.length) % PALETTE.length
-            draft.color = PALETTE[colorIdx]!
+            draft.color = PALETTE[colorIdx]
           },
           right: () => {
             colorIdx = colorIdx === -1 ? 0 : (colorIdx + 1) % PALETTE.length
-            draft.color = PALETTE[colorIdx]!
+            draft.color = PALETTE[colorIdx]
           },
         },
         ...TOOL_GROUPS.map(
@@ -391,7 +391,7 @@ export class ComposerComponent implements Component, Focusable {
       }
       // Two presses to discard. A composed team is minutes of work and esc is
       // one key away from every other key in this screen.
-      if (this.confirmDiscard) return deps.onClose()
+      if (this.confirmDiscard) return void deps.onClose()
       this.confirmDiscard = true
       return
     }
@@ -494,7 +494,7 @@ export class ComposerComponent implements Component, Focusable {
     } else {
       body.push(moreMarker(start > 0, "▲"))
       for (let i = start; i < end; i++) {
-        const p = this.personas[i]!
+        const p = this.personas[i]
         const cur = i === cursor && !this.naming
         const left = cur
           ? chalk.magenta.inverse(`▶ ${p.icon} ${p.id}`)

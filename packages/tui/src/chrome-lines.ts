@@ -85,6 +85,7 @@ const MAX_TITLE = 28
  *  the stricter one. The loop converges in one or two steps (the disagreement is
  *  a column or two, never more) and runs on ~7 lines per frame. */
 function fit(line: string, width: number): string {
+  // biome-ignore lint/suspicious/noControlCharactersInRegex: strip SGR ANSI codes (\x1b) — la séquence fait partie du texte terminal analysé
   const visible = (s: string): number => stringWidth(s.replace(/\x1b\[[0-9;]*m/g, ""))
   let target = width
   let out = truncateToWidth(line, target)
@@ -174,7 +175,7 @@ function statusLine(s: ChromeInput): string {
   // one color per meaning across the whole chrome.
   const routing = chalk.dim("   routing:") + (chalk as never as Record<string, (v: string) => string>)[
     ROUTING_COLOR[s.routingMode]
-  ]!(s.routingMode)
+  ](s.routingMode)
   const counts = chalk.dim(`  room:${s.roomId}  msgs:${s.messageCount}`)
   const drift = s.drift ? chalk.dim(`  preset:${s.drift.preset}`) + (s.drift.deviates ? chalk.yellow("*") : "") : ""
   // Tokens of the SHARED transcript (the GROUP context), counted once — NOT a

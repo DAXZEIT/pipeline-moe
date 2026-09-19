@@ -32,8 +32,11 @@ export function previewRouting(
 ): RoutingPreview {
   const mentioned = new Set<string>()
   const re = /@(\w+)/g
-  let m: RegExpExecArray | null
-  while ((m = re.exec(text)) !== null) mentioned.add(m[1].toLowerCase())
+  let m: RegExpExecArray | null = re.exec(text)
+  while (m !== null) {
+    mentioned.add(m[1].toLowerCase())
+    m = re.exec(text)
+  }
 
   const active = roster.filter((r) => r.active)
 

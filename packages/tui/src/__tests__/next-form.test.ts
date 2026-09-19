@@ -243,7 +243,7 @@ describe("cycle and chip rows", () => {
   })
 
   test("the chip cursor is shared across rows but clamped per row", () => {
-    let on = new Set<string>()
+    const on = new Set<string>()
     const form = new FormComponent({
       title: () => "t",
       color: "green",

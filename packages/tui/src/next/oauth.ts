@@ -56,7 +56,7 @@ export class OAuthPanelComponent implements Component, Focusable {
     this.input.onSubmit = (v: string): void => {
       const p = this.opts.progress()
       if (!p) return
-      if (isDone(p)) return this.opts.onDismiss()
+      if (isDone(p)) return void this.opts.onDismiss()
       const t = v.trim()
       if (t && wantsInput(p)) {
         this.opts.onSubmitInput(t)
@@ -79,7 +79,7 @@ export class OAuthPanelComponent implements Component, Focusable {
 
   handleInput(data: string): void {
     const p = this.opts.progress()
-    if (matchesKey(data, "escape")) return this.opts.onDismiss()
+    if (matchesKey(data, "escape")) return void this.opts.onDismiss()
     // Nothing to type into: ⏎ dismisses, and no other key should be swallowed
     // into an invisible buffer while "Waiting for authorization…" is on screen.
     if (!p || !wantsInput(p)) {

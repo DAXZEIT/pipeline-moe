@@ -132,6 +132,7 @@ export function Transcript({
         // truncate-end guarantees one display line per entry even when a
         // non-reflowable markdown block (code, table) exceeds the width —
         // Ink re-wrapping it would silently break the line accounting.
+        // biome-ignore lint/suspicious/noArrayIndexKey: start + i est l'index de ligne logique — stable pendant le scroll (start et i bougent en sens inverse), les lignes n'ont pas d'identité unique
         <Text key={start + i} bold={l.bold} color={l.color} dimColor={l.dim} wrap="truncate-end">
           {l.text || " "}
           {l.cursor ? <Text color="yellow"> ▌</Text> : null}

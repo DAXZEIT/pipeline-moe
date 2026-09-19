@@ -197,14 +197,14 @@ jobs:
       # script runs against.
       - run: npm ci
 
-      # Check mode, no --write. src/ is at zero errors AND zero warnings;
-      # biome exits non-zero only on errors, so this gates the whole src/
-      # rule set. Warnings are kept clean by convention and are one
-      # `--error-on-warnings` away from gating.
-      # Scope stays src/ (not `biome lint .`): site/ is untracked and must not
-      # gate; packages/ and web/ widen in their own steps when they go green
-      # (packages/ has a known backlog: 86 errors / 31 warnings).
-      - name: biome lint src/ (full rule set, errors gate)
+      # Check mode, no --write. src/ AND packages/ are at zero errors AND zero
+      # warnings; biome exits non-zero only on errors, so this gates the whole
+      # rule set for both trees. Warnings are kept clean by convention and are
+      # one `--error-on-warnings` away from gating.
+      # Scope stays `src/ packages/` (not `biome lint .`): site/ is untracked
+      # and must not gate; web/ widens in its own step when it goes green
+      # (web/ has a known backlog: 102 errors / 10 warnings, mostly a11y).
+      - name: biome lint src/ + packages/ (full rule set, errors gate)
         run: npm run lint
 
   deps:

@@ -85,13 +85,13 @@ describe("statusBadge", () => {
 
 describe("TOOL_ICON", () => {
   it("has icons for known tools", () => {
-    expect(TOOL_ICON["bash"]).toBe("⌘")
-    expect(TOOL_ICON["read"]).toBe("📖")
-    expect(TOOL_ICON["write"]).toBe("✎")
-    expect(TOOL_ICON["edit"]).toBe("✏️")
-    expect(TOOL_ICON["grep"]).toBe("🔍")
-    expect(TOOL_ICON["find"]).toBe("📁")
-    expect(TOOL_ICON["ls"]).toBe("📂")
+    expect(TOOL_ICON.bash).toBe("⌘")
+    expect(TOOL_ICON.read).toBe("📖")
+    expect(TOOL_ICON.write).toBe("✎")
+    expect(TOOL_ICON.edit).toBe("✏️")
+    expect(TOOL_ICON.grep).toBe("🔍")
+    expect(TOOL_ICON.find).toBe("📁")
+    expect(TOOL_ICON.ls).toBe("📂")
   })
 
   it("has 7 tool icons", () => {
@@ -247,7 +247,7 @@ describe("groupLine", () => {
     const g = groupActivity([{ ...call("bash", "ok", "1", { command: "x".repeat(60) }), durationMs: 42_100 }])[0]
     const plain = groupActivity([call("bash", "ok", "1", { command: "x".repeat(60) })])[0]
     expect(groupLine(g, 40).text.length).toBeLessThanOrEqual(groupLine(plain, 40).text.length)
-    expect(groupLine(g, 40).text).toMatch(/…  ok 42s$/)
+    expect(groupLine(g, 40).text).toMatch(/… {2}ok 42s$/)
   })
 
   it("error group renders red", () => {

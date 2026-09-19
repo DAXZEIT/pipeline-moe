@@ -126,8 +126,8 @@ export class PromptOverlayComponent implements Component, Focusable {
   }
 
   handleInput(data: string): void {
-    if (matchesKey(data, "escape")) return this.opts.onClose()
-    if (data === "e") return this.openEditor()
+    if (matchesKey(data, "escape")) return void this.opts.onClose()
+    if (data === "e") return void this.openEditor()
     const page = pageRows(this.rows())
     // The scroll bound needs the line count, which needs the width — which
     // `handleInput` is not given. The last render's wrap is the right answer

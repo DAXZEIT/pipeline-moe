@@ -134,6 +134,7 @@ const rowsOf: Rows = () => process.stdout.rows ?? 24
 const CLEAN = (chunk: string): string =>
   // Pastes and coalesced keystrokes arrive as one chunk with \r\n embedded; raw
   // control characters shred the box, so newlines become spaces and the rest go.
+  // biome-ignore lint/suspicious/noControlCharactersInRegex: les caractères de contrôle (\r\n\t, \x00-\x1f) sont exactement ce qu'on élimine des pastes
   chunk.replace(/[\r\n\t]+/g, " ").replace(/[\u0000-\u001f\u007f]/g, "")
 
 /** Break a chip row into as many lines as the width needs. Returns at least one
@@ -185,8 +186,8 @@ export function windowRows(
   // Down first: the action row is at the bottom of every form, and losing it is
   // worse than losing the title fields the user has already filled in.
   for (;;) {
-    const down = end < groups.length ? groups[end]!.lines : Infinity
-    const up = start > 0 ? groups[start - 1]!.lines : Infinity
+    const down = end < groups.length ? groups[end].lines : Infinity
+    const up = start > 0 ? groups[start - 1].lines : Infinity
     if (used + Math.min(down, up) > budget) break
     if (down <= up) {
       used += down
@@ -238,30 +239,30 @@ export class FormComponent implements Component, Focusable {
     if (ok.length === 0) return -1
     if (ok.includes(this.focus)) return this.focus
     const next = ok.find((i) => i >= this.focus)
-    return next ?? ok[ok.length - 1]!
+    return next ?? ok[ok.length - 1]
   }
 
   private move(rows: FormRow[], delta: number): void {
     const ok = this.focusable(rows)
     if (ok.length === 0) return
     const at = ok.indexOf(this.current(rows))
-    this.focus = ok[Math.max(0, Math.min(ok.length - 1, at + delta))]!
+    this.focus = ok[Math.max(0, Math.min(ok.length - 1, at + delta))]
   }
 
   handleInput(data: string): void {
     const rows = this.opts.rows()
-    if (matchesKey(data, "escape")) return this.opts.onCancel()
+    if (matchesKey(data, "escape")) return void this.opts.onCancel()
     const i = this.current(rows)
     const row = i >= 0 ? rows[i] : undefined
     if (!row) return
 
-    if (matchesKey(data, "up")) return this.move(rows, -1)
-    if (matchesKey(data, "down") || matchesKey(data, "tab")) return this.move(rows, +1)
+    if (matchesKey(data, "up")) return void this.move(rows, -1)
+    if (matchesKey(data, "down") || matchesKey(data, "tab")) return void this.move(rows, +1)
     if (matchesKey(data, "enter")) {
-      if (row.kind === "action") return this.opts.onSubmit()
-      if (row.kind === "cycle" && row.enter) return row.enter()
+      if (row.kind === "action") return void this.opts.onSubmit()
+      if (row.kind === "cycle" && row.enter) return void row.enter()
       if (row.kind === "text") row.onEnter?.()
-      return this.move(rows, +1)
+      return void this.move(rows, +1)
     }
 
     if (row.kind === "cycle") {
@@ -277,7 +278,7 @@ export class FormComponent implements Component, Focusable {
       else if (matchesKey(data, "right")) this.chipCursor = (this.chipCursor + 1) % n
       else if (data === " ") {
         this.error = null
-        row.toggle(row.items[Math.min(this.chipCursor, n - 1)]!)
+        row.toggle(row.items[Math.min(this.chipCursor, n - 1)])
       }
       return
     }
@@ -286,7 +287,7 @@ export class FormComponent implements Component, Focusable {
     if (matchesKey(data, "backspace")) {
       this.error = null
       // Code-point-safe: slice(0, -1) splits the emoji in an Icon field.
-      return row.update(backspaceText)
+      return void row.update(backspaceText)
     }
     // Chords belong to the app, not to the field.
     if (data.length > 1 && !/^[\u0020-\u007e\u00a0-\uffff]/.test(data)) return
@@ -361,14 +362,14 @@ export class FormComponent implements Component, Focusable {
     const focus = this.current(rows)
     const groups = rows.map((r, i) => this.renderRow(r, i === focus, inner))
     const budget = formBudget(this.rows(), this.error !== null)
-    const shapes = groups.map((lines, i) => ({ lines: lines.length, focusable: rows[i]!.kind !== "note" }))
+    const shapes = groups.map((lines, i) => ({ lines: lines.length, focusable: rows[i].kind !== "note" }))
     const focusIndex = focus >= 0 ? focus : 0
     const { start, end } = windowRows(shapes, focusIndex, budget)
     const clipped = start > 0 || end < groups.length
 
     const body: string[] = []
     if (clipped) body.push(moreMarker(start > 0, "▲"))
-    for (let i = start; i < end; i++) body.push(...groups[i]!)
+    for (let i = start; i < end; i++) body.push(...groups[i])
     if (clipped) body.push(moreMarker(end < groups.length, "▼"))
     if (this.error) body.push(fitLine(chalk.red(this.error), inner))
 

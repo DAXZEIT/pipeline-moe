@@ -109,10 +109,10 @@ export class SelectOverlayComponent implements Component, Focusable {
   }
 
   handleInput(data: string): void {
-    if (matchesKey(data, "escape")) return this.opts.onCancel()
+    if (matchesKey(data, "escape")) return void this.opts.onCancel()
     // A list with nothing to pick must never read as a stuck modal: any key
     // dismisses it. A filter with no match is different — that stays editable.
-    if (this.opts.items.length === 0) return this.opts.onCancel()
+    if (this.opts.items.length === 0) return void this.opts.onCancel()
     if (matchesKey(data, "backspace")) {
       if (this.query) this.query = this.query.slice(0, -1)
       return
@@ -243,7 +243,7 @@ export class TasksOverlayComponent implements Component, Focusable {
   }
 
   handleInput(data: string): void {
-    if (matchesKey(data, "escape") || matchesKey(data, "ctrl+p") || data === "q") return this.opts.onClose()
+    if (matchesKey(data, "escape") || matchesKey(data, "ctrl+p") || data === "q") return void this.opts.onClose()
     const visible = listRows(this.rows(), 14)
     const maxOffset = Math.max(0, this.sorted().length - visible)
     if (matchesKey(data, "up")) this.offset = Math.max(0, this.offset - 1)
@@ -272,6 +272,7 @@ export class TasksOverlayComponent implements Component, Focusable {
                     ? chalk.yellow.bold(`▶ ${t.subject}`)
                     : `☐ ${t.subject}`
               const owner = t.owner
+                // biome-ignore lint/style/noNonNullAssertion: colorOf(t.owner) testé non-null dans le ternaire juste au-dessus
                 ? (colorOf(t.owner) ? chalk.hex(colorOf(t.owner)!) : chalk.dim)(`@${t.owner}`)
                 : ""
               return twoColumn(label, owner, inner)
@@ -311,12 +312,12 @@ export class LineupOverlayComponent implements Component, Focusable {
   }
 
   handleInput(data: string): void {
-    if (matchesKey(data, "escape")) return this.opts.onClose()
-    if (data === "a") return this.opts.onAddAgent()
+    if (matchesKey(data, "escape")) return void this.opts.onClose()
+    if (data === "a") return void this.opts.onAddAgent()
     const roster = this.roster()
     if (roster.length === 0) return
     const i = Math.min(this.cursor, roster.length - 1)
-    const cur = roster[i]!
+    const cur = roster[i]
     const { actions } = this.opts.store
     if (matchesKey(data, "up")) this.cursor = Math.max(0, i - 1)
     else if (matchesKey(data, "down")) this.cursor = Math.min(roster.length - 1, i + 1)
@@ -324,7 +325,7 @@ export class LineupOverlayComponent implements Component, Focusable {
       const j = i + (data === "[" ? -1 : 1)
       if (j < 0 || j >= roster.length) return
       const order = roster.map((p) => p.id)
-      ;[order[i], order[j]] = [order[j]!, order[i]!]
+      ;[order[i], order[j]] = [order[j], order[i]]
       actions.reorderParticipants(order)
       this.cursor = j
     } else if (data === " ") actions.setActive(cur.id, !cur.active)
@@ -395,7 +396,7 @@ export class PresetPickerOverlayComponent implements Component, Focusable {
     const onNewRow = cursor === this.opts.presets.length
     const { store } = this.opts
 
-    if (matchesKey(data, "escape")) return this.opts.onCancel()
+    if (matchesKey(data, "escape")) return void this.opts.onCancel()
     if (matchesKey(data, "up")) {
       this.index = (cursor - 1 + total) % total
       return

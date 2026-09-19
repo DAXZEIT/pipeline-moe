@@ -149,7 +149,7 @@ export const THINKING_CYCLE: (string | undefined)[] = [undefined, "off", "minima
 export const VISION_CYCLE: (boolean | undefined)[] = [undefined, true, false]
 
 export function cycle<T>(order: readonly T[], current: T, delta: number): T {
-  const i = order.findIndex((v) => v === current)
+  const i = order.indexOf(current)
   const at = i === -1 ? 0 : i
   return order[(at + delta + order.length) % order.length]
 }

@@ -97,6 +97,7 @@ export function PromptOverlay({
       </Text>
       {!detail && !error ? <Text dimColor>Loading…</Text> : null}
       {visible.map((l, i) => (
+        // biome-ignore lint/suspicious/noArrayIndexKey: at + i est l'index de ligne logique — stable pendant le scroll, les lignes (strings) n'ont pas d'identité unique
         <Text key={at + i} wrap="truncate-end">
           {l.slice(0, width) || " "}
         </Text>

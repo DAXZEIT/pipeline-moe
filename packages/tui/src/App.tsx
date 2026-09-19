@@ -74,6 +74,7 @@ export function App({
   // retrying after a drop — so "was connected, isn't now" means reconnecting,
   // not just offline. Reset when the store (room) changes.
   const [everConnected, setEverConnected] = useState(false)
+  // biome-ignore lint/correctness/useExhaustiveDependencies: store en deps est le déclencheur voulu — reset d'everConnected au changement de pièce (commentaire ci-dessus), non une valeur utilisée dans l'effet
   useEffect(() => setEverConnected(false), [store])
   useEffect(() => {
     if (state.connected) setEverConnected(true)
@@ -137,6 +138,7 @@ export function App({
   const refreshRooms = useCallback(() => {
     api.listRooms().then(setRooms).catch(() => {})
   }, [api])
+  // biome-ignore lint/correctness/useExhaustiveDependencies: store en deps ré-arme le poll au changement de pièce (« refresh on connect/switch ») — intentionnel, retirer store casserait le refresh au switch
   useEffect(() => {
     refreshRooms()
     const t = setInterval(refreshRooms, 15_000)
@@ -546,6 +548,7 @@ export function App({
           progress={state.oauthProgress}
           isActive={!overlay}
           onDismiss={() => store.actions.dismissOAuth()}
+          // biome-ignore lint/style/noNonNullAssertion: rendu sous garde `{state.oauthProgress ? …}` — le champ existe forcément ici
           onSubmitInput={(value) => store.actions.submitOAuthInput(state.oauthProgress!.provider, value)}
         />
       ) : null}

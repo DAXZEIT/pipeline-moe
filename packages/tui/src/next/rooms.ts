@@ -17,5 +17,5 @@ export function nextRoomSlot(ids: string[], current: string, plusSelected: boole
   if (n === 0) return { kind: "plus" }
   const at = plusSelected ? n : Math.max(ids.indexOf(current), 0)
   const next = (at + dir + n + 1) % (n + 1)
-  return next === n ? { kind: "plus" } : { kind: "room", roomId: ids[next]! }
+  return next === n ? { kind: "plus" } : { kind: "room", roomId: ids[next] }
 }

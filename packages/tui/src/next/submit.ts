@@ -42,5 +42,5 @@ export const ROUTING_ORDER: RoutingMode[] = ["auto", "semi", "manual", "supervis
 
 export function nextRoutingMode(current: RoutingMode): RoutingMode {
   const i = ROUTING_ORDER.indexOf(current)
-  return ROUTING_ORDER[(i + 1) % ROUTING_ORDER.length]!
+  return ROUTING_ORDER[(i + 1) % ROUTING_ORDER.length]
 }

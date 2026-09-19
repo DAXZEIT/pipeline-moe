@@ -134,7 +134,7 @@ export function editAgentForm(agentId: string, store: RoomStore, deps: FormDeps)
               {
                 kind: "cycle",
                 label: "Color",
-                view: () => colors[colorIdx]! + (colorIdx === 0 ? " (current)" : ""),
+                view: () => colors[colorIdx] + (colorIdx === 0 ? " (current)" : ""),
                 swatch: () => colors[colorIdx],
                 left: () => (colorIdx = (colorIdx - 1 + colors.length) % colors.length),
                 right: () => (colorIdx = (colorIdx + 1) % colors.length),
@@ -158,7 +158,7 @@ export function editAgentForm(agentId: string, store: RoomStore, deps: FormDeps)
         store.actions
           .updateParticipant(agentId, {
             name: name.trim(),
-            color: colors[colorIdx]!,
+            color: colors[colorIdx],
             tools,
             ...(icon.trim() ? { icon: icon.trim() } : {}),
           })
@@ -367,7 +367,8 @@ export function roomForm(api: Api, deps: RoomFormDeps): FormComponent {
         api
           .createRoom({
             name,
-            ...(solo() ? { solo: true, ...(modelRef() ? { model: modelRef()! } : {}) } : selectedPreset() ? { preset: selectedPreset()!.name } : {}),
+            // biome-ignore lint/style/noNonNullAssertion: selectedPreset() testé non-null dans le ternaire — TS ne narrow pas les appels répétés
+            ...(solo() ? { solo: true, ...(modelRef() ? { model: modelRef() } : {}) } : selectedPreset() ? { preset: selectedPreset()!.name } : {}),
             ...(workspaceDir.trim() ? { workspaceDir: workspaceDir.trim() } : {}),
             ...(goal.trim() ? { goal: goal.trim() } : {}),
           })

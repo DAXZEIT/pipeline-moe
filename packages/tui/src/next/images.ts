@@ -151,5 +151,5 @@ function mimeOf(path: string): string {
 export function fromDataUri(uri: string): { base64: string; mime: string } {
   const m = uri.match(/^data:(image\/[a-z+]+);base64,(.+)$/)
   if (!m) throw new Error("unsupported data URI")
-  return { mime: m[1]!, base64: m[2]! }
+  return { mime: m[1], base64: m[2] }
 }

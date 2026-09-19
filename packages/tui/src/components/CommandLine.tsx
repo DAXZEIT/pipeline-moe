@@ -134,6 +134,7 @@ export function CommandLine({
   // new question (different options array) arrives.
   const [aIndex, setAIndex] = useState(0)
   const [aDismissed, setADismissed] = useState(false)
+  // biome-ignore lint/correctness/useExhaustiveDependencies: answerOptions en deps est le déclencheur voulu — reset du picker quand une nouvelle question arrive (commentaire ci-dessus)
   useEffect(() => {
     setAIndex(0)
     setADismissed(false)
@@ -229,6 +230,7 @@ export function CommandLine({
         }
         // The end marker's own ESC can sit inline in the chunk ("…q5\x1b[201~")
         // — the "[201~" search lands after it, so strip it off the payload.
+        // biome-ignore lint/suspicious/noControlCharactersInRegex: l'ESC orphelin collé au chunk de paste fait partie du protocole bracketed-paste analysé
         const payload = (pasteAccum.current + s.slice(0, end)).replace(/\x1b$/, "")
         pasteAccum.current = null
         insertAtCursor(payload)
@@ -238,6 +240,7 @@ export function CommandLine({
       if (bpStart !== -1) {
         // Text typed ahead of the paste in the same chunk (minus the orphan
         // ESC that Ink left glued to it) inserts normally first.
+        // biome-ignore lint/suspicious/noControlCharactersInRegex: l'ESC orphelin collé au chunk de paste fait partie du protocole bracketed-paste analysé
         const before = input.slice(0, bpStart).replace(/\x1b$/, "")
         const after = input.slice(bpStart + BP_START.length)
         const end = after.indexOf(BP_END)
@@ -246,7 +249,11 @@ export function CommandLine({
           pasteAccum.current = after
           return
         }
-        insertAtCursor(after.slice(0, end).replace(/\x1b$/, ""), before)
+        insertAtCursor(
+          // biome-ignore lint/suspicious/noControlCharactersInRegex: l'ESC orphelin collé au chunk de paste fait partie du protocole bracketed-paste analysé
+          after.slice(0, end).replace(/\x1b$/, ""),
+          before,
+        )
         return
       }
       // ⇧⇥ cycles routing anytime the command line owns the keyboard — checked
@@ -313,7 +320,7 @@ export function CommandLine({
       }
       if (key.escape) {
         if (shouldAbortOnEscape({ turnActive, hasOnAbort: !!onAbort, value, pendingImageCount })) {
-          onAbort!()
+          onAbort?.()
           return
         }
         onClearPending?.()
@@ -495,6 +502,7 @@ export function CommandLine({
             🤚 {pausedAskerId ? `@${pausedAskerId} asks — ` : ""}pick an answer or just type your own
           </Text>
           {opts.map((o, i) => (
+            // biome-ignore lint/suspicious/noArrayIndexKey: liste statique rendue une seule fois (pas de réordonnancement) — les options n'ont pas d'identité unique (doublons possibles)
             <Text key={i} color={i === aIndex ? "magenta" : undefined} inverse={i === aIndex}>
               {i === aIndex ? "▶ " : "  "}
               {i + 1} {o}

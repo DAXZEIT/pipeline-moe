@@ -220,6 +220,7 @@ export function PresetComposerOverlay({
       {personas.map((p, i) => {
         const cur = i === cursor && !naming
         return (
+          // biome-ignore lint/suspicious/noArrayIndexKey: p.id n'est pas garanti unique (preset édité à la main peut contenir des doublons) — l'index évite une collision de clés React
           <Box key={`${p.id}-${i}`} justifyContent="space-between">
             <Text color={cur ? "magenta" : undefined} inverse={cur} wrap="truncate-end">
               {cur ? "▶ " : "  "}
@@ -477,6 +478,7 @@ function MemberEditor({
       if (key.backspace || key.delete) return row.update(backspaceText)
       if (key.ctrl || key.meta) return
       if (input) {
+        // biome-ignore lint/suspicious/noControlCharactersInRegex: les caractères de contrôle (\r\n\t, \x00-\x1f) sont exactement ce qu'on élimine des pastes
         const clean = input.replace(/[\r\n\t]+/g, " ").replace(/[\u0000-\u001f\u007f]/g, "")
         if (clean) row.update((v) => v + clean)
       }

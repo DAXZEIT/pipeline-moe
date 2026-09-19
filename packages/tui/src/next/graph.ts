@@ -110,7 +110,7 @@ export class GraphOverlayComponent implements Component, Focusable {
   }
 
   handleInput(data: string): void {
-    if (matchesKey(data, "escape") || data === "q") return this.opts.onClose()
+    if (matchesKey(data, "escape") || data === "q") return void this.opts.onClose()
     // Switching view resets the scroll: the two reads have different lengths and
     // carrying an offset across lands you in the middle of a list you did not
     // scroll. (The Ink version kept one offset for both, and did land there.)

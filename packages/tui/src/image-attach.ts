@@ -38,7 +38,7 @@ export async function loadImageAttachment(rawPath: string): Promise<ImageAttachR
   const mime = IMAGE_EXT_MIME[ext]
   if (!mime) return { ok: false, error: `Unsupported image type ".${ext}" — use png, jpg, jpeg, webp, or gif.` }
 
-  let st
+  let st: Awaited<ReturnType<typeof stat>>
   try {
     st = await stat(path)
   } catch {

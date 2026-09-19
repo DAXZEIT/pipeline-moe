@@ -112,7 +112,7 @@ export function createShellRunner(deps: ShellDeps): (command: string) => void {
     }
     list.onSelect = (item): void => {
       close()
-      if (item.value !== "send") return keepPrivate()
+      if (item.value !== "send") return void keepPrivate()
       store().actions
         .postShellRecord(command, output, exit)
         .catch((err: unknown) =>
@@ -128,9 +128,9 @@ export function createShellRunner(deps: ShellDeps): (command: string) => void {
 
   return (command: string): void => {
     const ws = deps.workspaceDir()
-    if (!ws) return serverSide(command, "server didn't report a workspace — restart it if it predates 0.1.11")
-    if (!existsSync(ws)) return serverSide(command, "workspace not on this machine")
-    if (!process.stdin.isTTY) return serverSide(command, "no tty")
+    if (!ws) return void serverSide(command, "server didn't report a workspace — restart it if it predates 0.1.11")
+    if (!existsSync(ws)) return void serverSide(command, "workspace not on this machine")
+    if (!process.stdin.isTTY) return void serverSide(command, "no tty")
 
     const dir = mkdtempSync(join(tmpdir(), "pmoe-shell-"))
     const capture = join(dir, "capture")
@@ -158,7 +158,7 @@ export function createShellRunner(deps: ShellDeps): (command: string) => void {
       rmSync(dir, { recursive: true, force: true })
     } catch {}
 
-    if (res.error) return serverSide(command, "no `script` binary on this host")
+    if (res.error) return void serverSide(command, "no `script` binary on this host")
     askToShare(command, output, exitCodeOf(res, output))
   }
 }

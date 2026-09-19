@@ -25,6 +25,7 @@ export function RosterStrip({
   return (
     <Box flexDirection="column" paddingX={1}>
       {rows.map((r, i) => (
+        // biome-ignore lint/suspicious/noArrayIndexKey: lignes de strip sans identité unique (strings dupliquables), liste statique rendue une seule fois
         <Text key={i} wrap="truncate-end">
           {r}
         </Text>

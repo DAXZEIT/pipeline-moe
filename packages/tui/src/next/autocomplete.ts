@@ -46,7 +46,7 @@ export function slashPrefix(lines: string[], cursorLine: number, cursorCol: numb
 export function mentionPrefix(lines: string[], cursorLine: number, cursorCol: number): string | null {
   const before = (lines[cursorLine] ?? "").slice(0, cursorCol)
   const m = /(^|\s)(@[\w-]*)$/.exec(before)
-  return m ? m[2]! : null
+  return m ? m[2] : null
 }
 
 /** Every id an @mention can name: the active roster, plus @all. */

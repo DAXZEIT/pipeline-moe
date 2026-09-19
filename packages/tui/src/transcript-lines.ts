@@ -314,6 +314,7 @@ export function transcriptLines(
     // case it must still be drawn is a turn that wrote no prose at all, where
     // the body IS turnBody's placeholder — "(tool calls only — no text reply)"
     // and, on a salvaged turn, its marker.
+    // biome-ignore lint/style/noNonNullAssertion: interleaved truthy implique m.parts non-null (ligne 299 : m.parts?.length conditionne pushSequence)
     const proseDrawn = interleaved && m.parts!.some((p) => p.type === "text")
     if (m.text && !proseDrawn) {
       // Shell output is raw text — markdown rendering would mangle it
@@ -389,7 +390,7 @@ export function transcriptLines(
     // body: a cursor parked on the header would have to be removed once the
     // first body line arrived, which is the rewrite we just eliminated.
     const last = lines.length - 1
-    if (last > blockHead) lines[last] = { ...lines[last]!, cursor: true }
+    if (last > blockHead) lines[last] = { ...lines[last], cursor: true }
     lines.push({ text: "" })
   }
 

@@ -164,6 +164,7 @@ export function RoomForm({
       if (input) {
         // Pastes and coalesced keystrokes can arrive as one chunk with \r/\n
         // embedded — flatten newlines to spaces, drop other control chars.
+        // biome-ignore lint/suspicious/noControlCharactersInRegex: les caractères de contrôle (\r\n\t, \x00-\x1f) sont exactement ce qu'on élimine des pastes
         const clean = input.replace(/[\r\n\t]+/g, " ").replace(/[\u0000-\u001f\u007f]/g, "")
         if (clean) {
           setError(null)
