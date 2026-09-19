@@ -24,6 +24,10 @@
 // so the patch point and the gap it closes are both unchanged. 0.85 added an
 // ADDITIONAL terminate source (`beforeToolCall` may now set it too), which
 // only strengthens early termination; this guard stays necessary.
+//
+// That verification is now automated: src/__tests__/batch-terminate-guard-
+// invariant.test.ts drives the REAL pi run loop (and a real AgentSession)
+// with a scripted model and fails if any of the three premises above breaks.
 
 import type { AgentSession } from "@earendil-works/pi-coding-agent"
 
