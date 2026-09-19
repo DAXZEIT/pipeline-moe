@@ -7,8 +7,6 @@
  * Fix: use session.prompt() for idle sessions.
  */
 import { describe, expect, test } from "vitest"
-import { Participant } from "../participant.js"
-import type { TurnResult } from "../participant.js"
 import type { Persona } from "../types.js"
 
 function makePersona(id: string): Persona {
@@ -19,10 +17,6 @@ describe("Participant.followUp — session.isStreaming dispatch", () => {
   test("uses session.prompt() when session is idle (not streaming)", async () => {
     const persona = makePersona("planner")
     const calls: string[] = []
-    const expectedResult: TurnResult = {
-      text: "Here is my answer to your question.",
-      activity: [],
-    }
 
     // Stub a Participant-like object that records which session method was called.
     const stubParticipant = {

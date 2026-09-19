@@ -27,7 +27,15 @@ if (!process.env.VITEST) {
 }
 
 export const config = {
-  port: Number(process.env.PORT ?? 5300),
+  /** PORT=abc would otherwise surface as a cryptic listen() failure deep in
+   *  Express boot — fail fast with the offending value instead. */
+  port: (() => {
+    const p = Number(process.env.PORT ?? 5300)
+    if (Number.isNaN(p)) {
+      throw new Error(`PORT must be a number, got "${process.env.PORT}"`)
+    }
+    return p
+  })(),
   workspaceDir: process.env.WORKSPACE_DIR ?? process.cwd(),
   /** Where group conversations are persisted as JSON (one file per discussion). */
   sessionsDir: resolve(process.env.SESSIONS_DIR ?? resolve(process.cwd(), "sessions")),

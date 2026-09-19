@@ -941,6 +941,10 @@ async function main(): Promise<void> {
   // authorization code), keyed by provider. Resolved by the /login/input route,
   // rejected by DELETE /login (cancel) — rejecting is what makes pi's flow
   // abort and release the localhost callback port instead of waiting forever.
+  // Also bounded by OAUTH_INPUT_TIMEOUT_MS: a user who closes the OAuth panel
+  // mid-flow without cancelling would otherwise hold a promise (and pi's
+  // callback port) forever.
+  const OAUTH_INPUT_TIMEOUT_MS = 10 * 60 * 1000
   const pendingOAuthInputs = new Map<
     string,
     { resolve: (value: string) => void; reject: (err: Error) => void }
@@ -1011,7 +1015,26 @@ async function main(): Promise<void> {
               message: p.message,
               placeholder: p.placeholder,
             })
-            return await new Promise<string>((resolve, reject) => {
+            return await new Promise<string>((resolveInput, rejectInput) => {
+              // Timeout for an abandoned flow: drop the pending entry and fail
+              // the prompt so pi's login aborts and releases the callback
+              // port. resolve/reject are wrapped so every exit path (input
+              // route, cancel route, prompt abort) clears the timer.
+              const timeout = setTimeout(() => {
+                if (pendingOAuthInputs.get(providerName) === entry) {
+                  pendingOAuthInputs.delete(providerName)
+                }
+                rejectInput(new Error("Timed out waiting for OAuth input"))
+              }, OAUTH_INPUT_TIMEOUT_MS)
+              timeout.unref?.()
+              const resolve = (value: string) => {
+                clearTimeout(timeout)
+                resolveInput(value)
+              }
+              const reject = (err: Error) => {
+                clearTimeout(timeout)
+                rejectInput(err)
+              }
               const entry = { resolve, reject }
               myEntry = entry
               pendingOAuthInputs.set(providerName, entry)

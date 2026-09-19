@@ -145,7 +145,6 @@ describe("Room.followUpAgent", () => {
 
 describe("Ask_user resume path", () => {
   test("resume uses followUpAgent, not runAgent", () => {
-    const asker = { persona: { id: "builder", name: "Builder" } }
     const trimmed = "the answer is 42"
     const images: string[] = []
 

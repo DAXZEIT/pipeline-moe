@@ -1,5 +1,5 @@
 import type { Response } from "express"
-import { expect, test } from "vitest"
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest"
 import { SseHub } from "../sse.js"
 
 test("clientCount starts at 0", () => {
@@ -254,4 +254,71 @@ test("room lifecycle event is broadcast as 'room' SSE event type", () => {
   expect(writes[0]).toContain("event: room")
   expect(writes[0]).toContain("created")
   expect(writes[0]).toContain("cloud-sprint")
+})
+
+// ── Heartbeat ─────────────────────────────────────────────────────────────
+// A comment frame (`: ping`) every ~25 s keeps idle connections alive through
+// proxies that kill silent streams. Comments are ignored by EventSource
+// parsers (same as the initial `: connected`), so clients see no spurious events.
+
+describe("heartbeat", () => {
+beforeEach(() => {
+  vi.useFakeTimers()
+})
+
+afterEach(() => {
+  vi.useRealTimers()
+})
+
+function makeHeartbeatMockRes(writes: string[]) {
+  let closeHandler: (() => void) | undefined
+  const res = {
+    setHeader: () => {},
+    flushHeaders: () => {},
+    write: (data: string) => {
+      writes.push(data)
+    },
+    on: (event: string, handler: () => void) => {
+      if (event === "close") closeHandler = handler
+    },
+  } as unknown as Response
+  return { res, writes, close: () => closeHandler?.() }
+}
+
+test("two heartbeats arrive after two heartbeat intervals", () => {
+  const hub = new SseHub()
+  const { res, writes } = makeHeartbeatMockRes([])
+  hub.addClient(res)
+
+  // First ping at +1 interval, second at +2.
+  vi.advanceTimersByTime(25_000)
+  vi.advanceTimersByTime(25_000)
+
+  const pings = writes.filter((w) => w === ": ping\n\n")
+  expect(pings).toHaveLength(2)
+})
+
+test("heartbeat stops after the connection closes", () => {
+  const hub = new SseHub()
+  const { res, writes, close } = makeHeartbeatMockRes([])
+  hub.addClient(res)
+
+  vi.advanceTimersByTime(25_000)
+  expect(writes.filter((w) => w === ": ping\n\n")).toHaveLength(1)
+
+  close()
+  expect(hub.clientCount).toBe(0)
+
+  vi.advanceTimersByTime(100_000)
+  expect(writes.filter((w) => w === ": ping\n\n")).toHaveLength(1) // no new pings
+})
+
+test("heartbeat is configurable per hub", () => {
+  const hub = new SseHub(10, 5_000)
+  const { res, writes } = makeHeartbeatMockRes([])
+  hub.addClient(res)
+
+  vi.advanceTimersByTime(11_000)
+  expect(writes.filter((w) => w === ": ping\n\n")).toHaveLength(2)
+})
 })

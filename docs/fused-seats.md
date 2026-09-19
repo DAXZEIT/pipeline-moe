@@ -4,7 +4,10 @@
 > could carry builder+tester, another planner/auditor/scribe: separation
 > of powers without N contexts ballooning every turn"). Clustering
 > correction agreed same day: the auditor fuses with nobody. Sketch:
-> Claude Fable 5 (Claude Code). Status: design, not yet built.
+> Claude Fable 5 (Claude Code). Status: **phase 1 built 2026-07-12**
+> (`2d1b7fa`, ROADMAP #10) — seats, hats, `/seats`, the composer `seat` field
+> and the intra-seat self-switch all ship; the multi-hour prefill measurement
+> and the possible phase 2 (per-seat LoRA) remain open, see ROADMAP.
 
 ## The idea in one line
 

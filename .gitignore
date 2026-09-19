@@ -14,8 +14,10 @@ fetches/
 agent_memory/
 media/
 
-# Migrated Python tools (predate pipeline, not part of it)
+# Standalone Python side-projects kept in-tree (not part of the pipeline)
+# mdstrip: old standalone markdown-strip tool, kept for its history
 mdstrip/
+# temp_convert: toy Celsius↔Fahrenheit project, used as a shakedown fixture
 temp_convert/
 
 # Pi pipeline state
@@ -24,3 +26,7 @@ temp_convert/
 # Logs / OS cruft
 *.log
 .DS_Store
+
+# Scratch workspaces & UI prototypes (throwaway, not part of the product)
+workspace/shakedown*/
+web/prototype/

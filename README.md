@@ -81,7 +81,7 @@ setting). The default posture is your GPU, your data.
 Every seat is independently configurable: model + provider, system prompt,
 tool allowlist, skills, thinking level, vision, compaction instructions,
 parallel flag. A **preset** serializes the whole composition — roster,
-prompts, and review gates — as one shareable JSON file. Ten reference
+prompts, and review gates — as one shareable JSON file. Eighteen reference
 compositions ship in [`presets/`](presets/), from full-local (runs entirely
 on one 24 GB GPU, $0) to all-cloud sprint rosters.
 
@@ -139,7 +139,7 @@ exceeds the local model, swap one seat up and leave the rest alone.
 ## Architecture
 
 ```
-TUI (Ink)                Web UI (React + Vite)
+TUI (pi-tui)             Web UI (React + Vite)
     ╰──────── @pipeline-moe/client-core ────────╯
                     │  REST + SSE
                     ▼
@@ -161,7 +161,8 @@ its own tools, the shared transcript threaded into its prompt, the shared
 filesystem making every edit visible to the whole team.
 
 Two clients ship on a framework-agnostic core (`@pipeline-moe/client-core`):
-the **TUI** (`packages/tui`) — the flagship terminal client: multi-room,
+the **TUI** (`packages/tui`) — the flagship terminal client, built on pi-tui
+(the previous Ink client ships one more release as `pmoe-ink`): multi-room,
 slash commands, live markdown streaming, roster strip, task board, handoff
 approval — and the **web UI** (`web/`), the same rooms in the browser.
 

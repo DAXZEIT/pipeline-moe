@@ -1,5 +1,257 @@
 # Changelog
 
+## [Unreleased] — 2026-08-24
+
+### Fixed
+
+- **Path traversal in `/api/media/:filename` contained** (`91521f5`) — Express
+  percent-decodes params, so `..%2F..%2Ffoo.png` joined under `mediaDir()`
+  escaped it and served any readable image-extension file on disk
+  (localhost-only exposure). The route now uses the same `assertInside` guard
+  as the file tools; a traversal 404s instead of disclosing. Live-verified:
+  legit image 200, traversal to an existing file 404 (review 2026-08-24, #1).
+
+- **A Stop pressed while waiting for the local slot is no longer lost**
+  (`745ed0e`) — `executeAgent` registered the agent in `this.running` before
+  awaiting `localLock.acquire()`, so `abortCurrent()` ran `abort()` on a
+  session that never streamed (a no-op) and cleared the queue — yet the turn
+  started the moment the slot freed, running work the user had already
+  stopped. Window is real with `PIPELINE_LOCAL_SLOTS=1` and several rooms
+  (review 2026-08-24, #3). `this.aborted` is now checked after the
+  acquisition, before `target.run()` — a null (infra skip) is the honest
+  outcome, and chain serialization guarantees no new message can clear the
+  flag first. Regression test gates on the real LocalModelLock's waitCount.
+
+- **A Stop pressed while a hat waits for the seat lock is no longer lost**
+  (`2762fda`) — same class one layer down: `acquireTurn` is a plain
+  await-prev with no cancellation, and `promptRounds` reset the flag at round
+  start, so an abort delivered while a fused hat queued on its shared seat
+  was silently lost — when the seat freed, the hat ran its turn anyway
+  (review 2026-08-24, #8). `run()`/`followUp()` now consume the flag after
+  acquiring the seat and clear it in `finally`, so a stop consumed by a
+  streaming turn can never read as a wait-abort on the next turn.
+
+- **A room whose sshfs mount fails at boot is no longer live on the shared
+  workspace** (`16c1da8`) — `restoreRooms` fell back to
+  `workspaceDir = undefined` when `mountSshfs` threw, and `createRoom`
+  resolves an empty scope to the config workspace: a remote room whose remote
+  was down came up ACTIVE in the shared pipeline scope, logging "degraded
+  mode" as if that were intent (review 2026-08-24, #11). The restore is now
+  refused per entry — lossless (sessions/meta/conversations untouched, the
+  room stays in `listResumableRooms()` with its durable scope, and the
+  resume route re-mounts and surfaces a 400 on failure rather than degrading
+  silently); other rooms in the manifest still restore.
+
+### Added
+
+- **HTTP surface test suite** (`src/__tests__/server-http.test.ts`, +54
+  tests) — uncommitted at writing; lands with the room split below.
+
+- **`src/room.ts` split into `src/room/room-*.ts`** — the 2 000+ line room
+  module decomposed into per-concern files under `src/room/` (uncommitted at
+  writing).
+
+## [Unreleased] — 2026-07-28
+
+### Added
+
+- **`@pipeline-moe/preset-schema` — one definition of the preset format, and
+  a gate that can fail** (`d9a162a`) — the persona-as-persisted was defined
+  three times (`src/types.ts` runtime, `src/preset-hydration.ts` on-disk, and
+  a hand copy in `site/src/types.ts` that predates fused seats and omits
+  `seat`, `cursor` and `handoffGates`). The package (modelled on
+  client-core) is now the single definition: types, a non-transforming
+  validator with typed errors, and an emitted JSON Schema. TypeBox, not the
+  Zod that idea.md §6 suggested — typebox is already a root dependency and
+  emits JSON Schema natively, so one definition yields both deliverables
+  (field-by-field decisions in `docs/preset-schema.md`). The falsifiable
+  half is the negative control: 9 corruption classes × the 16 real preset
+  files, each asserted rejected at the expected error path (an all-permissive
+  schema passes the positive half — verified by actually loosening it, which
+  flips 5 of 9), and the JSON Schema compiled under Ajv 2020 in strict mode
+  and cross-checked to agree with `validatePreset`. **Built and verified
+  only, NOT adopted** — rewiring the server and site onto it and deleting the
+  hand copies is a separate chantier gated on review.
+
+### Fixed
+
+- **One entry is one row — a heredoc in a tool arg was moving the chrome**
+  (`f66b753`) — reported live by dax mid-run: `summarizeArgs` returned
+  `args.command` verbatim, so a heredoc or multi-line `node -e` put real
+  newlines into a string the TUI renders as ONE row; `truncateToWidth` waved
+  them through (a newline costs no display width) and pi-tui then diffed
+  every row below against the wrong index — the status bar's `room:…` landed
+  inside the conversation. Whitespace is now collapsed in client-core's
+  `summarizeArgs` (both clients describe the turn identically; the web
+  renderer collapsed whitespace in HTML and never saw it — which is why the
+  rule lives in client-core), the transcript's render boundary flattens any
+  straggler newline (showing ⏎), and `question` joins the summary keys so
+  `ask_user` stops printing its whole escaped payload.
+
+- **Provider tests stopped calling pi.dev** (`3bb3611`) — `PI_OFFLINE` in the
+  scratch fixture; the provider tests were hitting the network in CI.
+
+## [Unreleased] — 2026-07-27
+
+### Added
+
+- **TUI phase 6 flip — pmoe is the pi-tui client, Ink retreats to pmoe-ink**
+  (`1568c6a`) — `bin/pmoe.mjs` now loads the pi-tui client; the Ink client
+  stays reachable as `pmoe-ink` for one release, `pmoe-next` remains an
+  alias for the migration weeks' muscle memory. Both bins verified booting
+  against a live server. The flip, not the deletion: `src/components/` and
+  the react/ink dependencies go only after the week of real use has spoken,
+  and the optimization freeze on shared modules lifts at the deletion —
+  while pmoe-ink is the escape hatch, breaking a shared module breaks the
+  hatch with the client it escapes from. Phases 0–5 below; the plan with its
+  five gates: `docs/tui-pitui-migration-plan.md`.
+
+- **pi 0.80.6 → 0.82.1 — ModelRuntime replaces AuthStorage, and Qwen Token
+  Plan arrives** (`059aaed`) — dax subscribed to Qwen Token Plan and it was
+  invisible in pipeline-moe because the four pi packages were pinned to
+  0.80.6, which predates the provider. There is no provider list of our own
+  (`getProviderList` derives everything from pi's registry), so the fix was
+  the pin plus the API migration it drags in: `AuthStorage` is gone —
+  `ModelRuntime.create()` owns credentials AND the catalog, `ModelRegistry`
+  becomes a read-side wrapper (its synchronous reads serve the last refresh,
+  so `resolveModel` awaits one before first read or a cold start resolves to
+  no model at all), `createAgentSession` takes `modelRuntime`, and OAuth's
+  callback bag collapsed into `{ notify, prompt }` (the SSE wire format is
+  unchanged; the translation is a pure function in `oauth-events.ts` with
+  tests). Two traps the tests caught: `setRuntimeApiKey` is NOT persistence
+  (an in-memory, process-lifetime override — the persisting path is
+  `login(provider, "api_key", …)`, pinned by a test that rebuilds a runtime
+  over the same directory, the only shape of test that can fail on this),
+  and `login` rejecting unknown providers retired the `baseUrl` escape hatch
+  in `POST /api/providers/:name` — it let an unknown provider through and
+  stored a credential nothing could look up; a silent no-op became a thrown
+  error, so the route now 404s and says so. Verified on a scratch server:
+  38 providers, qwen-token-plan live out of the shared auth.json with 15
+  models, both guard paths 404, a real cloud turn replying PONG on
+  qwen3.6-flash.
+
+## [Unreleased] — 2026-07-26
+
+### Added
+
+- **TUI migration to pi-tui, phases 0–5** (`3517b1d`, `afcec7f`, `9aaa90d`,
+  `902e290`, `5de1d27`, `c162b4f`) — two clients on one client-core, never a
+  big bang: the Ink client froze while `pmoe-next` grew phase by phase, each
+  phase held to five gates (fullRedraws === 1 through a streaming turn, no
+  history rewrite, framed lines exactly terminal width, both clients green,
+  client-core untouched). The measured reason for the whole migration: pi
+  does not scroll, it prints — Ink's React-tree reconciliation was clearing
+  the terminal scrollback. Phase 0: one transcript renderer serving both
+  clients, and the finalization rewrite that made turn completion a
+  bounded, known set of line rewrites. Phase 1: the chrome moves below the
+  conversation. Phase 2: pi-tui's `Editor` takes the input — multiline,
+  prompt history, kill-ring, undo, paste markers and grapheme segmentation
+  stop being ours to maintain; the slash palette and @mention completion
+  become a pure function of the draft, and the paste-dispatch guard
+  (session mrff3qwe) survives — half of it now theirs (bracketed paste is
+  buffered until the end marker). Phase 3: the five generic overlays on
+  pi-tui's overlay system (9 anchors, percentage sizing, real stacking) —
+  registry overlays REPLACE rather than stack, deliberately: the registry
+  compensates for a single-modal client with onCancel callbacks that reopen
+  the parent by hand, and pushing would leave Esc popping to a parent while
+  onCancel reopened it — two parents, one a ghost. Phase 4: the four forms
+  on one engine instead of four keyboard loops (`next/form.ts`, five row
+  kinds) — it windows on its own budget because pi-tui's maxHeight TRUNCATES
+  rather than shrinks, and one width ruler now (pi-tui's: string-width
+  miscounts `▶` as East-Asian Ambiguous, so a focused row shipped one column
+  short of its own border). Phase 5: parity, plus the one thing Ink could
+  never do — images that actually render inline on kitty/iTerm2 graphics
+  protocols (sequence + rows-1 blanks, no prefix inside the graphics
+  sequence, cached `Image` instances so the differ doesn't re-compare a
+  megabyte of base64 per token), the handoff graph, the $EDITOR round trip,
+  the OAuth panel, the QCM picker, room switching. 1 775 tests green at
+  phase 5 (+70), gates held throughout.
+
+- **The orchestrator console — a console that can SEE the pipeline before it
+  commands it** (`dde32dc`, grilling in `docs/orchestrator-room.md`) — the
+  `/solo` room stops being a lone pi with file tools: outside the routing
+  machinery (nothing dispatches into it, it hands off to no one) while
+  holding the tools that create, inspect, halt and answer every other room.
+  The control half was nearly free — roomManager already injects the same
+  orchestrator into every room's Registry; the observation half did not
+  exist, and commanding without observing makes the decision this seat
+  exists for — "local is saturated, put this one on cloud" — unmakeable. So
+  `pipeline_status` lands first and is NOT allowlist-gated (an allowlist
+  entry would leave every planner in every preset on disk commanding blind
+  until its file was hand-edited — the same reason the task tools and
+  handoff are context-gated), and the grant second: `spawn_room` gains
+  `solo` + `model`. `LocalModelLock` now counts to `config.localSlots` and
+  names its holders — an occupancy report is only as true as the lock.
+  Verified end to end: a solo console called pipeline_status, spawned
+  preset "pi-audited", and was woken by the sub-room's report when its goal
+  completed.
+
+- **The roster-from-scratch was never a missing tool, it was a missing
+  playbook** (`0e129c4`) — `spawn_room` takes a preset NAME, and composing a
+  team means writing `presets/<name>.json` first — which already works, but
+  the nomenclature has traps that produce a room which RUNS and is wrong.
+  `skills/roster-author/SKILL.md` documents them: `rehydrateSeedFields`
+  resolves systemPrompt/skills only for the seven seed ids (an invented id
+  inherits NOTHING — and `purePi` is per-seat, so a five-agent roster of
+  invented ids is five copies of bare pi in different colours, no error
+  anywhere); `downgradeModels` falls back rather than failing (a
+  hallucinated model ref is invisible → pipeline_status is step 0). Two
+  shipping bugs found while wiring, fixed in the same commit because a
+  playbook that does not ship is not a playbook: `skills/` was absent from
+  package.json "files" (the orchestrator skill had never reached an npm
+  install), and `config.skillsDir` named a directory that does not exist on
+  install (now falls back to the bundled dir).
+
+- **Room destroy cascades to the subtree, deepest first** (`f24fa19`).
+
+## [Unreleased] — 2026-07-25
+
+### Added
+
+- **Interleaved turns — the transcript renders in the order things happened**
+  (`d3605e7`, `5e66447`, `8c98cab`, `9afd0bf`, `8c6a0ea`; design
+  `docs/interleaved-turns.md`) — a turn's chronology was destroyed at
+  COLLECTION, not at rendering: two `+=` for the whole turn (text_delta →
+  buffer, thinking_delta → reasoningBuffer) meant reason → tool → reason →
+  reply arrived as one reasoning blob, one text blob and a tool list, with
+  no ordering relation between them — the grouped CoT-box / tool-box /
+  text-box layout was not a design choice, it was the only thing the data
+  supports. The seams are visible in persisted history: a reasoning blob
+  reading "…safe to push.Root typecheck passed…" is a missing space at a
+  `+=` seam. `src/turn-parts.ts` (TurnSegmenter) runs alongside the buffers
+  and records one part per contiguous run of same-type deltas, one per tool
+  call, in arrival order — boundary is a delta-type flip, deliberately NOT
+  pi's assistant-message boundary event. Purely additive: text/reasoning/
+  activity are unchanged (what buildContext, the room gauge and the receipts
+  read), `parts` is presentation metadata the renderers fall back from when
+  absent — which is every entry already in `sessions/`. Both clients then
+  render chronologically; per-tool duration is drawn only when it says
+  something, and thought renders gray with a gutter so it stops reading like
+  the reply.
+
+- **CI: the release gate becomes an invariant** (`3f2b3d2`, `22701fa`,
+  `7243981`) — typecheck, tests, tarballs, pi lockstep, held on every run;
+  the first run found that web needs the root install and that the memory
+  tests assert on a gitignored dir. Engines aligned on pi's floor: node
+  >=22.19.0 (the declared floor was fiction — pi requires 22.19), tests stop
+  shipping in the published packages and are held in CI instead.
+
+## [Unreleased] — 2026-07-22
+
+### Added
+
+- **Seat controls from the WebUI** (`eafb55b`) — `/seats` discoverable + ⋯
+  menu actions; fused seats parity with the TUI.
+
+### Fixed
+
+- **`personaStates` derives seat from `fused()`, not the stale field**
+  (`94cb63e`) — the roster could disagree with the fused() clustering after
+  a mid-conversation reseat.
+
+- **The input soft-wraps long lines instead of clipping with …**
+  (`da35fc8`).
+
 ## [Unreleased] — 2026-07-21
 
 ### Added
@@ -20,6 +272,45 @@
     ranked ledger with bars). A grid was tried and dropped — emoji column widths never
     align in a terminal, and the snake reads better anyway. A hop back to the user is
     untyped, not a handoff.
+
+## [Unreleased] — 2026-07-12
+
+### Added
+
+- **Fused seats phase 1 — role hats on shared contexts** (`2d1b7fa`; design
+  and glossary `docs/fused-seats.md`; ROADMAP #10) — the persona becomes a
+  **hat** (role prompt + tool allowlist, applied per turn); the context
+  becomes a **seat** (one pi session shared by a cluster of hats).
+  Separation of powers stays hard — the seat's tool surface is the union of
+  its hats, gated dynamically at execution time against the current hat (a
+  blur is a refused tool call, never an unauthorised action) — while the
+  room stops paying N times for the same ground truth. The Seat owns the
+  session, the hats borrow it per turn: one multi-role system prompt
+  (stable, cache-friendly), a thin ≤400-char hat header per turn, per-hat
+  sections carrying that hat's `agent_memory` lessons, and labelled-union
+  compaction instructions. The hat switch intra-seat is a SELF-switch —
+  prompt + auto-accept, never delegation: a fused hat narrating a handoff
+  toward its own seat is theatre (the context is already theirs) AND a
+  decision the supervisor must not judge; the trace stamps `— hat switch
+  (<seat> seat, context carried)`, grepable as the re-derivation metric.
+  Phase-1 invariant: all hats of a seat resolve to the same modelRef —
+  mixing local/cloud kills the cache gain, so a violation is a loud warning
+  plus a safe defuse (seat == persona), never silent. The auditor never
+  fuses: on audit, the shared context is contamination, not economy.
+  Surfaces: `seat?: string` on the persona (opt-in; the mapping is born into
+  the persisted roster, so an edited preset affects only future rooms),
+  `/seats` in the live room (fuse/solo, live seats join the running session,
+  departed sessions stay orphaned on disk — never adopted, never deleted),
+  and the `seat` row in the composer member card. **Live-verified on :5399**
+  (preset seat-arena, maker = builder+tester): the tester's turn cost 322
+  chars of prompt and 1 tool call (the legitimate verification read)
+  against a baseline of 83 calls / 130K chars of reasoning to re-derive the
+  builder's state; re-verified A/B on the 27B (seat-arena vs
+  seat-arena-defused, same goal) — zero capability degradation (93%/93%).
+  Honest caveat logged in ROADMAP: a 3-turn toy run cannot discriminate the
+  prefill gain (45s vs 50s is noise); the decisive measurement is a
+  multi-hour engineering discussion, and the A/B presets are committed for
+  it.
 
 ## [Unreleased] — 2026-07-11
 

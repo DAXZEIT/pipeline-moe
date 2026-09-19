@@ -21,7 +21,9 @@ describe('New features smoke test', () => {
   })
 
   it('formatReceipt and work_receipt in room.ts', () => {
-    const source = fs.readFileSync(path.resolve(__dirname, '../room.ts'), 'utf8')
+    // The Room implementation lives in src/room/ (layered inheritance chain)
+    // — the pipeline code this greps is in room-core.ts.
+    const source = fs.readFileSync(path.resolve(__dirname, '../room/room-core.ts'), 'utf8')
     expect(source).toContain('function formatReceipt')
     expect(source).toContain('work_receipt')
     expect(source).toContain('sendCustomMessage')

@@ -1,5 +1,11 @@
 # Migrating the TUI to pi-tui — execution plan
 
+> Status: **built — flipped 2026-07-27** (`1568c6a`, phase 6). `pmoe` is the
+> pi-tui client; Ink survives one release as `pmoe-ink`. Phase 6's deletion
+> step (Ink tree, react/ink deps, `src/next/` → `src/`) is deliberately still
+> open — the week of real use must speak first. Per-phase statuses are
+> annotated inline below.
+
 Prerequisite reading: `docs/tui-pitui-prototype.md` (what was measured and why),
 `docs/tui-lessons-from-pi.md` (the original comparison). This plan turns that
 inventory into an order of operations.

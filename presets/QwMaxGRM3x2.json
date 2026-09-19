@@ -1,0 +1,118 @@
+{
+  "name": "QwMaxGRM3x2",
+  "personas": [
+    {
+      "id": "planner",
+      "name": "Planner",
+      "color": "#f5c211",
+      "icon": "🧭",
+      "tools": [
+        "read",
+        "grep",
+        "find",
+        "ls",
+        "write",
+        "edit",
+        "bash"
+      ],
+      "model": "qwen-token-plan/qwen3.8-max-preview",
+      "seat": "orchestrator",
+      "thinkingLevel": "high",
+      "active": true,
+      "parallel": false,
+      "cursor": 25
+    },
+    {
+      "id": "scribe",
+      "name": "Scribe",
+      "color": "#F09975",
+      "icon": "✏️",
+      "tools": [
+        "read",
+        "write",
+        "edit",
+        "grep",
+        "find",
+        "ls"
+      ],
+      "model": "qwen-token-plan/qwen3.8-max-preview",
+      "seat": "orchestrator",
+      "active": true,
+      "parallel": false,
+      "cursor": 25
+    },
+    {
+      "id": "builder",
+      "name": "Builder",
+      "color": "#EF9F27",
+      "icon": "🔨",
+      "tools": [
+        "read",
+        "bash",
+        "edit",
+        "write",
+        "grep",
+        "find",
+        "ls"
+      ],
+      "model": "local/GRM 2.6",
+      "seat": "builder-tester",
+      "active": true,
+      "parallel": true,
+      "cursor": 22
+    },
+    {
+      "id": "tester",
+      "name": "Tester",
+      "color": "#97C459",
+      "icon": "🧪",
+      "tools": [
+        "read",
+        "bash",
+        "grep",
+        "find",
+        "ls"
+      ],
+      "model": "local/GRM 2.6",
+      "seat": "builder-tester",
+      "active": true,
+      "parallel": false,
+      "cursor": 22
+    },
+    {
+      "id": "scout",
+      "name": "Scout",
+      "color": "#5DCAA5",
+      "icon": "🔍",
+      "tools": [
+        "read",
+        "grep",
+        "find",
+        "ls"
+      ],
+      "model": "qwen-token-plan/qwen3.8-max-preview",
+      "seat": "find-audit",
+      "active": true,
+      "parallel": false,
+      "cursor": 24
+    },
+    {
+      "id": "auditor",
+      "name": "Auditor",
+      "color": "#AFA9EC",
+      "icon": "🛡️",
+      "tools": [
+        "read",
+        "grep",
+        "find",
+        "ls",
+        "bash"
+      ],
+      "model": "qwen-token-plan/qwen3.8-max-preview",
+      "seat": "find-audit",
+      "active": true,
+      "parallel": false,
+      "cursor": 24
+    }
+  ]
+}

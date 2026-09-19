@@ -25,15 +25,28 @@ export type SseEventName =
 
 export const DEFAULT_SSE_MAX_CLIENTS = 10
 
+/** Interval between SSE comment heartbeats (`: ping`). Proxies and load
+ *  balancers often drop connections that go silent for tens of seconds —
+ *  a comment frame keeps the stream warm without emitting any event the
+ *  clients dispatch on (both the browser EventSource and the `eventsource`
+ *  npm package ignore comment lines per the SSE spec, like the existing
+ *  `: connected` frame). */
+export const DEFAULT_SSE_HEARTBEAT_INTERVAL_MS = 25_000
+
 export class SseHub {
   /**
-   * Map from Response to the roomId this client is subscribed to.
-   * undefined = global subscriber (receives all events).
-   * string    = room-filtered subscriber (receives events for that room + global events).
+   * Map from Response to this client's subscription state.
+   * roomId: undefined = global subscriber (receives all events),
+   *         string    = room-filtered subscriber (matching room + global events).
+   * heartbeat: timer writing periodic `: ping` comments until the connection
+   *            closes.
    */
-  private clients = new Map<Response, string | undefined>()
+  private clients = new Map<Response, { roomId: string | undefined; heartbeat: ReturnType<typeof setInterval> }>()
 
-  constructor(readonly maxClients: number = DEFAULT_SSE_MAX_CLIENTS) {}
+  constructor(
+    readonly maxClients: number = DEFAULT_SSE_MAX_CLIENTS,
+    readonly heartbeatIntervalMs: number = DEFAULT_SSE_HEARTBEAT_INTERVAL_MS,
+  ) {}
 
   /**
    * Register a new SSE client.
@@ -53,8 +66,24 @@ export class SseHub {
     res.setHeader("X-Accel-Buffering", "no")
     res.flushHeaders?.()
     res.write(`: connected\n\n`)
-    this.clients.set(res, roomId)
-    res.on("close", () => this.clients.delete(res))
+    const heartbeat = setInterval(() => {
+      try {
+        res.write(`: ping\n\n`)
+      } catch {
+        this.removeClient(res)
+      }
+    }, this.heartbeatIntervalMs)
+    heartbeat.unref?.() // never keep the process alive on its own
+    this.clients.set(res, { roomId, heartbeat })
+    res.on("close", () => this.removeClient(res))
+  }
+
+  /** Drop a client: clear its heartbeat timer and forget it. */
+  private removeClient(res: Response): void {
+    const client = this.clients.get(res)
+    if (!client) return
+    clearInterval(client.heartbeat)
+    this.clients.delete(res)
   }
 
   /**
@@ -66,16 +95,16 @@ export class SseHub {
    */
   broadcast(event: SseEventName, data: unknown, roomId?: string): void {
     const frame = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`
-    for (const [res, clientRoomId] of this.clients) {
+    for (const [res, client] of this.clients) {
       // Skip if this client has a room filter AND the event targets a different room.
       // Events with no roomId (global lifecycle events) reach everyone.
-      if (clientRoomId !== undefined && roomId !== undefined && clientRoomId !== roomId) {
+      if (client.roomId !== undefined && roomId !== undefined && client.roomId !== roomId) {
         continue
       }
       try {
         res.write(frame)
       } catch {
-        this.clients.delete(res)
+        this.removeClient(res)
       }
     }
   }

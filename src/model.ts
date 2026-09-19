@@ -154,7 +154,10 @@ export function downgradeUnavailableModels(
 export function resolveModelRef(resolved: ResolvedModel, allowCloud: boolean, ref?: string): ResolvedModel["model"] {
   if (!ref) return resolved.model
   const { provider, id } = splitRef(ref)
-  if (provider !== "local" && !allowCloud) {
+  // A bare id (no provider) is not "non-local" — only apply the local-only
+  // policy when a provider is actually named. The empty-provider lookup below
+  // then misses and falls back with the "not found" warning.
+  if (provider && provider !== "local" && !allowCloud) {
     console.warn(
       `[model] persona model "${ref}" is non-local and cloud is disabled — using default instead.`,
     )

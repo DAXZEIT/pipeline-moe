@@ -47,7 +47,10 @@
     "build:web": "npm -C web run build",
     "prepack": "npm -C web run build",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "lint": "biome lint src/",
+    "lint:fix": "biome lint src/ --write",
+    "format": "biome format --write src/"
   },
   "dependencies": {
     "@earendil-works/pi-agent-core": "0.82.1",
@@ -62,6 +65,7 @@
     "youtube-transcript-plus": "^2.0.0"
   },
   "devDependencies": {
+    "@biomejs/biome": "^2.5.14",
     "@pipeline-moe/client-core": "^0.1.14",
     "@types/cors": "^2.8.17",
     "@types/express": "^4.17.21",
