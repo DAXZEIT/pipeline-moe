@@ -122,7 +122,7 @@ class TranscriptComponent implements Component {
       // upstream (summarizeArgs), but the guarantee belongs at the boundary that
       // depends on it, and ⏎ shows where a line was folded instead of hiding it.
       const flat = paint(l).replace(/\r\n|[\r\n]/g, chalk.dim(" ⏎ "))
-      out.push(" " + truncateToWidth(flat + (l.cursor ? chalk.yellow(" ▌") : ""), w))
+      out.push(` ${truncateToWidth(flat + (l.cursor ? chalk.yellow(" ▌") : ""), w)}`)
     }
     return out
   }

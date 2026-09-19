@@ -33,7 +33,7 @@ export function SelectOverlay({
 
   const q = query.toLowerCase()
   const filtered = q
-    ? items.filter((it) => (it.label + " " + (it.hint ?? "")).toLowerCase().includes(q))
+    ? items.filter((it) => (`${it.label} ${it.hint ?? ""}`).toLowerCase().includes(q))
     : items
   // Clamp instead of resetting state: the list can shrink under the cursor.
   const cursor = Math.min(index, Math.max(0, filtered.length - 1))

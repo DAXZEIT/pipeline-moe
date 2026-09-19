@@ -119,7 +119,7 @@ async function searchMode(query: string, count: number, freshness?: string): Pro
 
     const header = `You.com search results for "${query}" (${results.length} results)`
     return {
-      content: [{ type: "text", text: header + "\n\n" + results.join("\n\n") }],
+      content: [{ type: "text", text: `${header}\n\n${results.join("\n\n")}` }],
       details: undefined,
     }
   } catch (err) {
@@ -170,7 +170,7 @@ async function researchMode(query: string): Promise<AgentToolResult<undefined>> 
     const sources = body.sources ?? []
 
     const content = answer.length > MAX_CONTENT_LENGTH
-      ? answer.slice(0, MAX_CONTENT_LENGTH) + "\n\n[research truncated — " + answer.length + " chars total]"
+      ? `${answer.slice(0, MAX_CONTENT_LENGTH)}\n\n[research truncated — ${answer.length} chars total]`
       : answer
 
     const lines: string[] = [

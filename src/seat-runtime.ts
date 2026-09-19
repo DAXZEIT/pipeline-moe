@@ -120,7 +120,7 @@ async function readLogbook(workspaceDir: string, personaId: string): Promise<str
   try {
     await access(memoryPath, constants.R_OK)
     const raw = await readFile(memoryPath, "utf-8")
-    return raw.length > 4096 ? raw.slice(0, 4096) + "… (truncated)" : raw
+    return raw.length > 4096 ? `${raw.slice(0, 4096)}… (truncated)` : raw
   } catch {
     return "" // No memory file — fine, first run or not yet populated.
   }

@@ -156,7 +156,7 @@ function truncToWidth(text: string, width: number): string {
   }
   const sp = out.lastIndexOf(" ")
   if (sp >= Math.floor((width - 1) / 2)) out = out.slice(0, sp)
-  return out + "…"
+  return `${out}…`
 }
 
 /** Adjacent cells sharing a fused seat, grouped. Non-adjacent same-seat cells

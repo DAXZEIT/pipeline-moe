@@ -105,7 +105,7 @@ export function OAuthPanel({
           <Box>
             <Text color="yellow">› </Text>
             {value ? (
-              <Text>{value.length > 60 ? "…" + value.slice(-59) : value}</Text>
+              <Text>{value.length > 60 ? `…${value.slice(-59)}` : value}</Text>
             ) : (
               <Text dimColor>{progress.placeholder ?? "paste the redirect URL here if needed"}</Text>
             )}

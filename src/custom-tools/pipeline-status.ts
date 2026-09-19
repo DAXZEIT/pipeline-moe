@@ -39,7 +39,7 @@ function pad(s: string, width: number): string {
  *  break every row below it. */
 function oneLine(s: string, width: number): string {
   const flat = s.replace(/\s+/g, " ").trim()
-  return flat.length > width ? flat.slice(0, width - 1) + "…" : flat
+  return flat.length > width ? `${flat.slice(0, width - 1)}…` : flat
 }
 
 /** Render the census as an aligned text table. Text over JSON, same reasoning

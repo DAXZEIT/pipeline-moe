@@ -584,7 +584,7 @@ export abstract class RoomCore {
         : exitCode !== 0 && exitCode !== null
           ? `\n(exit ${exitCode})`
           : ""
-    const text = `$ ${command}\n${clipped.trimEnd() || "(no output)"}` + suffix
+    const text = `$ ${command}\n${clipped.trimEnd() || "(no output)"}${suffix}`
     const entry = this.post("shell", "Shell", text)
     void this.saveCurrent()
     return entry
@@ -651,7 +651,7 @@ export abstract class RoomCore {
     const to = this.registry.takeHandoff(selfId)
     if (!to || to === selfId) return []
     const p = this.registry.get(to)
-    if (!p || !p.active) return []
+    if (!p?.active) return []
     return [p]
   }
 
@@ -728,7 +728,7 @@ export abstract class RoomCore {
       return
     }
     const target = this.registry.get(targetAgentId)
-    if (!target || !target.active) {
+    if (!target?.active) {
       this.notice(
         `Sub-room report posted, but @${targetAgentId} is not available to act on it.`,
         "info",
@@ -812,7 +812,7 @@ export abstract class RoomCore {
 
       // Force-route to the agent that asked the question.
       const asker = this.registry.get(pq.askerId)
-      if (!asker || !asker.active) {
+      if (!asker?.active) {
         this.notice(
           `@${pq.askerId} is no longer active — resuming held queue.`,
           "info",

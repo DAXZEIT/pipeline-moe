@@ -173,7 +173,7 @@ export class RoomManager {
     // Resolve the room's scope to an absolute path. Empty/undefined = the
     // pipeline workspace (default, backward-compatible behavior). For sshfs
     // rooms the caller already passes the absolute local mountpoint.
-    const scope = workspaceDir && workspaceDir.trim()
+    const scope = workspaceDir?.trim()
       ? resolve(workspaceDir.trim())
       : config.workspaceDir
 

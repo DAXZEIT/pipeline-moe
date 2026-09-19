@@ -467,7 +467,7 @@ async function main(): Promise<void> {
           const tail = newRoom
             .getTranscript()
             .slice(-4)
-            .map((e) => `  ${e.authorName}: ${e.text.length > 300 ? e.text.slice(0, 300) + "…" : e.text}`)
+            .map((e) => `  ${e.authorName}: ${e.text.length > 300 ? `${e.text.slice(0, 300)}…` : e.text}`)
             .join("\n")
           parentLink.report(
             `📬 Sub-room "${name}" (roomId: ${roomId}) — goal ${status}.\n\n` +
@@ -1182,7 +1182,7 @@ async function main(): Promise<void> {
         if ("defaultThinkingLevel" in body) {
           const validLevels = ["off", "minimal", "low", "medium", "high", "xhigh"]
           if (!validLevels.includes(body.defaultThinkingLevel)) {
-            res.status(400).json({ error: "`defaultThinkingLevel` must be one of: " + validLevels.join(", ") })
+            res.status(400).json({ error: `\`defaultThinkingLevel\` must be one of: ${validLevels.join(", ")}` })
             return
           }
           r.setDefaultThinkingLevel(body.defaultThinkingLevel)
@@ -1641,7 +1641,7 @@ async function main(): Promise<void> {
     const roster = registry.roster()
     const agentsUsing = roster.filter((p) => {
       const model = p.model
-      return model && model.startsWith(`${name}/`)
+      return model?.startsWith(`${name}/`)
     }).map((p) => p.name)
 
     try {

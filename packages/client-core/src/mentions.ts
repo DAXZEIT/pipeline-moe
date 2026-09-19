@@ -51,7 +51,7 @@ export function previewRouting(
   const dropped: string[] = []
   for (const id of mentioned) {
     const p = roster.find((r) => r.id === id)
-    if (p && p.active) targetIds.push(id)
+    if (p?.active) targetIds.push(id)
     else dropped.push(id)
   }
   return { kind: "mentions", targetIds, dropped }

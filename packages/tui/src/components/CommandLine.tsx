@@ -284,7 +284,7 @@ export function CommandLine({
         if (key.meta || (c > 0 && v[c - 1] === "\\")) {
           exitHistory()
           const at = key.meta ? c : c - 1
-          setDraft(v.slice(0, at) + "\n" + v.slice(c), at + 1)
+          setDraft(`${v.slice(0, at)}\n${v.slice(c)}`, at + 1)
           return
         }
         // Markers expand here, at the last moment — everything downstream
@@ -296,7 +296,7 @@ export function CommandLine({
         if (text || (pendingImageCount ?? 0) > 0) {
           // While the palette is open, Enter runs the highlighted command
           // (so "/r"⏎ on ▶/resume runs /resume, not the ambiguous "/r").
-          if (matches.length > 0) onCommand("/" + matches[idx].matched)
+          if (matches.length > 0) onCommand(`/${matches[idx].matched}`)
           else if (text.startsWith("/")) onCommand(text)
           else if (text.startsWith("!") && onShell) {
             const cmd = text.slice(1).trim()
@@ -321,7 +321,7 @@ export function CommandLine({
         return
       }
       if (matches.length > 0 && key.tab) {
-        const next = "/" + matches[idx].matched + " "
+        const next = `/${matches[idx].matched} `
         setDraft(next, next.length)
         setPIndex(0)
         return
@@ -527,7 +527,7 @@ export function CommandLine({
             // markdown lines) — nested <Text> runs inside a flex row get
             // fragmented widths from Yoga and wrap into vertical rubble.
             const body = isCursorRow
-              ? line.slice(0, cCol) + "\x1b[7m" + (line[cCol] ?? " ") + "\x1b[27m" + line.slice(cCol + 1)
+              ? `${line.slice(0, cCol)}\x1b[7m${line[cCol] ?? " "}\x1b[27m${line.slice(cCol + 1)}`
               : line || " "
             const trailer = isLastVisible
               ? (modeHint ? `  ${modeHint}` : "") +

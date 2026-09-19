@@ -182,6 +182,31 @@ jobs:
             exit 1
           fi
 
+  lint:
+    name: lint (biome)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      # biome is a root devDependency; the lockfile install is what the lint
+      # script runs against.
+      - run: npm ci
+
+      # Check mode, no --write. The rest of the lint surface is still red
+      # (21 errors in src/ alone at introduction), so a whole-repo lint gate
+      # would fail on pre-existing diagnostics — this job gates the two rules
+      # raised to error in biome.json for this chantier: useTemplate and
+      # useOptionalChain stay at zero without a human running --unsafe fixes
+      # by hand. Widen to `npx biome lint .` once the remaining errors are
+      # cleared.
+      - name: biome lint (gated rules, check mode)
+        run: npx biome lint --only=style/useTemplate --only=complexity/useOptionalChain .
+
   deps:
     name: pi packages pinned in lockstep
     runs-on: ubuntu-latest

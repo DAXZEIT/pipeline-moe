@@ -81,7 +81,7 @@ if (inputLog) {
     const chunk = origRead(size)
     if (chunk != null) {
       try {
-        appendFileSync(inputLog, JSON.stringify(String(chunk)) + "\n")
+        appendFileSync(inputLog, `${JSON.stringify(String(chunk))}\n`)
       } catch {}
     }
     return chunk

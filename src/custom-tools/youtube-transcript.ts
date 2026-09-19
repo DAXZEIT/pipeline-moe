@@ -87,7 +87,7 @@ async function fetchTranscript(videoInput: string): Promise<AgentToolResult<unde
 
     // Truncate to avoid context explosion.
     const text = content.length > MAX_CONTENT_LENGTH
-      ? content.slice(0, MAX_CONTENT_LENGTH) + "\n\n[transcript truncated — " + content.length + " chars total]"
+      ? `${content.slice(0, MAX_CONTENT_LENGTH)}\n\n[transcript truncated — ${content.length} chars total]`
       : content
 
     return {

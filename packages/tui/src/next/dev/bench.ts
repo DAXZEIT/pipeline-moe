@@ -67,7 +67,7 @@ const MESSAGES = history(HISTORY)
 
 /** The line array both renderers are handed, for a stream of `chars` chars. */
 function linesAt(chars: number): Line[] {
-  const streamed = (LOREM + " ").repeat(20).slice(0, chars)
+  const streamed = (`${LOREM} `).repeat(20).slice(0, chars)
   return transcriptLines(
     {
       messages: MESSAGES,
@@ -164,7 +164,7 @@ function benchPiTui(): { bytes: number; writes: number; fullRedraws: number } {
 function eraseLines(count: number): string {
   let clear = ""
   for (let i = 0; i < count; i++) {
-    clear += "\x1b[2K" + (i < count - 1 ? "\x1b[1A" : "")
+    clear += `\x1b[2K${i < count - 1 ? "\x1b[1A" : ""}`
   }
   if (count) clear += "\x1b[G"
   return clear
@@ -191,10 +191,10 @@ function benchInk(): { bytes: number; writes: number; clears: number } {
     if (output === lastOutput) return
     if (windowed.length >= ROWS) {
       // ink.js: outputHeight >= rows → clearTerminal, every frame.
-      write("\x1b[2J\x1b[3J\x1b[H" + output)
+      write(`\x1b[2J\x1b[3J\x1b[H${output}`)
       clears += 1
     } else {
-      write(eraseLines(previousLineCount) + output + "\n")
+      write(`${eraseLines(previousLineCount) + output}\n`)
     }
     previousLineCount = windowed.length + 1
     lastOutput = output
@@ -213,7 +213,7 @@ function benchInk(): { bytes: number; writes: number; clears: number } {
 const total = linesAt(TOKENS * 5).length
 const a = benchPiTui()
 const b = benchInk()
-const fmt = (n: number): string => (n / 1024).toFixed(1).padStart(9) + " KiB"
+const fmt = (n: number): string => `${(n / 1024).toFixed(1).padStart(9)} KiB`
 
 console.log(`
 Streaming ${TOKENS} tokens into a ${HISTORY}-message conversation (${total} display lines)

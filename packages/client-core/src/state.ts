@@ -526,7 +526,7 @@ export function reduce(state: RoomState, event: SseEvent): ReduceResult {
       if (data.type === "device_code") {
         effect = { type: "notice", msg: `OAuth for ${data.provider}: visit ${data.verificationUri}, enter code ${data.userCode}`, level: "info" }
       } else if (data.type === "auth_url") {
-        effect = { type: "notice", msg: `OAuth for ${data.provider}: ${data.instructions || "visit " + data.url}`, level: "info" }
+        effect = { type: "notice", msg: `OAuth for ${data.provider}: ${data.instructions || `visit ${data.url}`}`, level: "info" }
       } else if (data.type === "prompt") {
         effect = { type: "notice", msg: `OAuth ${data.provider}: ${data.message ?? "input required"}`, level: "info" }
       } else if (data.type === "progress") {

@@ -113,7 +113,7 @@ function tabsLine(s: ChromeInput): string {
   const hint = chalk.dim(s.plusSelected ? "  ⏎ create / resume" : "  ←→ switch")
   const title =
     s.conversationTitle && s.conversationTitle.length > MAX_TITLE
-      ? s.conversationTitle.slice(0, MAX_TITLE - 1) + "…"
+      ? `${s.conversationTitle.slice(0, MAX_TITLE - 1)}…`
       : s.conversationTitle || "—"
   return ` ${tabs.join(" ")} ${plus}${hint}${chalk.dim("  · 💬 ")}${chalk.cyan(title)}`
 }
@@ -139,7 +139,7 @@ function taskLines(tasks: RoomTask[]): string[] {
 function noticeLines(notices: Notice[]): string[] {
   return notices.slice(-3).map((n) => {
     const line = `${n.level === "error" ? "✗ " : "› "}${n.msg}`
-    return " " + (n.level === "error" ? chalk.red(line) : chalk.gray(line))
+    return ` ${n.level === "error" ? chalk.red(line) : chalk.gray(line)}`
   })
 }
 
@@ -217,7 +217,7 @@ export function chromeLines(s: ChromeInput, width: number): string[] {
     // The strip builds itself to `w`, so the one-column indent has to come out
     // of its budget rather than be added on top of it.
     ...(s.roster.length > 0
-      ? renderStrip(stripCells(s.roster, s.runningAgentId, Math.max(0, w - 1), s.defaultModel)).map((r) => " " + r)
+      ? renderStrip(stripCells(s.roster, s.runningAgentId, Math.max(0, w - 1), s.defaultModel)).map((r) => ` ${r}`)
       : []),
     ...taskLines(s.tasks),
     ...noticeLines(s.notices),

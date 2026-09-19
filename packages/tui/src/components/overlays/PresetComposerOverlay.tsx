@@ -528,7 +528,7 @@ function MemberEditor({
         if (row.kind === "text") {
           const long = row.label === "prompt" || row.label === "compaction"
           const val = row.get()
-          const shown = long && i !== focus && val.length > 60 ? val.slice(0, 57) + "…" : val
+          const shown = long && i !== focus && val.length > 60 ? `${val.slice(0, 57)}…` : val
           return (
             <Box key={row.label}>
               {marker(i)}

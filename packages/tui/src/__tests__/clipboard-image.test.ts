@@ -47,7 +47,7 @@ describe("readClipboardImage", () => {
       if (file === "wl-paste" && args[0] === "--type" && args[1] === "image/png") {
         return { stdout: Buffer.from(PNG_B64, "base64") }
       }
-      throw new Error("unexpected call: " + JSON.stringify({ file, args }))
+      throw new Error(`unexpected call: ${JSON.stringify({ file, args })}`)
     })
     const r = await readClipboardImage()
     expect(r.ok).toBe(true)
@@ -76,7 +76,7 @@ describe("readClipboardImage", () => {
       if (file === "wl-paste") throw Object.assign(new Error("not found"), { code: "ENOENT" })
       if (file === "xclip" && args.includes("TARGETS")) return { stdout: "image/png\n" }
       if (file === "xclip" && args.includes("image/png")) return { stdout: Buffer.from(PNG_B64, "base64") }
-      throw new Error("unexpected: " + JSON.stringify({ file, args }))
+      throw new Error(`unexpected: ${JSON.stringify({ file, args })}`)
     })
     const r = await readClipboardImage()
     expect(r.ok).toBe(true)

@@ -55,8 +55,8 @@ export function groupLine(g: ActivityGroup, argWidth: number): { text: string; c
   const dur = toolDuration(g.items)
   const args = g.items.map(summarizeArgs).filter(Boolean).join(", ")
   const budget = Math.max(10, argWidth - (dur ? dur.length + 1 : 0))
-  const truncated = args.length > budget ? args.slice(0, budget - 1) + "…" : args
+  const truncated = args.length > budget ? `${args.slice(0, budget - 1)}…` : args
   const count = g.items.length > 1 ? ` ×${g.items.length}` : ""
   const tail = `  ${badge.text}${dur ? ` ${dur}` : ""}`
-  return { text: `  ${icon} ${g.toolName}${count}${truncated ? " " + truncated : ""}${tail}`, color: badge.color }
+  return { text: `  ${icon} ${g.toolName}${count}${truncated ? ` ${truncated}` : ""}${tail}`, color: badge.color }
 }

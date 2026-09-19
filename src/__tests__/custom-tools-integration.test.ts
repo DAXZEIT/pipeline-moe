@@ -190,20 +190,20 @@ describe("SearXNG URL construction", () => {
 describe("Snippet truncation", () => {
   test("short snippet is not truncated", () => {
     const content = "A short snippet"
-    const truncated = content.length > 200 ? content.slice(0, 200) + "…" : content
+    const truncated = content.length > 200 ? `${content.slice(0, 200)}…` : content
     expect(truncated).toBe(content)
   })
 
   test("long snippet is truncated with ellipsis", () => {
     const content = "A".repeat(300)
-    const truncated = content.length > 200 ? content.slice(0, 200) + "…" : content
+    const truncated = content.length > 200 ? `${content.slice(0, 200)}…` : content
     expect(truncated.length).toBe(201) // 200 chars + 1 ellipsis
     expect(truncated.endsWith("…")).toBe(true)
   })
 
   test("exactly 200 chars is not truncated", () => {
     const content = "A".repeat(200)
-    const truncated = content.length > 200 ? content.slice(0, 200) + "…" : content
+    const truncated = content.length > 200 ? `${content.slice(0, 200)}…` : content
     expect(truncated.length).toBe(200)
   })
 })

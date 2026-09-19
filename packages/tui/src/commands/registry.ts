@@ -287,7 +287,7 @@ export const COMMANDS: Command[] = [
         title: "Commands",
         items: COMMANDS.map((c) => ({
           id: c.name,
-          label: `/${c.name}${c.usage ? " " + c.usage : ""}`,
+          label: `/${c.name}${c.usage ? ` ${c.usage}` : ""}`,
           hint: commandHint(c),
         })),
         onSelect: () => ctx.closeOverlay(),
@@ -945,7 +945,7 @@ export function matchCommands(head: string): CommandMatch[] {
 export function commandPaletteLabel(m: CommandMatch): string {
   const aliases = m.command.aliases?.map((a) => (a === m.matched ? m.command.name : a)).join(", ")
   const aliasLabel = aliases ? `(${aliases})` : ""
-  return `/${m.matched}${aliasLabel}${m.command.usage ? " " + m.command.usage : ""}`
+  return `/${m.matched}${aliasLabel}${m.command.usage ? ` ${m.command.usage}` : ""}`
 }
 
 function commandHint(c: Command): string {

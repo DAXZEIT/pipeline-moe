@@ -70,7 +70,7 @@ function wrap(text: string, width: number): string[] {
         word = word.slice(width)
       }
       if (!line) line = word
-      else if (line.length + 1 + word.length <= width) line += " " + word
+      else if (line.length + 1 + word.length <= width) line += ` ${word}`
       else {
         out.push(line)
         line = word

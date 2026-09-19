@@ -123,7 +123,7 @@ export abstract class RoomGoals extends RoomSettings {
    *  so there is no recursion. */
   protected async runGoalEval(): Promise<void> {
     const evaluator = this.registry.get(this.goalEvaluator)
-    if (!evaluator || !evaluator.active) {
+    if (!evaluator?.active) {
       // No evaluator available — fall back to auto-completion rather than hang
       // the goal in "running" forever.
       this.notice(

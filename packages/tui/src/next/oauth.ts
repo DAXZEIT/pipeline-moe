@@ -101,7 +101,7 @@ export class OAuthPanelComponent implements Component, Focusable {
 
     if (p.status === "device_code") {
       if (p.verificationUri) {
-        body.push(fitLine("Visit " + chalk.cyan.underline(link(p.verificationUri, p.verificationUri)), inner))
+        body.push(fitLine(`Visit ${chalk.cyan.underline(link(p.verificationUri, p.verificationUri))}`, inner))
         body.push(fitLine(chalk.dim(link(clickHint, p.verificationUri)), inner))
       }
       body.push(fitLine(`Enter code ${chalk.yellow.bold(p.userCode ?? "")}`, inner))

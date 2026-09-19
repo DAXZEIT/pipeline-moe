@@ -76,7 +76,7 @@ describe("OAuthPanelComponent", () => {
 
   test("a URL longer than the box survives whole — Ink showed only its last 59 chars", () => {
     const { c, onSubmitInput } = make(authUrl)
-    const url = "https://claude.ai/callback?code=" + "z".repeat(200)
+    const url = `https://claude.ai/callback?code=${"z".repeat(200)}`
     for (const ch of url) c.handleInput(ch)
     // On screen it scrolls (pi-tui's Input owns that); what matters is that the
     // value the flow receives is the whole thing.

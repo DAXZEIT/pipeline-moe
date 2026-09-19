@@ -126,7 +126,7 @@ const SIZES: number[] = SAVED
 
 /** The streaming tail — one agent mid-reply. Every measurement below carries
  *  one, because a frame with no live message is not a frame anyone waits on. */
-const TAIL = (LOREM + " ").repeat(3)
+const TAIL = (`${LOREM} `).repeat(3)
 
 function input(messages: Message[]): Parameters<typeof transcriptLines>[0] {
   return {
@@ -156,7 +156,7 @@ function buildFrame(messages: Message[], width: number): string[] {
 function paintLines(lines: Line[], w: number): string[] {
   const out: string[] = []
   for (const l of lines) {
-    out.push(" " + truncateToWidth(paint(l) + (l.cursor ? chalk.yellow(" ▌") : ""), w))
+    out.push(` ${truncateToWidth(paint(l) + (l.cursor ? chalk.yellow(" ▌") : ""), w)}`)
   }
   return out
 }

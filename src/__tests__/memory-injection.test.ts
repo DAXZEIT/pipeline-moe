@@ -67,7 +67,7 @@ describe("memory injection", () => {
     let memoryNote = ""
     if (existsSync(memoryPath)) {
       const raw = readFileSync(memoryPath, "utf-8")
-      const content = raw.length > 4096 ? raw.slice(0, 4096) + "… (truncated)" : raw
+      const content = raw.length > 4096 ? `${raw.slice(0, 4096)}… (truncated)` : raw
       memoryNote = `\nYOUR MEMORY (agent_memory/${personaId}.md):\n${content}\n` +
         "---\n(End of memory — updated by the scribe. After compaction, this is refreshed.)\n"
     }

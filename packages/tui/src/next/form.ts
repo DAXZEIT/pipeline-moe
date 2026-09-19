@@ -308,7 +308,7 @@ export class FormComponent implements Component, Focusable {
       }
       case "text": {
         const value = row.get()
-        const shown = row.long && !focused && value.length > 60 ? value.slice(0, 57) + "…" : value
+        const shown = row.long && !focused && value.length > 60 ? `${value.slice(0, 57)}…` : value
         const hint = row.hint?.()
         const body = shown
           ? shown + (focused ? chalk.green("▌") : "")
@@ -335,7 +335,7 @@ export class FormComponent implements Component, Focusable {
         const first = wrapChips(chips, inner, "")
         // The label owns the first line's left margin; continuation lines line up
         // under the chips rather than under the label.
-        return [fitLine(head + (first[0] ?? ""), inner), ...first.slice(1).map((l) => fitLine("    " + l, inner))]
+        return [fitLine(head + (first[0] ?? ""), inner), ...first.slice(1).map((l) => fitLine(`    ${l}`, inner))]
       }
     }
   }

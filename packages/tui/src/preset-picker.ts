@@ -6,7 +6,7 @@ import type { PresetFile } from "@pipeline-moe/client-core"
  *  render it identically. */
 export function presetSummary(preset: PresetFile): string {
   const n = preset.personas.length
-  return preset.personas.map((p) => p.icon).join("") + `  ${n} agent${n === 1 ? "" : "s"}`
+  return `${preset.personas.map((p) => p.icon).join("")}  ${n} agent${n === 1 ? "" : "s"}`
 }
 
 /** How many list rows vs preview persona rows fit in the terminal, given the

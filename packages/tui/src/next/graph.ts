@@ -179,7 +179,7 @@ export function traceRows(chain: HandoffChainStep[], start: number, count: numbe
   const nameW = Math.max(0, ...chain.map((s) => visible(seatLabel(s))))
   return chain.slice(start, start + count).map((s, k) => {
     const i = start + k
-    const n = chalk.dim(padStart(String(i + 1), idxW)) + "  "
+    const n = `${chalk.dim(padStart(String(i + 1), idxW))}  `
     const arrow = i === 0 ? "  " : chalk[s.type ? TYPE_COLOR[s.type] : "gray"].bold("↳ ")
     const name = chalk.hex(s.color)(pad(seatLabel(s), nameW))
     const tail =

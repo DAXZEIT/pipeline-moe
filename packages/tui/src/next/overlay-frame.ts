@@ -81,15 +81,15 @@ export function frame(o: FrameOptions, width: number): string[] {
   const pad = (s: string): string => {
     const fitted = fitLine(s, inner)
     const gap = inner - visible(fitted)
-    return paint("│") + " " + fitted + " ".repeat(Math.max(0, gap)) + " " + paint("│")
+    return `${paint("│")} ${fitted}${" ".repeat(Math.max(0, gap))} ${paint("│")}`
   }
-  const titleRow = chalk.bold(paint(o.title)) + (o.titleRight ? chalk.dim("  " + o.titleRight) : "")
+  const titleRow = chalk.bold(paint(o.title)) + (o.titleRight ? chalk.dim(`  ${o.titleRight}`) : "")
   return [
-    paint("╭" + "─".repeat(w - 2) + "╮"),
+    paint(`╭${"─".repeat(w - 2)}╮`),
     pad(titleRow),
     ...o.body.map(pad),
     pad(chalk.dim(o.hint)),
-    paint("╰" + "─".repeat(w - 2) + "╯"),
+    paint(`╰${"─".repeat(w - 2)}╯`),
   ]
 }
 

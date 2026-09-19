@@ -31,7 +31,7 @@ export function RoomTabs({
 }) {
   const shownTitle =
     conversationTitle && conversationTitle.length > MAX_TITLE
-      ? conversationTitle.slice(0, MAX_TITLE - 1) + "…"
+      ? `${conversationTitle.slice(0, MAX_TITLE - 1)}…`
       : conversationTitle || "—"
   return (
     <Box paddingX={1} flexWrap="wrap">

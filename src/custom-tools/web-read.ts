@@ -57,7 +57,7 @@ async function readUrl(url: string): Promise<AgentToolResult<undefined>> {
 
     // Truncate to avoid context explosion.
     const content = data.content.length > MAX_CONTENT_LENGTH
-      ? data.content.slice(0, MAX_CONTENT_LENGTH) + "\n\n[content truncated — " + data.content.length + " chars total]"
+      ? `${data.content.slice(0, MAX_CONTENT_LENGTH)}\n\n[content truncated — ${data.content.length} chars total]`
       : data.content
 
     const lines = [

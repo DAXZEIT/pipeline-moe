@@ -134,7 +134,7 @@ async function searchArxiv(query: string, maxResults: number, categories: string
 
       // Truncate abstract.
       const truncatedAbstract = abstract.length > ABSTRACT_MAX
-        ? abstract.slice(0, ABSTRACT_MAX) + "..."
+        ? `${abstract.slice(0, ABSTRACT_MAX)}...`
         : abstract
 
       return [
@@ -149,7 +149,7 @@ async function searchArxiv(query: string, maxResults: number, categories: string
 
     const header = `arXiv search results for "${query}" (${results.length} papers found)`
     return {
-      content: [{ type: "text", text: header + "\n\n" + results.join("\n\n") }],
+      content: [{ type: "text", text: `${header}\n\n${results.join("\n\n")}` }],
       details: undefined,
     }
   } catch (err) {

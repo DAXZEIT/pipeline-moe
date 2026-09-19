@@ -446,7 +446,7 @@ is unclear.`
 // ─── Compose final prompts ─────────────────────────────────────────────────
 
 function buildPrompt(overlay: string): string {
-  return BASE_PROMPT + "\n" + overlay
+  return `${BASE_PROMPT}\n${overlay}`
 }
 
 // ─── Goal-eval loop prompt ─────────────────────────────────────────────────

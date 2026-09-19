@@ -304,7 +304,7 @@ export function RoomForm({
           </Text>
           {"  "}
           <Text color="cyan">{shortModel(p.model) ?? "default"}</Text>
-          {p.tools.length ? <Text dimColor>{"  " + p.tools.join(" ")}</Text> : null}
+          {p.tools.length ? <Text dimColor>{`  ${p.tools.join(" ")}`}</Text> : null}
         </Text>
       ))}
       {hidden > 0 ? <Text dimColor>{`      … +${hidden} more agents`}</Text> : null}

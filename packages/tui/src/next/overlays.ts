@@ -457,9 +457,9 @@ export class PresetPickerOverlayComponent implements Component, Focusable {
       rows.push(chalk.dim("Opens the composer on an empty roster — a add member, s save."))
     } else {
       for (const p of shown) {
-        const tools = p.tools.length ? chalk.dim("  " + p.tools.join(" ")) : ""
+        const tools = p.tools.length ? chalk.dim(`  ${p.tools.join(" ")}`) : ""
         rows.push(
-          fitLine(chalk.hex(p.color)(`${p.icon} ${p.name}`) + "  " + chalk.cyan(shortModel(p.model) ?? "default") + tools, inner),
+          fitLine(`${chalk.hex(p.color)(`${p.icon} ${p.name}`)}  ${chalk.cyan(shortModel(p.model) ?? "default")}${tools}`, inner),
         )
       }
       if (hidden > 0) rows.push(chalk.dim(`  … +${hidden} more agents`))

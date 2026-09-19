@@ -70,7 +70,7 @@ describe("renderPipelineStatus", () => {
 
   test("long ids break alignment rather than losing characters", () => {
     // A truncated roomId is an id the agent cannot pass back to check_room.
-    const long = "solo-" + "x".repeat(40)
+    const long = `solo-${"x".repeat(40)}`
     expect(renderPipelineStatus(status({ rooms: [room(long), room("a")] }))).toContain(long)
   })
 

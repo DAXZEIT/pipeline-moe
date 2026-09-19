@@ -70,7 +70,7 @@ describe("frame", () => {
   test("ANSI in the body does not count toward the width", () => {
     // Otherwise a coloured agent name would be truncated as though the escape
     // codes were visible characters.
-    const painted = chalk.hex("#4A90D9")("🔍 Scout") + "  " + chalk.cyan("GRM 2.6")
+    const painted = `${chalk.hex("#4A90D9")("🔍 Scout")}  ${chalk.cyan("GRM 2.6")}`
     const ls = frame({ title: "t", body: [painted], hint: "h", color: "cyan" }, 40)
     expect(plain(ls[2]!)).toContain("GRM 2.6")
     expect(vis(ls[2]!)).toBe(40)

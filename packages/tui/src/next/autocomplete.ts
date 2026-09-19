@@ -109,7 +109,7 @@ export class PmoeAutocompleteProvider implements AutocompleteProvider {
     // A command is not: for a command WITHOUT arguments the Editor submits
     // straight after applying, and a trailing space would be the only thing
     // between the name and a send.
-    const insert = item.value.startsWith("@") ? item.value + " " : item.value
+    const insert = item.value.startsWith("@") ? `${item.value} ` : item.value
     const line = lines[cursorLine] ?? ""
     const start = Math.max(0, cursorCol - prefix.length)
     const next = [...lines]

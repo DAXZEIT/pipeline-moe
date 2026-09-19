@@ -102,7 +102,7 @@ export abstract class RoomRouting extends RoomGoals {
       this.chainBudget < this.maxChainHops
     ) {
       const from = this.registry.get(fromId)
-      if (from && from.active && !target.includes(from)) {
+      if (from?.active && !target.includes(from)) {
         this.noHandoffMenuUsed.add(fromId)
         this.chainBudget += 1
         this.notice(`No handoff detected — one-shot menu to @${fromId}`, "info")
@@ -135,7 +135,7 @@ export abstract class RoomRouting extends RoomGoals {
         const ownerId = nextStepOwner(plan)
         if (ownerId && ownerId !== fromId) {
           const owner = this.registry.get(ownerId)
-          if (owner && owner.active && !target.includes(owner)) {
+          if (owner?.active && !target.includes(owner)) {
             routedTo = owner
             viaPlan = true
           }
@@ -148,7 +148,7 @@ export abstract class RoomRouting extends RoomGoals {
         fromId !== this.fallbackAgentId
       ) {
         const fb = this.registry.get(this.fallbackAgentId)
-        if (fb && fb.active && !target.includes(fb)) {
+        if (fb?.active && !target.includes(fb)) {
           routedTo = fb
         }
       }
@@ -370,7 +370,7 @@ export abstract class RoomRouting extends RoomGoals {
         this.fallbackAgentId && this.fallbackAgentId !== p.fromId
           ? this.registry.get(this.fallbackAgentId)
           : undefined
-      if (fb && fb.active) {
+      if (fb?.active) {
         this.notice(
           `⛔ @${p.fromId} re-proposed @${p.target.persona.id} after a refusal — falling to fallback @${fb.persona.id}`,
           "info",
@@ -435,7 +435,7 @@ export abstract class RoomRouting extends RoomGoals {
     // indistinguishable from a bypass (auditor F1). No supervisor exists to
     // author it here, so the trace is system-authored.
     const supervisor = supId ? this.registry.get(supId) : undefined
-    if (!supervisor || !supervisor.active) {
+    if (!supervisor?.active) {
       this.notice(
         "supervised routing: no active supervisor — hop degraded to auto",
         "info",
@@ -617,7 +617,7 @@ export abstract class RoomRouting extends RoomGoals {
     const rerun: Participant[] = []
     for (const fromId of [...new Set(pr.proposals.map((p) => p.fromId))]) {
       const proposer = this.registry.get(fromId)
-      if (!proposer || !proposer.active) continue
+      if (!proposer?.active) continue
       const refusedTargets = pr.proposals
         .filter((p) => p.fromId === fromId)
         .map((p) => `@${p.target.persona.id}`)
@@ -696,7 +696,7 @@ export abstract class RoomRouting extends RoomGoals {
         if (entry.author !== fromId) continue
         const text =
           entry.text.length > 1500
-            ? entry.text.slice(0, 1500) + "… (truncated)"
+            ? `${entry.text.slice(0, 1500)}… (truncated)`
             : entry.text
         lines.push("", `Last message from @${fromId}:`, text)
         break

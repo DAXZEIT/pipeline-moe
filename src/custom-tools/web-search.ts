@@ -103,7 +103,7 @@ async function searchSearxng(
       lines.push(`   URL: ${r.url}`)
       if (r.content) {
         // Truncate long snippets to avoid context bloat.
-        const snippet = r.content.length > 200 ? r.content.slice(0, 200) + "…" : r.content
+        const snippet = r.content.length > 200 ? `${r.content.slice(0, 200)}…` : r.content
         lines.push(`   ${snippet}`)
       }
     }

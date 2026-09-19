@@ -301,7 +301,7 @@ export function roomForm(api: Api, deps: RoomFormDeps): FormComponent {
               chalk.hex(p.color)(`${p.icon} ${p.name}`) +
               "  " +
               chalk.cyan(shortModel(p.model) ?? "default") +
-              (p.tools.length ? chalk.dim("  " + p.tools.join(" ")) : ""),
+              (p.tools.length ? chalk.dim(`  ${p.tools.join(" ")}`) : ""),
           ),
           ...(hidden > 0 ? [chalk.dim(`      … +${hidden} more agents`)] : []),
         ],

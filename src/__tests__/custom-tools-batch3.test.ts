@@ -169,14 +169,14 @@ describe("arxiv_search — XML parsing", () => {
 
   test("Abstract truncation at 300 chars", () => {
     const abstract = "A".repeat(400)
-    const truncated = abstract.length > 300 ? abstract.slice(0, 300) + "..." : abstract
+    const truncated = abstract.length > 300 ? `${abstract.slice(0, 300)}...` : abstract
     expect(truncated.length).toBe(303) // 300 + 3 dots
     expect(truncated.endsWith("...")).toBe(true)
   })
 
   test("Short abstract not truncated", () => {
     const abstract = "A short abstract"
-    const truncated = abstract.length > 300 ? abstract.slice(0, 300) + "..." : abstract
+    const truncated = abstract.length > 300 ? `${abstract.slice(0, 300)}...` : abstract
     expect(truncated).toBe(abstract)
   })
 })
@@ -192,7 +192,7 @@ describe("arxiv_search — URL construction", () => {
     const query = "transformer"
     const categories = ["cs.AI", "cs.LG"]
     const catQuery = categories.map((c) => `cat:${c}`).join(" OR ")
-    const searchQuery = query + " AND (" + catQuery + ")"
+    const searchQuery = `${query} AND (${catQuery})`
     expect(searchQuery).toBe("transformer AND (cat:cs.AI OR cat:cs.LG)")
   })
 
@@ -364,7 +364,7 @@ describe("youcom_search — research mode", () => {
   test("research answer is truncated at 8000 chars", () => {
     const answer = "A".repeat(10000)
     const truncated = answer.length > 8000
-      ? answer.slice(0, 8000) + "\n\n[research truncated — " + answer.length + " chars total]"
+      ? `${answer.slice(0, 8000)}\n\n[research truncated — ${answer.length} chars total]`
       : answer
     expect(truncated).toContain("research truncated")
     expect(truncated).toContain("10000 chars total")
@@ -373,7 +373,7 @@ describe("youcom_search — research mode", () => {
   test("research answer short is not truncated", () => {
     const answer = "A short answer"
     const truncated = answer.length > 8000
-      ? answer.slice(0, 8000) + "\n\n[research truncated — " + answer.length + " chars total]"
+      ? `${answer.slice(0, 8000)}\n\n[research truncated — ${answer.length} chars total]`
       : answer
     expect(truncated).toBe(answer)
   })

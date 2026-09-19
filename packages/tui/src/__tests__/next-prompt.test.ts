@@ -69,7 +69,7 @@ describe("editText", () => {
   })
 })
 
-const LONG = Array.from({ length: 12 }, (_, i) => `paragraph ${i + 1} ` + "word ".repeat(40)).join("\n\n")
+const LONG = Array.from({ length: 12 }, (_, i) => `paragraph ${i + 1} ${"word ".repeat(40)}`).join("\n\n")
 
 function makeStore(prompt: string, over: Partial<PersonaDetail> = {}) {
   const notices: string[] = []
