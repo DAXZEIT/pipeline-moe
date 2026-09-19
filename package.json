@@ -53,10 +53,10 @@
     "format": "biome format --write src/"
   },
   "dependencies": {
-    "@earendil-works/pi-agent-core": "0.82.1",
-    "@earendil-works/pi-ai": "0.82.1",
-    "@earendil-works/pi-coding-agent": "0.82.1",
-    "@earendil-works/pi-tui": "0.82.1",
+    "@earendil-works/pi-agent-core": "0.85.1",
+    "@earendil-works/pi-ai": "0.85.1",
+    "@earendil-works/pi-coding-agent": "0.85.1",
+    "@earendil-works/pi-tui": "0.85.1",
     "cors": "^2.8.5",
     "express": "^4.19.2",
     "express-rate-limit": "^8.5.2",

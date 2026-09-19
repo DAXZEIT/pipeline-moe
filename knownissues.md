@@ -57,7 +57,11 @@ explicitly instructed to batch, emitted [handoff, read] in ONE assistant message
 — builder's pi session jsonl shows both toolResults then ZERO further assistant
 messages, i.e. the guard forced terminate onto the read result exactly as
 designed (without it, the non-unanimous batch would have generated one more
-step). Companion feature: one-shot
+step). Re-verified against pi 0.85.1 (2026-09-19, harness bump 0.82.1 → 0.85.1):
+`shouldTerminateToolBatch` still requires unanimity, the AgentSession wrapper
+still drops `terminate`, and `Agent.afterToolCall` is still the mutable
+patch point — the guard stays. (0.85 also lets `beforeToolCall` set
+terminate; that only strengthens early termination.) Companion feature: one-shot
 no-handoff menu in goal-eval rooms (room.ts proposeChain) — an agent ending its
 turn without a handoff gets a single closed-menu re-prompt (valid handoff ids /
 ask_orchestrator or ask_user / reply DONE), generated from live state.

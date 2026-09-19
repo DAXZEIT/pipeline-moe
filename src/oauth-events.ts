@@ -26,9 +26,9 @@ export function oauthProgressPayload(provider: string, event: AuthEvent): OAuthP
       }
     case "auth_url":
       return { provider, type: "auth_url", url: event.url, instructions: event.instructions }
-    // "info" is new in 0.82 — a message with optional links. Clients know
-    // "progress", and an info line IS progress to whoever is reading the panel,
-    // so it lands there rather than being dropped on the floor.
+    // pi 0.82 added the `info` event — a message with optional links. Clients
+    // know "progress", and an info line IS progress to whoever is reading the
+    // panel, so it lands there rather than being dropped on the floor.
     case "info":
     case "progress":
       return { provider, type: "progress", message: event.message }

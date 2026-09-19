@@ -28,7 +28,9 @@ export async function resolveModel(): Promise<ResolvedModel> {
   const modelRegistry = new ModelRegistry(modelRuntime)
   // The registry's synchronous reads (find/getAll/getAvailable) serve whatever
   // the last refresh loaded — await one before the first read or a cold start
-  // sees an empty catalog and "resolves" to no model at all.
+  // sees an empty catalog and "resolves" to no model at all. pi 0.84 widened
+  // `refresh()` (optional ModelsRefreshOptions in, ModelsRefreshResult out);
+  // a bare `refresh()` still means "everything, local catalog only".
   await modelRegistry.refresh()
 
   let model: ResolvedModel["model"]
@@ -73,7 +75,9 @@ export async function resolveModel(): Promise<ResolvedModel> {
  *  in-memory override (pi's `runtime-credentials.ts` keeps a Map), meant for
  *  process-lifetime flags like `--api-key`. It makes the provider work, writes
  *  nothing, and the key is gone on the next boot — which is worse than failing,
- *  because it fails later and somewhere else.
+ *  because it fails later and somewhere else. (pi 0.84 narrowed its options to
+ *  auth-cancellation — catalog refresh moved to a separate `refresh()` call —
+ *  without changing that core property: still in-memory, still non-persisting.)
  *
  *  `login(provider, "api_key", …)` is the persisting path. A provider's api-key
  *  auth declares its own `login` that asks for what it needs (`envApiKeyAuth`

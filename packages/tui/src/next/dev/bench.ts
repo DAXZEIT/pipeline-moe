@@ -15,7 +15,7 @@
 //   ink/build/log-update.js  →  write(eraseLines(previousLineCount) + output)
 //   pi-tui/tui.ts            →  write(only lines firstChanged..lastChanged)
 
-import { TUI, type Component, type Terminal } from "@earendil-works/pi-tui"
+import { TuiMainScreen, type Component, type Terminal } from "@earendil-works/pi-tui"
 import { truncateToWidth } from "@earendil-works/pi-tui"
 import type { Message, RosterItem } from "@pipeline-moe/client-core"
 import { transcriptLines, paint, type Line } from "../../transcript-lines"
@@ -134,7 +134,7 @@ function benchPiTui(): { bytes: number; writes: number; fullRedraws: number } {
     showCursor: () => {},
   } as unknown as Terminal
 
-  const tui = new TUI(terminal, false)
+  const tui = new TuiMainScreen(terminal, false)
   const frame = new Frame()
   tui.addChild(frame)
 

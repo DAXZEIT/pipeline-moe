@@ -21,7 +21,7 @@
 
 import { spawn } from "node:child_process"
 import {
-  TUI,
+  TuiMainScreen,
   ProcessTerminal,
   Editor,
   KeybindingsManager,
@@ -31,6 +31,7 @@ import {
   truncateToWidth,
   matchesKey,
   type Component,
+  type TUI,
 } from "@earendil-works/pi-tui"
 import chalk from "chalk"
 import { createApi, createRoomStore, preloadRoomState, previewRouting } from "@pipeline-moe/client-core"
@@ -277,7 +278,11 @@ async function main(): Promise<void> {
   // (`#{cursor_x},#{cursor_y}`, correct) and the second BLOCK was invisible to
   // the tooling. Undefined = pi's own default: off unless PI_HARDWARE_CURSOR=1,
   // so anyone who needs IME placement keeps the escape hatch.
-  const tui = new TUI(terminal)
+  //
+  // pi-tui 0.85 split the monolithic `TUI` class into `TuiMainScreen` (main
+  // screen + scrollback — this client, since the transcript IS the terminal's)
+  // and `TuiAltScreen` (alternate-screen viewport, pi's own fullscreen mode).
+  const tui = new TuiMainScreen(terminal)
 
   // The store only exposes a `connected` boolean, but the EventSource keeps
   // retrying after a drop — so "was connected, isn't now" means reconnecting,

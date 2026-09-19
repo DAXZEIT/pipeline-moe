@@ -16,6 +16,14 @@
 // is forced to terminate: true as well. Worst case is then bounded at ONE
 // extra generation step (when the turn-control call was not first in its
 // batch); the next batch — whatever it contains — terminates.
+//
+// Re-verified against pi 0.85.1 (agent-loop.js): `shouldTerminateToolBatch`
+// still requires EVERY finalized result to carry `terminate === true`, the
+// AgentSession wrapper still drops `terminate` from extension results, and
+// `createLoopConfig()` still reads `this.afterToolCall` when a run starts —
+// so the patch point and the gap it closes are both unchanged. 0.85 added an
+// ADDITIONAL terminate source (`beforeToolCall` may now set it too), which
+// only strengthens early termination; this guard stays necessary.
 
 import type { AgentSession } from "@earendil-works/pi-coding-agent"
 

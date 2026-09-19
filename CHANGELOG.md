@@ -1,5 +1,43 @@
 # Changelog
 
+## [Unreleased] — 2026-09-19
+
+### Changed
+
+- **pi harness bump 0.82.1 → 0.85.1** (all four `@earendil-works/pi-*`
+  packages, lockstep) — three minors behind; nothing in `src/` broke at the
+  type level. Catalogued breaking changes 0.83→0.85 and how each coupling
+  point survived:
+  - `ModelRegistry.refresh()` (0.84) now takes optional `ModelsRefreshOptions`
+    and returns `ModelsRefreshResult`; every call site here used a bare
+    `refresh()`, which still means "all providers, local catalog only".
+  - `ModelRuntime.setRuntimeApiKey()` (0.84) narrowed its options to
+    auth-cancellation (catalog refresh moved to `refresh()`) — still the
+    non-persisting in-memory trap it always was, so `setProviderApiKey` keeps
+    using `login(provider, "api_key", …)` (the repo's 0.80→0.82 trap pair
+    unchanged).
+  - `AuthEvent` / `AuthInteraction` unchanged; `oauth-events.ts` and the
+    headless OAuth routes needed nothing.
+  - **Batch-terminate guard**: re-verified against 0.85.1's agent-loop —
+    `shouldTerminateToolBatch` still requires EVERY result in the batch to
+    set `terminate: true`, pi-coding-agent's AgentSession wrapper still drops
+    `terminate` from extension hook results, and `Agent.afterToolCall` is
+    still a public mutable property read when a run builds its loop config.
+    The gap and the patch point are both intact; the guard stays (0.85's new
+    `beforeToolCall`-can-terminate only adds a second early-stop source).
+  - **pi-tui 0.85 split the `TUI` class**: it is now a `TUI` interface with
+    two implementations, `TuiMainScreen` (main screen + scrollback) and
+    `TuiAltScreen` (fullscreen viewport). packages/tui's two value uses
+    (`new TUI(…)`) migrated to `TuiMainScreen` — same constructor signature,
+    same main-screen semantics.
+- **`packages/tui` now pins `pi-tui` EXACT (was `^0.82.1`)** — a caret on a
+  0.x pi package would have installed a second, nested copy of pi-tui next to
+  the root's during this very bump.
+- **`scripts/check-pi-lockstep.mjs` now scans every workspace manifest**,
+  not just the root package.json — it is what caught the caret above, and is
+  the guard against re-introducing it. Verified with a negative test (caret
+  → exit 1, manifest and both error classes reported).
+
 ## [Unreleased] — 2026-08-24
 
 ### Fixed
