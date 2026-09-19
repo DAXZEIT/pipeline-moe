@@ -66,7 +66,7 @@ describe("Participant.steer", () => {
 describe("Room.steer", () => {
   test("posts (steered) notice to transcript", () => {
     const postedMessages: string[] = []
-    const post = (role: string, name: string, content: string) => {
+    const post = (_role: string, _name: string, content: string) => {
       postedMessages.push(content)
     }
     const targetId = "builder"
@@ -280,7 +280,7 @@ describe("useRoom runningAgentId from turn events", () => {
   })
 
   test("turn pause → runningAgentId preserved", () => {
-    let runningAgentId: string | null = "builder"
+    const runningAgentId: string | null = "builder"
     let paused = false
     const data = { phase: "pause", askerId: "builder" }
 

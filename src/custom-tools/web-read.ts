@@ -7,22 +7,6 @@ import { Type } from "typebox"
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent"
 import type { AgentToolResult } from "@earendil-works/pi-coding-agent"
 
-// Minimal text content type (mirrors pi-ai TextContent — not re-exported).
-interface TextContent {
-  type: "text"
-  text: string
-}
-
-const JinaResponse = Type.Object({
-  code: Type.Number(),
-  status: Type.Number(),
-  data: Type.Optional(Type.Object({
-    title: Type.String(),
-    content: Type.String(),
-    url: Type.String(),
-  })),
-})
-
 const webReadSchema = Type.Object({
   url: Type.String({
     description: "The URL to extract content from",

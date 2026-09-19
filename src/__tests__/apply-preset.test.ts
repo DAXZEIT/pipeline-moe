@@ -1,7 +1,6 @@
-import { afterEach, beforeEach, describe, expect, test, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, test } from "vitest"
 import { Room } from "../room.js"
 import { SseHub } from "../sse.js"
-import { SEED_PERSONAS } from "../personas.js"
 import type { Persona, PersonaState } from "../types.js"
 
 // ── Mocks ────────────────────────────────────────────────────────────────
@@ -103,7 +102,7 @@ class EventCapture {
   conversationEvents: ConversationEvent[] = []
   settingsEvents: Record<string, unknown>[] = []
 
-  constructor(private hub: SseHub) {
+  constructor(hub: SseHub) {
     const orig = hub.broadcast.bind(hub)
     hub.broadcast = (event, data) => {
       if (event === "roster") this.rosterEvents.push(data as RosterEvent)

@@ -6,23 +6,6 @@ import { Type } from "typebox"
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent"
 import type { AgentToolResult } from "@earendil-works/pi-coding-agent"
 
-// Minimal text content type (mirrors pi-ai TextContent — not re-exported).
-interface TextContent {
-  type: "text"
-  text: string
-}
-
-const SearxngResult = Type.Object({
-  title: Type.String(),
-  url: Type.String(),
-  content: Type.Optional(Type.String()),
-})
-
-const SearxngResponse = Type.Object({
-  results: Type.Array(SearxngResult),
-  query: Type.Optional(Type.String()),
-})
-
 const webSearchSchema = Type.Object({
   query: Type.String({
     description: "The search query",

@@ -295,7 +295,7 @@ describe("seed presets", () => {
   })
 
   test("local-default all personas have active: true and parallel: false", () => {
-    for (const p of SEED_PERSONAS) {
+    for (const _p of SEED_PERSONAS) {
       // The local-default preset sets active:true and parallel:false for all
       expect(true).toBe(true) // verified by the preset construction in server.ts
     }

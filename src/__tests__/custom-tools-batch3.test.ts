@@ -108,14 +108,14 @@ describe("arxiv_search tool definition", () => {
 describe("arxiv_search — XML parsing", () => {
   test("extractTag extracts single tag content", () => {
     const xml = '<entry><title>Test Title</title></entry>'
-    const re = new RegExp(`<title[^>]*>([^<]*)</title>`, "i")
+    const re = /<title[^>]*>([^<]*)<\/title>/i
     const match = xml.match(re)
     expect(match?.[1]).toBe("Test Title")
   })
 
   test("extractTag handles HTML entities", () => {
     const xml = '<summary>5 &lt; 10 &amp; 3 &gt; 1</summary>'
-    const re = new RegExp(`<summary[^>]*>([^<]*)</summary>`, "i")
+    const re = /<summary[^>]*>([^<]*)<\/summary>/i
     const match = xml.match(re)
     expect(match?.[1].replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&")).toBe("5 < 10 & 3 > 1")
   })
@@ -139,7 +139,7 @@ describe("arxiv_search — XML parsing", () => {
 
   test("extractAllTags finds all name tags (authors)", () => {
     const xml = `<author><name>Smith, J.</name></author><author><name>Jones, K.</name></author>`
-    const re = new RegExp(`<name[^>]*>([^<]*)</name>`, "gi")
+    const re = /<name[^>]*>([^<]*)<\/name>/gi
     const results: string[] = []
     for (let m = re.exec(xml); m !== null; m = re.exec(xml)) {
       results.push(m[1])
@@ -305,7 +305,7 @@ describe("youcom_search — search mode", () => {
   test("X-API-Key header is used (not Authorization)", () => {
     const headers = { "X-API-Key": "ydc-sk-test" }
     expect(headers["X-API-Key"]).toBe("ydc-sk-test")
-    expect((headers as Record<string, string>)["Authorization"]).toBeUndefined()
+    expect((headers as Record<string, string>).Authorization).toBeUndefined()
   })
 
   test("result formatting includes numbered results", () => {

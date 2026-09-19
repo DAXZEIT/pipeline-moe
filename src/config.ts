@@ -92,6 +92,20 @@ export const config = {
    *  final answer-or-ask checkpoint. Bounded — a looping model would answer
    *  "continue" forever. */
   reasoningBudgetContinues: Math.max(0, Number(process.env.PIPELINE_REASONING_CONTINUES ?? 2) || 0),
+  /** How long an in-flight OAuth login may wait for a pasted redirect URL /
+   *  authorization code before the pending entry is dropped and pi's flow
+   *  aborts (releasing its localhost callback port). Default 10 min;
+   *  OAUTH_INPUT_TIMEOUT_MS overrides it — the HTTP tests set a very short
+   *  value to exercise the cleanup deterministically. */
+  oauthInputTimeoutMs: (() => {
+    const t = Number(process.env.OAUTH_INPUT_TIMEOUT_MS ?? 600_000)
+    if (Number.isNaN(t)) {
+      throw new Error(
+        `OAUTH_INPUT_TIMEOUT_MS must be a number, got "${process.env.OAUTH_INPUT_TIMEOUT_MS}"`,
+      )
+    }
+    return t
+  })(),
   /** Allowed CORS origins, comma-separated. Defaults to local dev servers. */
   corsOrigins: process.env.PIPELINE_CORS_ORIGINS
     ? process.env.PIPELINE_CORS_ORIGINS.split(",").map((s) => s.trim())

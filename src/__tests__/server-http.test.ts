@@ -31,7 +31,7 @@ const tsxBin = join(repoRoot, "node_modules", ".bin", "tsx")
 let child: ChildProcess
 let base = ""
 let wsDir = ""
-let logTail: string[] = []
+const logTail: string[] = []
 
 function pushLog(chunk: unknown): void {
   for (const line of String(chunk).split("\n")) {
@@ -129,6 +129,10 @@ beforeAll(async () => {
     PIPELINE_PLANS_DIR: join(wsDir, ".pi", "plans"),
     PIPELINE_SKILLS_DIR: join(repoRoot, "skills"),
     PIPELINE_MAX_ROOMS: "3",
+    // Very short OAuth-input timeout so the "abandoned flow is cleaned up"
+    // test below can observe the cleanup in real time. No other test in this
+    // file is affected: nothing else starts an OAuth flow.
+    OAUTH_INPUT_TIMEOUT_MS: "250",
   }
   delete env.VITEST // run the production config path, not the test one
 
@@ -871,6 +875,92 @@ describe("provider credentials (negative paths only — no real auth.json writes
     ).toBe(404)
     expect((await j("DELETE", "/api/providers/ghost/login")).status).toBe(404)
   })
+})
+
+describe("OAuth input timeout (OAUTH_INPUT_TIMEOUT_MS)", () => {
+  // Drives the REAL timeout path end to end: POST /login starts pi's Anthropic
+  // OAuth flow (localhost callback server + manual_code prompt, no outbound
+  // network before the prompt), which registers the pending-input entry this
+  // timeout bounds. The input is never sent; after the 250 ms configured
+  // above the entry must be gone and the flow must have aborted with the
+  // timeout error.
+  test("an abandoned OAuth flow is cleaned up when the timeout fires", async () => {
+    const events = await fetch(`${base}/api/events`)
+    expect(events.status).toBe(200)
+    const sse = sseReader(events)
+    await sse.next() // initial roster frame written on connect
+
+    const start = await j("POST", "/api/providers/anthropic/login")
+    expect(start.status).toBe(202)
+
+    // Observation probe that never feeds or cancels the flow: the input route
+    // 404s when no entry is pending, and 400s on the empty value when one is.
+    const probe = async () =>
+      (
+        await j<{ error: string }>("POST", "/api/providers/anthropic/login/input", {
+          value: "",
+        })
+      ).status
+
+    // The entry appears asynchronously (setImmediate → PKCE → listen), so
+    // poll until the flow is actually waiting for input.
+    const pendingDeadline = Date.now() + 15_000
+    for (;;) {
+      if ((await probe()) === 400) break
+      if (Date.now() > pendingDeadline) {
+        await sse.cancel()
+        throw new Error(
+          `OAuth flow never reached the pending-input state; log tail:\n${logTail.join("\n")}`,
+        )
+      }
+      await new Promise((r) => setTimeout(r, 25))
+    }
+
+    // Now never answer. The child runs with a 250 ms timeout: the entry must
+    // be dropped from the map once it fires.
+    const cleanupDeadline = Date.now() + 15_000
+    for (;;) {
+      if ((await probe()) === 404) break
+      if (Date.now() > cleanupDeadline) {
+        await sse.cancel()
+        throw new Error(
+          `pending OAuth entry was not cleaned up after the timeout; log tail:\n${logTail.join("\n")}`,
+        )
+      }
+      await new Promise((r) => setTimeout(r, 25))
+    }
+
+    // The whole flow must have aborted (not just the map entry dropped):
+    // no pending entry may remain for DELETE /login to cancel, and the SSE
+    // stream must carry the timeout error broadcast by the unwound login.
+    const del = await j<{ error: string }>(
+      "DELETE",
+      "/api/providers/anthropic/login",
+    )
+    expect(del.status).toBe(404)
+
+    const sseDeadline = Date.now() + 15_000
+    let sawTimeoutError = false
+    while (Date.now() < sseDeadline && !sawTimeoutError) {
+      const event = await Promise.race([
+        sse.next(),
+        new Promise<never>((_resolve, reject) =>
+          setTimeout(() => reject(new Error("sse read timed out")), 5_000),
+        ),
+      ]).catch(() => null)
+      if (event === null) continue // read timed out; loop re-checks the deadline
+      if (event.event !== "oauth_progress") continue
+      const data = JSON.parse(event.data) as { type?: string; message?: string }
+      if (
+        data.type === "error" &&
+        data.message?.includes("Timed out waiting for OAuth input")
+      ) {
+        sawTimeoutError = true
+      }
+    }
+    await sse.cancel()
+    expect(sawTimeoutError).toBe(true)
+  }, 60_000)
 })
 
 describe("transcript rollback over HTTP", () => {

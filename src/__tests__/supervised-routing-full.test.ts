@@ -90,7 +90,7 @@ const priv = (r: Room) => r as unknown as {
 }
 
 function stubRunner(room: Room, outcome: SupervisorOutcome | (() => SupervisorOutcome) | Promise<SupervisorOutcome>) {
-  priv(room).supervisorRunner = async (opts: any) => {
+  priv(room).supervisorRunner = async (_opts: any) => {
     const o = typeof outcome === "function" ? outcome() : outcome
     return o instanceof Promise ? o : o
   }

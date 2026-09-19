@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, test, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, test } from "vitest"
 import { config } from "../config.js"
 import { Room } from "../room.js"
 import { SseHub } from "../sse.js"
@@ -174,7 +174,7 @@ interface NoticeEvent { msg: string; level: string }
 class EventCapture {
   notices: NoticeEvent[] = []
 
-  constructor(private hub: SseHub) {
+  constructor(hub: SseHub) {
     const orig = hub.broadcast.bind(hub)
     hub.broadcast = (event, data) => {
       if (event === "notice") {

@@ -1,4 +1,4 @@
-import { describe, expect, test, vi, beforeEach, afterEach } from "vitest"
+import { describe, expect, test, vi, beforeEach } from "vitest"
 import { createWebReadToolDefinition } from "../custom-tools/web-read.js"
 
 const mockFetch = vi.fn()

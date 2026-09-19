@@ -1,7 +1,7 @@
-import { mkdtemp, rm, mkdir, writeFile, readFile, readdir, unlink } from "node:fs/promises"
+import { mkdtemp, rm, mkdir, writeFile, readFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { afterAll, beforeAll, describe, expect, test } from "vitest"
+import { describe, expect, test } from "vitest"
 import { SEED_PERSONAS } from "../personas.js"
 import type { PersonaState, Conversation } from "../types.js"
 

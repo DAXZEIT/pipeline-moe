@@ -155,7 +155,7 @@ class EventCapture {
   turns: Array<{ phase: string; [key: string]: unknown }> = []
   notices: Array<{ msg: string; level: string }> = []
 
-  constructor(private hub: SseHub) {
+  constructor(hub: SseHub) {
     const orig = hub.broadcast.bind(hub)
     hub.broadcast = (event, data) => {
       if (event === "message") this.messages.push(data as any)

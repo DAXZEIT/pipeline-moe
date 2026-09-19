@@ -31,6 +31,7 @@ export function createHandoffToolDefinition(
    *  targets (the hat switch) and "self" varies per turn, so self-exclusion
    *  is enforced at execution instead. */
   menuExclude?: string[],
+  // biome-ignore lint/suspicious/noExplicitAny: TypeBox Static<> s'effondre en never sur Type.Union d'un tableau non-tuple (cf. NOTE plus bas) — params d'execute hand-typés délibérément
 ): ToolDefinition<any, undefined> {
   const hatOf = typeof caller === "function" ? caller : () => caller
   // Snapshot at build time (session creation) — this is the menu shown to the

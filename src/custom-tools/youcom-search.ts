@@ -8,12 +8,6 @@ import { Type } from "typebox"
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent"
 import type { AgentToolResult } from "@earendil-works/pi-coding-agent"
 
-// Minimal text content type.
-interface TextContent {
-  type: "text"
-  text: string
-}
-
 const youcomSearchSchema = Type.Object({
   query: Type.String({
     description: "Search query (supports operators: site:, filetype:, +term, -term)",
@@ -48,9 +42,16 @@ const MAX_CONTENT_LENGTH = 8000
 import { readFileSync } from "node:fs"
 
 // Read API key from file — cached at module level after first read.
-let apiKeyCache: { key: string | null; error: string | null } | null = null
+// Discriminated union: error non-null ssi key est null, ce qui permet au
+// type-checker d'éliminer le `!` aux points d'appel.
+type ApiKeyResult = { key: string; error: null } | { key: null; error: string }
+let apiKeyCache: ApiKeyResult | null = null
 
-function readApiKey(): { key: string | null; error: string | null } {
+function hasApiKey(r: ApiKeyResult): r is { key: string; error: null } {
+  return r.key !== null
+}
+
+function readApiKey(): ApiKeyResult {
   if (apiKeyCache) return apiKeyCache
 
   try {
@@ -70,12 +71,12 @@ function readApiKey(): { key: string | null; error: string | null } {
 }
 
 async function searchMode(query: string, count: number, freshness?: string): Promise<AgentToolResult<undefined>> {
-  const { key, error } = readApiKey()
-  if (error) {
+  const auth = readApiKey()
+  if (!hasApiKey(auth)) {
     return {
       content: [{
         type: "text",
-        text: `youcom_search error: ${error}. Check that ${API_KEY_FILE} exists and contains an api_key field.`,
+        text: `youcom_search error: ${auth.error}. Check that ${API_KEY_FILE} exists and contains an api_key field.`,
       }],
       details: undefined,
     }
@@ -92,7 +93,7 @@ async function searchMode(query: string, count: number, freshness?: string): Pro
   try {
     const response = await fetch(`${YDC_API}/v1/search?${params}`, {
       signal: controller.signal,
-      headers: { "X-API-Key": key! },
+      headers: { "X-API-Key": auth.key },
     })
 
     if (!response.ok) {
@@ -137,12 +138,12 @@ async function searchMode(query: string, count: number, freshness?: string): Pro
 }
 
 async function researchMode(query: string): Promise<AgentToolResult<undefined>> {
-  const { key, error } = readApiKey()
-  if (error) {
+  const auth = readApiKey()
+  if (!hasApiKey(auth)) {
     return {
       content: [{
         type: "text",
-        text: `youcom_search error: ${error}. Check that ${API_KEY_FILE} exists and contains an api_key field.`,
+        text: `youcom_search error: ${auth.error}. Check that ${API_KEY_FILE} exists and contains an api_key field.`,
       }],
       details: undefined,
     }
@@ -155,7 +156,7 @@ async function researchMode(query: string): Promise<AgentToolResult<undefined>> 
       signal: controller.signal,
       method: "POST",
       headers: {
-        "X-API-Key": key!,
+        "X-API-Key": auth.key,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({ query, effort: "standard" }),

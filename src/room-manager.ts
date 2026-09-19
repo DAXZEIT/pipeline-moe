@@ -10,7 +10,7 @@ import type { Dirent } from "node:fs"
 import { Registry } from "./registry.js"
 import { Room } from "./room.js"
 import { TaskBoard } from "./task-board.js"
-import { SseHub } from "./sse.js"
+import type { SseHub } from "./sse.js"
 import { ConversationStore } from "./store.js"
 import { config } from "./config.js"
 import { LocalModelLock } from "./local-model-lock.js"
@@ -287,8 +287,7 @@ export class RoomManager {
   async cleanupAllMounts(): Promise<void> {
     await Promise.all(
       [...this.rooms.values()]
-        .filter((e) => e.mount)
-        .map((e) => unmountSshfs(e.mount!.mountpoint)),
+        .flatMap((e) => (e.mount ? [unmountSshfs(e.mount.mountpoint)] : [])),
     )
   }
 

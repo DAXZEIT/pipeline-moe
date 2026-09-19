@@ -166,9 +166,10 @@ export function buildCustomTools(toolNames: string[], ctx?: ToolContext): ToolDe
   // On a fused seat: granted when ANY hat is the evaluator (the verdict is
   // attributed to that hat — during an eval pass the evaluator hat is the one
   // dispatched, and execution still re-checks the live eval gate).
-  const evaluatorHat = ctx?.goalVerdictSink ? hatIds.find((id) => ctx.goalVerdictSink!.goalEvaluatorId() === id) : undefined
-  if (ctx?.goalVerdictSink && evaluatorHat) {
-    tools.push(createGoalVerdictToolDefinition(ctx.goalVerdictSink, evaluatorHat) as ToolDefinition)
+  const goalVerdictSink = ctx?.goalVerdictSink
+  const evaluatorHat = goalVerdictSink ? hatIds.find((id) => goalVerdictSink.goalEvaluatorId() === id) : undefined
+  if (goalVerdictSink && evaluatorHat) {
+    tools.push(createGoalVerdictToolDefinition(goalVerdictSink, evaluatorHat) as ToolDefinition)
   }
 
   return tools

@@ -114,7 +114,7 @@ describe("fused seats through the real Registry", () => {
 
   test("reseat fuses two live singletons onto a fresh seat; old sessions are orphaned, not deleted", async () => {
     const builder = await registry.create(persona("builder"))
-    const tester = await registry.create(persona("tester"))
+    const _tester = await registry.create(persona("tester"))
     const oldBuilderDir = builder.sessionDir!
     expect(existsSync(oldBuilderDir)).toBe(true)
 

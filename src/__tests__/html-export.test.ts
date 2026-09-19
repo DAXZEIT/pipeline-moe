@@ -91,10 +91,7 @@ describe("Frontend download flow", () => {
     // Simulated download flow
     const steps: string[] = []
 
-    // Simulate the onClick handler logic
-    const blob = new Blob(["<html></html>"], { type: "text/html" })
-    const url = "fake-url" // In real code: URL.createObjectURL(blob)
-
+    // Simulate the onClick handler logic (in real code: URL.createObjectURL(blob))
     steps.push("createObjectURL")
     // Simulate: const a = document.createElement("a"); a.href = url; a.click()
     steps.push("createElement-a")

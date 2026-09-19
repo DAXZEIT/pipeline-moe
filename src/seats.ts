@@ -126,11 +126,13 @@ export function hatToolGate(
 export function seatCompactionInstructions(
   hats: Array<Pick<Persona, "id" | "compactionInstructions">>,
 ): string | undefined {
-  const withInstructions = hats.filter((h) => h.compactionInstructions?.trim())
+  const withInstructions = hats.filter(
+    (h): h is { id: string; compactionInstructions: string } => Boolean(h.compactionInstructions?.trim()),
+  )
   if (withInstructions.length === 0) return undefined
   if (hats.length === 1) return hats[0].compactionInstructions
   return withInstructions
-    .map((h) => `For the ${h.id} hat's work: ${h.compactionInstructions!.trim()}`)
+    .map((h) => `For the ${h.id} hat's work: ${h.compactionInstructions.trim()}`)
     .join("\n")
 }
 

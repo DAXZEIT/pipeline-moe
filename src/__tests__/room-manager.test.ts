@@ -61,7 +61,7 @@ describe("RoomManager", () => {
     // Schedule a debounced save the way registry mutations do, then flush
     // WITHOUT waiting the 400 ms debounce out — shutdown must not drop it
     // (auditor debt 2026-07-11: last snapshot losable at exit).
-    ;(room as unknown as { scheduleSave(): void })["scheduleSave"]()
+    ;(room as unknown as { scheduleSave(): void }).scheduleSave()
     await manager.flushWrites()
     const { currentId } = await room.getConversations()
     expect(existsSync(resolve(suiteTmp, "default", `${currentId}.json`))).toBe(true)
@@ -69,7 +69,7 @@ describe("RoomManager", () => {
 
   test("flushWrites seals the room — teardown-triggered saves cannot clobber the snapshot", async () => {
     const room = manager.createDefaultRoom()
-    ;(room as unknown as { scheduleSave(): void })["scheduleSave"]()
+    ;(room as unknown as { scheduleSave(): void }).scheduleSave()
     await manager.flushWrites()
     const { currentId } = await room.getConversations()
     const file = resolve(suiteTmp, "default", `${currentId}.json`)
@@ -476,7 +476,7 @@ describe("RoomManager", () => {
 
       const entries = await manager.loadManifest()
       const byId = Object.fromEntries(entries.map((e) => [e.roomId, e]))
-      expect(byId["default"]).toEqual({ roomId: "default", name: "main-room" })
+      expect(byId.default).toEqual({ roomId: "default", name: "main-room" })
       expect(byId["room-2"]).toEqual({
         roomId: "room-2",
         name: "Second",
@@ -514,9 +514,9 @@ describe("RoomManager", () => {
       manager.createRoom("child", "Child", undefined, undefined, undefined, undefined, undefined, "parent")
       await manager.saveManifest()
       const byId = Object.fromEntries((await manager.loadManifest()).map((e) => [e.roomId, e]))
-      expect(byId["child"].parentRoomId).toBe("parent")
+      expect(byId.child.parentRoomId).toBe("parent")
       // A root room stores nothing — the field is absent, not null.
-      expect(byId["parent"]).toEqual({ roomId: "parent", name: "Parent" })
+      expect(byId.parent).toEqual({ roomId: "parent", name: "Parent" })
     })
 
     test("restoreRooms rebuilds the tree from the manifest", async () => {

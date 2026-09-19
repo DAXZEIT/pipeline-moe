@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest"
-import { readFileSync, existsSync, mkdirSync, writeFileSync, rmSync } from "fs"
-import { join, dirname } from "path"
-import { fileURLToPath } from "url"
+import { readFileSync, existsSync, mkdirSync, writeFileSync, rmSync } from "node:fs"
+import { join, dirname } from "node:path"
+import { fileURLToPath } from "node:url"
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const MEMORY_DIR = join(__dirname, "..", "..", "agent_memory")

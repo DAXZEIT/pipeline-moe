@@ -149,7 +149,7 @@ describe("PATCH fast path decision", () => {
 describe("fast path does not require room to be idle", () => {
   test("fast path patch structure does not include isBusy check", () => {
     const patch = { thinkingLevel: "high" }
-    const isBusy = true // room is running a turn
+    const _isBusy = true // room is running a turn
 
     if (isFastPath(patch)) {
       // Fast path — no isBusy check needed
@@ -234,7 +234,7 @@ describe("EditAgent thinkingLevel selector filtering", () => {
 describe("fast path does NOT recreate session", () => {
   test("fast path does not call dispose", () => {
     let disposed = false
-    const participant = {
+    const _participant = {
       dispose: () => { disposed = true },
     }
 

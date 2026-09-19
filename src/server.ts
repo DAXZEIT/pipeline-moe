@@ -12,7 +12,7 @@ import { dirname, extname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import cors from "cors"
 import rateLimit from "express-rate-limit"
-import express, { Router } from "express"
+import express, { Router, type Request, type Response, type NextFunction } from "express"
 import { config } from "./config.js"
 
 /** Package root (this file lives in <root>/src) — anchors paths that must
@@ -69,12 +69,12 @@ function printBanner(): void {
       `${reset}\n${dim}local-first multi-agent chat room${version}${reset}\n`,
   )
 }
-import { downgradeUnavailableModels, isAllowedModel, listModels, resolveModel, setProviderApiKey, type ResolvedModel } from "./model.js"
+import { downgradeUnavailableModels, listModels, resolveModel, setProviderApiKey, type ResolvedModel } from "./model.js"
 import { oauthProgressPayload } from "./oauth-events.js"
 import { assertInside } from "./path-guard.js"
 import { BASE_PROMPT, BUILDER_OVERLAY, PLANNER_OVERLAY, SEED_PERSONAS, soloPersona } from "./personas.js"
 import { type PresetPersona, stripSeedFields, rehydrateSeedFields } from "./preset-hydration.js"
-import { Room } from "./room.js"
+import type { Room } from "./room.js"
 import { RoomManager, type RoomDetails } from "./room-manager.js"
 import type { ParentLink, RoomOrchestrator } from "./orchestrator.js"
 import { SseHub } from "./sse.js"
@@ -90,7 +90,7 @@ function mediaDir(): string {
 /** Resolve a base64 data URI to a saved file path, returning the workspace-relative path. */
 async function saveImage(uri: string): Promise<string> {
   // Parse "data:image/png;base64,ABCD" → { ext: "png", data: "ABCD" }
-  const match = uri.match(/^data:image\/(png|jpeg|webp|gif);base64,([A-Za-z0-9+\/=]+)$/)
+  const match = uri.match(/^data:image\/(png|jpeg|webp|gif);base64,([A-Za-z0-9+/=]+)$/)
   if (!match) throw new Error(`unsupported image format: ${uri.slice(0, 30)}...`);
   const [, ext, b64] = match
   const hash = createHash("md5").update(b64).digest("hex").slice(0, 12)
@@ -498,6 +498,7 @@ async function main(): Promise<void> {
         goalStatus: newRoom.getGoalStatus(),
       })
 
+      // biome-ignore lint/style/noNonNullAssertion: la pièce vient d'être créée et montée plus haut (rollback path) — getRoomDetails ne peut pas être vide ici
       return roomManager.getRoomDetails(roomId)!
     } catch (err) {
       // Roll back after a successful mount. If the room reached the map (init
@@ -1451,7 +1452,7 @@ async function main(): Promise<void> {
   // Also bounded by OAUTH_INPUT_TIMEOUT_MS: a user who closes the OAuth panel
   // mid-flow without cancelling would otherwise hold a promise (and pi's
   // callback port) forever.
-  const OAUTH_INPUT_TIMEOUT_MS = 10 * 60 * 1000
+  const OAUTH_INPUT_TIMEOUT_MS = config.oauthInputTimeoutMs
   const pendingOAuthInputs = new Map<
     string,
     { resolve: (value: string) => void; reject: (err: Error) => void }
@@ -1780,15 +1781,15 @@ async function main(): Promise<void> {
   // ── Room management API ─────────────────────────────────────────────────
 
   /** Resolve the room for this request — falls back to "default" if roomId absent. */
-  function roomOf(req: any): Room {
-    const id = (req.params?.roomId as string | undefined) ?? "default"
+  function roomOf(req: Request): Room {
+    const id = (req.params.roomId as string | undefined) ?? "default"
     const r = roomManager.getRoom(id)
     if (!r) throw new Error(`room "${id}" not found`)
     return r
   }
 
   /** Middleware: verify room exists before handing off to a route handler. */
-  function requireRoom(req: any, res: any, next: any): void {
+  function requireRoom(req: Request, res: Response, next: NextFunction): void {
     try { roomOf(req); next() } catch { res.status(404).json({ error: `room "${req.params?.roomId}" not found` }) }
   }
 
@@ -1891,6 +1892,7 @@ async function main(): Promise<void> {
       res.status(409).json({ error: "source room is busy — stop the turn before forking" })
       return
     }
+    // biome-ignore lint/style/noNonNullAssertion: src vérifié non-null juste au-dessus — le détail existe dès que la pièce existe
     const srcDetails = roomManager.getRoomDetails(roomId)!
     const name = String(req.body?.name ?? "").trim() || `${srcDetails.name} (fork)`
     try {
@@ -1901,6 +1903,7 @@ async function main(): Promise<void> {
         // source room stays open.)
         workspaceDir: srcDetails.workspaceDir === config.workspaceDir ? undefined : srcDetails.workspaceDir,
       })
+      // biome-ignore lint/style/noNonNullAssertion: provisionRoom vient de créer la pièce (succès) — elle est dans le map
       const target = roomManager.getRoom(details.roomId)!
       await target.adoptConversation(src.snapshotConversation(), name)
       res.status(201).json(roomManager.getRoomDetails(details.roomId))

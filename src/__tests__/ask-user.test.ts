@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, test, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, test } from "vitest"
 import { Room } from "../room.js"
 import { SseHub } from "../sse.js"
 import type { Conversation, ConversationMeta, Persona, PersonaState } from "../types.js"
@@ -165,7 +165,7 @@ class EventCapture {
   notices: Array<{ msg: string; level: string }> = []
   routing: Array<Record<string, unknown>> = []
 
-  constructor(private hub: SseHub) {
+  constructor(hub: SseHub) {
     // Intercept broadcasts by wrapping.
     const orig = hub.broadcast.bind(hub)
     hub.broadcast = (event, data) => {

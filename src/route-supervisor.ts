@@ -80,6 +80,7 @@ export function createRouteDecisionToolDefinition(
   validTargetIds: string[],
   capture: (v: SupervisorVerdict) => void,
   peek: () => SupervisorVerdict | null,
+  // biome-ignore lint/suspicious/noExplicitAny: le schéma dépend de paramètres (validTargetIds injecté dans la description) — non hoistable ; params d'execute déjà hand-typés
 ): ToolDefinition<any, undefined> {
   const schema = Type.Object({
     verdict: Type.Union(

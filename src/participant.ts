@@ -9,9 +9,9 @@ import type { AgentSession, AgentSessionEvent } from "@earendil-works/pi-coding-
 import { readFileSync } from "node:fs"
 import { join } from "node:path"
 import { config } from "./config.js"
-import { ReasoningBudget, reasoningBudgetFor, exhaustedTrace } from "./reasoning-budget.js"
+import { type ReasoningBudget, reasoningBudgetFor, exhaustedTrace } from "./reasoning-budget.js"
 import { buildHatHeader } from "./seats.js"
-import { SeatRuntime, type ThinkingLevel } from "./seat-runtime.js"
+import type { SeatRuntime, ThinkingLevel } from "./seat-runtime.js"
 import { TurnSegmenter } from "./turn-parts.js"
 import type { HandoffSink, Persona, ParticipantStatus, ToolActivity, TurnPart } from "./types.js"
 
@@ -198,7 +198,7 @@ export class Participant {
     handoffSink?: HandoffSink,
   ): Participant {
     const p = new Participant(persona, seat, emit, workspaceDir)
-    p.checkpointSink = handoffSink?.postSystemNote ? (text) => handoffSink.postSystemNote!(text) : null
+    p.checkpointSink = handoffSink?.postSystemNote ? handoffSink.postSystemNote.bind(handoffSink) : null
     // The seat fans its single session subscription out to the hat holding
     // the turn — this handler only fires while p wears the seat.
     seat.setHandler(persona.id, (ev) => p.onEvent(ev))

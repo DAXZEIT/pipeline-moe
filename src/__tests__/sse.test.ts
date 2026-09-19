@@ -100,7 +100,7 @@ test("addClient rejects with 429 when max clients reached", () => {
   const hub = new SseHub(2) // max 2 clients
   const writes: string[] = []
 
-  const makeMock = (idx: number) => {
+  const makeMock = (_idx: number) => {
     let writeHandler: ((data: string) => void) | undefined
     const mockRes = {
       setHeader: () => {},

@@ -215,7 +215,7 @@ describe("STATUS_LABEL includes retrying", () => {
   }
 
   test("retrying maps to 'retrying…'", () => {
-    expect(STATUS_LABEL["retrying"]).toBe("retrying…")
+    expect(STATUS_LABEL.retrying).toBe("retrying…")
   })
 
   test("all status labels are defined", () => {

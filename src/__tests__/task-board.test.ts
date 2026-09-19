@@ -7,7 +7,7 @@ import {
   createTaskListToolDefinition,
   createTaskUpdateToolDefinition,
 } from "../custom-tools/task-tools.js"
-import type { Conversation, ConversationMeta, Persona, PersonaState, RoomTask } from "../types.js"
+import type { Conversation, ConversationMeta, PersonaState, RoomTask } from "../types.js"
 
 function textOf(result: { content: Array<{ type: string; text?: string }> }): string {
   return (result.content[0] as { text: string }).text
@@ -118,10 +118,6 @@ class MockStore {
   async read(_id: string): Promise<Conversation | null> { return null }
   async write(conv: Conversation) { this.written.push(conv) }
   async remove(_id: string) {}
-}
-
-function makePersona(id: string): Persona {
-  return { id, name: id, color: "#000", icon: "🤖", tools: [], systemPrompt: "" }
 }
 
 describe("Room + TaskBoard integration", () => {

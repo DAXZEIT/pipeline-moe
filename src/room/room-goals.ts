@@ -165,6 +165,7 @@ export abstract class RoomGoals extends RoomSettings {
           {
             customType: "goal_eval",
             content: goalEvalPrompt(
+              // biome-ignore lint/style/noNonNullAssertion: runGoalEval n'est atteint (via endTurn) que lorsqu'un goal soumis a fixé goalText (submitGoal)
               this.goalText!,
               this.goalIteration,
               this.maxGoalIterations,

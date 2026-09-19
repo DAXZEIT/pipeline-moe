@@ -22,20 +22,20 @@ import { Type } from "typebox"
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent"
 import type { GoalVerdictSink } from "../types.js"
 
-export function createGoalVerdictToolDefinition(sink: GoalVerdictSink, personaId: string): ToolDefinition<any, undefined> {
-  const schema = Type.Object({
-    met: Type.Boolean({
-      description:
-        "true = you verified with your tools that the goal condition holds RIGHT NOW (this ends the room). " +
-        "false = something is still missing or wrong.",
-    }),
-    reason: Type.String({
-      description:
-        "One or two sentences. met=true: what you verified and how. " +
-        "met=false: precisely what is missing — the agent you dispatch next reads your reply for instructions.",
-    }),
-  })
+const schema = Type.Object({
+  met: Type.Boolean({
+    description:
+      "true = you verified with your tools that the goal condition holds RIGHT NOW (this ends the room). " +
+      "false = something is still missing or wrong.",
+  }),
+  reason: Type.String({
+    description:
+      "One or two sentences. met=true: what you verified and how. " +
+      "met=false: precisely what is missing — the agent you dispatch next reads your reply for instructions.",
+  }),
+})
 
+export function createGoalVerdictToolDefinition(sink: GoalVerdictSink, personaId: string): ToolDefinition<typeof schema, undefined> {
   return {
     name: "goal_verdict",
     label: "Goal verdict",

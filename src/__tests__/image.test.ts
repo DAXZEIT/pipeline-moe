@@ -9,7 +9,7 @@ import { afterAll, beforeAll, describe, expect, test } from "vitest"
  * This is the pattern that broke — [,, ext, b64] vs [, ext, b64].
  */
 function parseImageUri(uri: string): { ext: string; b64: string } {
-  const match = uri.match(/^data:image\/(png|jpeg|webp|gif);base64,([A-Za-z0-9+\/=]+)$/)
+  const match = uri.match(/^data:image\/(png|jpeg|webp|gif);base64,([A-Za-z0-9+/=]+)$/)
   if (!match) throw new Error(`unsupported image format: ${uri.slice(0, 30)}...`)
   const [, ext, b64] = match
   return { ext, b64 }

@@ -1007,11 +1007,12 @@ export abstract class RoomCore {
   /** Pull the next group off the queue: a contiguous run of parallel-flagged
    *  agents (a concurrent wave), or a single non-parallel agent (serial). */
   protected nextGroup(): Participant[] {
+    // biome-ignore lint/style/noNonNullAssertion: drainQueue n'appelle nextGroup que sous garde queue.length > 0 (boucle while ligne 1206)
     const first = this.queue.shift()!
     const group = [first]
     if (first.parallel) {
-      while (this.queue.length > 0 && this.queue[0].parallel)
-        group.push(this.queue.shift()!)
+      while (this.queue[0]?.parallel)
+        group.push(this.queue.shift() as Participant)
     }
     return group
   }
@@ -1222,10 +1223,7 @@ export abstract class RoomCore {
 
       // Collect which results have questions (we pause on the first one,
       // but still post ALL results from this wave to avoid data loss).
-      let paused = false
-      let pauseAskerId: string | null = null
-      let pauseQuestion: string | null = null
-      let pauseOptions: string[] | undefined
+      let pauseInfo: { askerId: string; question: string; options?: string[] } | null = null
       const waveProposals: RouteProposal[] = []
 
       for (const out of results) {
@@ -1236,12 +1234,9 @@ export abstract class RoomCore {
         if (!out) continue
         const interrupted = !!out.stopReason
 
-        if (out.question && !paused && !interrupted) {
+        if (out.question && !pauseInfo && !interrupted) {
           // First question in this wave — remember it, but don't return yet.
-          paused = true
-          pauseAskerId = out.target.persona.id
-          pauseQuestion = out.question
-          pauseOptions = out.questionOptions
+          pauseInfo = { askerId: out.target.persona.id, question: out.question, options: out.questionOptions }
         }
 
         // Post the result (with question field if applicable), tagging an
@@ -1321,17 +1316,17 @@ export abstract class RoomCore {
       }
 
       // If we encountered a question in this wave, pause now (after all wave results are posted).
-      if (paused) {
+      if (pauseInfo) {
         this.pendingQuestion = {
-          askerId: pauseAskerId!,
+          askerId: pauseInfo.askerId,
           heldQueue: [...this.queue],
         }
         this.queue = []
         this.emit("turn", {
           phase: "pause",
-          askerId: pauseAskerId!,
-          question: pauseQuestion!,
-          options: pauseOptions,
+          askerId: pauseInfo.askerId,
+          question: pauseInfo.question,
+          options: pauseInfo.options,
         })
         return true
       }

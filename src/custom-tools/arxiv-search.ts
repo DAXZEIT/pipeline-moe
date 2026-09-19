@@ -6,12 +6,6 @@ import { Type } from "typebox"
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent"
 import type { AgentToolResult } from "@earendil-works/pi-coding-agent"
 
-// Minimal text content type.
-interface TextContent {
-  type: "text"
-  text: string
-}
-
 const arxivSearchSchema = Type.Object({
   query: Type.String({
     description: "Search terms (title, abstract, author, etc.)",

@@ -603,6 +603,7 @@ export class Registry implements HandoffSink, GoalVerdictSink {
     // reordering @all / first-active routing).
     const rebuilt = new Map<string, Participant>()
     for (const key of order) {
+      // biome-ignore lint/style/noNonNullAssertion: key provient des clés de this.participants (order) — l'entrée existe forcément
       rebuilt.set(key, key === id ? replacement : this.participants.get(key)!)
     }
     this.participants = rebuilt
@@ -652,7 +653,10 @@ export class Registry implements HandoffSink, GoalVerdictSink {
     for (const id of this.participants.keys()) if (!seen.has(id)) next.push(id)
 
     const rebuilt = new Map<string, Participant>()
-    for (const id of next) rebuilt.set(id, this.participants.get(id)!)
+    for (const id of next) {
+      // biome-ignore lint/style/noNonNullAssertion: id provient des clés de this.participants (boucle au-dessus) — l'entrée existe forcément
+      rebuilt.set(id, this.participants.get(id)!)
+    }
     this.participants = rebuilt
 
     this.broadcastRoster()
@@ -798,7 +802,10 @@ export class Registry implements HandoffSink, GoalVerdictSink {
       nextOrder = [...others.slice(0, at), ...group, ...others.slice(at)]
     }
     const rebuilt = new Map<string, Participant>()
-    for (const key of nextOrder) rebuilt.set(key, this.participants.get(key)!)
+    for (const key of nextOrder) {
+      // biome-ignore lint/style/noNonNullAssertion: key provient des clés de this.participants (nextOrder dérivé de order) — l'entrée existe forcément
+      rebuilt.set(key, this.participants.get(key)!)
+    }
     this.participants = rebuilt
 
     this.broadcastRoster()

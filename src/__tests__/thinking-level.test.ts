@@ -1,5 +1,5 @@
 import { test, expect, describe } from "vitest"
-import { VALID_TOOLS, parsePersona } from "../validation.js"
+import { parsePersona } from "../validation.js"
 
 /* ────────────────────────────────────────────────────
  *  Thinking Level — Empirical Verification

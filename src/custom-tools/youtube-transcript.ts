@@ -7,12 +7,6 @@ import type { ToolDefinition } from "@earendil-works/pi-coding-agent"
 import type { AgentToolResult } from "@earendil-works/pi-coding-agent"
 import { YoutubeTranscript } from "youtube-transcript-plus"
 
-// Minimal text content type (mirrors pi-ai TextContent — not re-exported).
-interface TextContent {
-  type: "text"
-  text: string
-}
-
 const youtubeTranscriptSchema = Type.Object({
   video: Type.String({
     description: "YouTube video ID (11 chars) or full URL (youtube.com/watch?v=... or youtu.be/...)",

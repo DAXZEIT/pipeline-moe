@@ -13,8 +13,6 @@ let registry: Registry
 
 async function setup(): Promise<void> {
   dir = await mkdtemp(join(tmpdir(), "provider-slash-test-"))
-  const authPath = join(dir, "auth.json")
-  const modelsPath = join(dir, "models.json")
 
   const resolved = await scratchResolvedModel(dir)
   const hub = new SseHub()
@@ -89,7 +87,6 @@ describe("Registry provider methods", () => {
 
     // Verify removed
     result = registry.getProviderList()
-    const dsAfter = result.find((p) => p.name === "deepseek")
     // deepseek might still be configured via env vars or other means,
     // but the explicit key should be gone
     expect(removeResult.configured).toBeDefined()
