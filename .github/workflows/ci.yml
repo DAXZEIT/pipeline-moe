@@ -197,12 +197,13 @@ jobs:
       # script runs against.
       - run: npm ci
 
-      # Check mode, no --write. The lint surface of src/ is at zero ERRORS;
-      # the remaining warnings/infos are knowingly not gated yet (chantier
-      # step 2, 2026-09-19) — biome exits non-zero only on errors, so this
-      # gates the whole src/ rule set without forcing the warning backlog.
+      # Check mode, no --write. src/ is at zero errors AND zero warnings;
+      # biome exits non-zero only on errors, so this gates the whole src/
+      # rule set. Warnings are kept clean by convention and are one
+      # `--error-on-warnings` away from gating.
       # Scope stays src/ (not `biome lint .`): site/ is untracked and must not
-      # gate; packages/ and web/ widen in their own steps when they go green.
+      # gate; packages/ and web/ widen in their own steps when they go green
+      # (packages/ has a known backlog: 86 errors / 31 warnings).
       - name: biome lint src/ (full rule set, errors gate)
         run: npm run lint
 

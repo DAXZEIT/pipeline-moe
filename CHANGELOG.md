@@ -35,8 +35,9 @@
   the root's during this very bump.
 - **`scripts/check-pi-lockstep.mjs` now scans every workspace manifest**,
   not just the root package.json — it is what caught the caret above, and is
-  the guard against re-introducing it. Verified with a negative test (caret
-  → exit 1, manifest and both error classes reported).
+  the guard against re-introducing it. Negative case verified manually
+  during the change (caret → exit 1, manifest and both error classes
+  reported); not committed as a replayable test.
 
 ## [Unreleased] — 2026-08-24
 

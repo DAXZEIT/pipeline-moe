@@ -139,9 +139,6 @@ export class RoomManager {
   /**
    * Create a named room.  Each room gets its own Registry and ConversationStore.
    * Shared: SseHub (events are tagged with roomId), ResolvedModel, seed personas.
-   */
-  /**
-   * Create a named room.  Each room gets its own Registry and ConversationStore.
    * @param overridePersonas  When provided, replaces seedPersonas entirely (for preset-based rooms).
    *                          When absent, seedPersonas are used as-is.
    */
