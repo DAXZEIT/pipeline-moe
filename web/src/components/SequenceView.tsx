@@ -95,6 +95,7 @@ export function SequenceView({ parts, activity, live, color }: Props) {
   return (
     <>
       {segments.map((s, i) => (
+        // biome-ignore lint/suspicious/noArrayIndexKey: segments are append-only within a turn (the server stamps boundaries in order), so index keys never reorder or detach state.
         <Segment key={i} s={s} live={!!live && s === inFlight} color={color} />
       ))}
     </>

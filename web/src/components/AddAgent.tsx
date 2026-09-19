@@ -46,7 +46,7 @@ export function AddAgent({ onCancel, onCreate, onAddTemplate }: Props) {
       <div className="add-agent-list">
         {templates === null && <div className="add-agent-empty">loading…</div>}
         {templates?.map((t) => (
-          <button
+          <button type="button"
             key={t.id}
             className="add-agent-item"
             disabled={busyId !== null}
@@ -64,11 +64,11 @@ export function AddAgent({ onCancel, onCreate, onAddTemplate }: Props) {
           </button>
         ))}
       </div>
-      <button className="add-agent-custom" onClick={() => setMode("custom")}>
+      <button type="button" className="add-agent-custom" onClick={() => setMode("custom")}>
         ✏ Custom agent…
       </button>
       <div className="ca-actions">
-        <button className="btn btn-ghost" onClick={onCancel} disabled={busyId !== null}>
+        <button type="button" className="btn btn-ghost" onClick={onCancel} disabled={busyId !== null}>
           Cancel
         </button>
       </div>

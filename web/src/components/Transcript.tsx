@@ -44,7 +44,7 @@ function ImageGallery({ images }: { images: string[] }) {
     <div className="image-gallery">
       {images.map((path, i) => (
         <img
-          key={i}
+          key={path}
           className="image-thumb"
           src={`/api/media/${path.split("/").pop()}`}
           alt={`attachment ${i + 1}`}
@@ -72,6 +72,10 @@ export function Transcript({
   const settled = useRef(false)
   const byId = (id: string) => roster.find((r) => r.id === id)
 
+  // The effect must re-run on every live-stream tick (streaming text, tool
+  // activity, reasoning, parts) so new content stays in view — those deps are
+  // deliberate even though only `messages` is read inside.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: intentional — re-scroll on every live update; the live sources aren't read in the body but drive when it must fire.
   useEffect(() => {
     endRef.current?.scrollIntoView({
       behavior: settled.current ? "smooth" : "auto",
@@ -129,8 +133,9 @@ export function Transcript({
         const color = r?.color ?? "#9aa0b5"
         // Chronological when the entry carries `parts`; grouped otherwise —
         // there are 67 M of pre-`parts` sessions and they must keep rendering.
-        const interleaved = !!m.parts?.length
-        const drawn = interleaved && proseDrawn(m.parts)
+        const parts = m.parts
+        const interleaved = !!parts?.length
+        const drawn = interleaved && proseDrawn(parts)
         return (
           <div key={m.index} className="row agent">
             <div className="agent-head" style={{ color }}>
@@ -138,8 +143,8 @@ export function Transcript({
               <span className="agent-name">{m.authorName}</span>
               {m.durationMs != null && <span className="agent-duration">{fmtDuration(m.durationMs)}</span>}
             </div>
-            {interleaved ? (
-              <SequenceView parts={m.parts!} activity={m.activity} color={color} />
+            {parts?.length ? (
+              <SequenceView parts={parts} activity={m.activity} color={color} />
             ) : (
               <>
                 {m.activity && m.activity.length > 0 && <ActivityView activity={m.activity} />}
@@ -167,8 +172,8 @@ export function Transcript({
                   <span className="ask-callout-text">{m.question}</span>
                   {m.questionOptions && m.questionOptions.length > 0 && (
                     <ol className="ask-callout-options">
-                      {m.questionOptions.map((o, i) => (
-                        <li key={i}>{o}</li>
+                      {m.questionOptions.map((o) => (
+                        <li key={o}>{o}</li>
                       ))}
                     </ol>
                   )}
@@ -178,14 +183,16 @@ export function Transcript({
             {/* Routing decision footer — a tool-only handoff is invisible in
                 the reply text, so the next speaker otherwise reads as taking
                 over at random (mirrors the TUI's "↪ handoff → @x" line). */}
-            {m.handoffTo && (() => {
-              const t = byId(m.handoffTo!)
+            {(() => {
+              const to = m.handoffTo
+              if (!to) return null
+              const t = byId(to)
               return (
                 <div className="handoff-line">
                   <span className="handoff-arrow">↪</span>
                   <span>handoff</span>
                   <span className="handoff-target" style={t?.color ? { color: t.color } : undefined}>
-                    {t?.icon && <span>{t.icon} </span>}@{m.handoffTo}
+                    {t?.icon && <span>{t.icon} </span>}@{to}
                   </span>
                 </div>
               )

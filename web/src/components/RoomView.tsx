@@ -139,7 +139,7 @@ export function RoomView({
             title="Routing: auto chains @mentions directly · semi asks before each wave's handoffs · manual asks per handoff · supervised lets the supervisor agent decide each handoff"
           >
             {(["auto", "semi", "manual", "supervised"] as RoutingMode[]).map((m) => (
-              <button
+              <button type="button"
                 key={m}
                 className={`mode-opt ${room.routingMode === m ? "on" : ""}`}
                 onClick={() => room.setRoutingMode(m)}

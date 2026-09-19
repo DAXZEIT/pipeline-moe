@@ -33,7 +33,12 @@ export function RoutingApproval({ proposals, roster, onResolve }: Props) {
     return (
       <div className="route-approval">
         <span className="route-label">↪ Redirect to</span>
-        <select className="route-select" value={target} onChange={(e) => setTarget(e.target.value)} autoFocus>
+        <select
+          className="route-select"
+          value={target}
+          onChange={(e) => setTarget(e.target.value)}
+          ref={(el) => el?.focus()}
+        >
           <option value="">choose an agent…</option>
           {roster
             .filter((r) => r.active && !proposers.has(r.id))
@@ -43,14 +48,14 @@ export function RoutingApproval({ proposals, roster, onResolve }: Props) {
               </option>
             ))}
         </select>
-        <button
+        <button type="button"
           className="route-btn approve"
           disabled={!target}
           onClick={() => onResolve({ action: "redirect", targetIds: [target] })}
         >
           Send
         </button>
-        <button className="route-btn ghost" onClick={() => setRedirecting(false)}>
+        <button type="button" className="route-btn ghost" onClick={() => setRedirecting(false)}>
           Cancel
         </button>
       </div>
@@ -64,8 +69,8 @@ export function RoutingApproval({ proposals, roster, onResolve }: Props) {
         Handoff{proposals.length > 1 ? "s" : ""} awaiting approval
       </span>
       <span className="route-hops">
-        {proposals.map((p, i) => (
-          <span key={i} className="route-hop">
+        {proposals.map((p) => (
+          <span key={`${p.from}>${p.target}`} className="route-hop">
             <AgentChip id={p.from} roster={roster} />
             <span className="route-arrow">→</span>
             <AgentChip id={p.target} roster={roster} />
@@ -73,13 +78,13 @@ export function RoutingApproval({ proposals, roster, onResolve }: Props) {
         ))}
       </span>
       <span className="route-actions">
-        <button className="route-btn approve" onClick={() => onResolve({ action: "approve" })}>
+        <button type="button" className="route-btn approve" onClick={() => onResolve({ action: "approve" })}>
           ✓ Approve
         </button>
-        <button className="route-btn" onClick={() => setRedirecting(true)}>
+        <button type="button" className="route-btn" onClick={() => setRedirecting(true)}>
           ↪ Redirect
         </button>
-        <button className="route-btn drop" onClick={() => onResolve({ action: "drop" })}>
+        <button type="button" className="route-btn drop" onClick={() => onResolve({ action: "drop" })}>
           ✕ Drop
         </button>
       </span>

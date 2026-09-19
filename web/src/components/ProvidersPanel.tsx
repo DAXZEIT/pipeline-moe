@@ -71,7 +71,7 @@ export function ProvidersPanel({ providers, onAdd, onRemove, onLogin }: Props) {
               {p.supportsOAuth ? "✓ OAuth" : "✓"}
             </span>
             {p.supportsOAuth && confirmRemove !== p.name && (
-              <button
+              <button type="button"
                 className="btn-small"
                 onClick={() => handleLogin(p.name)}
                 title="Re-authenticate via OAuth"
@@ -81,15 +81,15 @@ export function ProvidersPanel({ providers, onAdd, onRemove, onLogin }: Props) {
             )}
             {confirmRemove === p.name ? (
               <div className="confirm-remove">
-                <button className="btn-small danger" onClick={() => handleRemove(p.name)}>
+                <button type="button" className="btn-small danger" onClick={() => handleRemove(p.name)}>
                   Confirm
                 </button>
-                <button className="btn-small" onClick={() => setConfirmRemove(null)}>
+                <button type="button" className="btn-small" onClick={() => setConfirmRemove(null)}>
                   Cancel
                 </button>
               </div>
             ) : (
-              <button
+              <button type="button"
                 className="btn-small danger"
                 onClick={() => setConfirmRemove(p.name)}
                 title="Remove credentials"
@@ -104,7 +104,7 @@ export function ProvidersPanel({ providers, onAdd, onRemove, onLogin }: Props) {
       {/* Unconfigured providers — collapsible */}
       {unconfigured.length > 0 && (
         <div>
-          <button
+          <button type="button"
             className="add-provider-toggle"
             onClick={() => setShowUnconfigured(!showUnconfigured)}
             title={showUnconfigured ? "Collapse" : "Show unconfigured providers"}
@@ -127,23 +127,23 @@ export function ProvidersPanel({ providers, onAdd, onRemove, onLogin }: Props) {
 
                     {adding === p.name ? (
                       <div className="provider-actions">
-                        <button className="btn-small primary" onClick={() => handleAdd(p.name)}>
+                        <button type="button" className="btn-small primary" onClick={() => handleAdd(p.name)}>
                           Save
                         </button>
-                        <button className="btn-small" onClick={() => { setAdding(null); setKey("") }}>
+                        <button type="button" className="btn-small" onClick={() => { setAdding(null); setKey("") }}>
                           Cancel
                         </button>
                       </div>
                     ) : (
                       <div className="provider-actions">
-                        <button
+                        <button type="button"
                           className="btn-small primary"
                           onClick={() => handleLogin(p.name)}
                           title="Login via OAuth"
                         >
                           Login
                         </button>
-                        <button
+                        <button type="button"
                           className="btn-small"
                           onClick={() => { setAdding(p.name); setKey("") }}
                           title="Or paste an API key"
@@ -165,7 +165,7 @@ export function ProvidersPanel({ providers, onAdd, onRemove, onLogin }: Props) {
                           if (e.key === "Enter") handleAdd(p.name)
                           if (e.key === "Escape") { setAdding(null); setKey("") }
                         }}
-                        autoFocus
+                        ref={(el) => el?.focus()}
                         className="api-key-input"
                         autoComplete="off"
                         data-1p-ignore
@@ -189,15 +189,15 @@ export function ProvidersPanel({ providers, onAdd, onRemove, onLogin }: Props) {
 
                     {adding === p.name ? (
                       <div className="provider-actions">
-                        <button className="btn-small primary" onClick={() => handleAdd(p.name)}>
+                        <button type="button" className="btn-small primary" onClick={() => handleAdd(p.name)}>
                           Save
                         </button>
-                        <button className="btn-small" onClick={() => { setAdding(null); setKey("") }}>
+                        <button type="button" className="btn-small" onClick={() => { setAdding(null); setKey("") }}>
                           Cancel
                         </button>
                       </div>
                     ) : (
-                      <button
+                      <button type="button"
                         className="btn-small"
                         onClick={() => { setAdding(p.name); setKey("") }}
                         title="Add API key"
@@ -218,7 +218,7 @@ export function ProvidersPanel({ providers, onAdd, onRemove, onLogin }: Props) {
                           if (e.key === "Enter") handleAdd(p.name)
                           if (e.key === "Escape") { setAdding(null); setKey("") }
                         }}
-                        autoFocus
+                        ref={(el) => el?.focus()}
                         className="api-key-input"
                         autoComplete="off"
                         data-1p-ignore

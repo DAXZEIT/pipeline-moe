@@ -69,7 +69,7 @@ export function PresetsPanel({
         const missing = p.personas.some((pp) => isUnavailable(pp.model))
         return (
           <div key={p.name} className={`preset-card${isOpen ? " open" : ""}`}>
-            <button
+            <button type="button"
               className="preset-card-head"
               onClick={() => setExpanded(isOpen ? null : p.name)}
               title={isOpen ? "Collapse" : "Show members"}
@@ -113,7 +113,7 @@ export function PresetsPanel({
                 ))}
 
                 <div className="preset-card-actions">
-                  <button
+                  <button type="button"
                     className="mini"
                     disabled={turnActive || busy !== null}
                     onClick={() => act(p.name, "load")}
@@ -121,7 +121,7 @@ export function PresetsPanel({
                   >
                     {busy === `load:${p.name}` ? "…" : "▶ load"}
                   </button>
-                  <button
+                  <button type="button"
                     className="mini"
                     disabled={turnActive || busy !== null}
                     onClick={() => act(p.name, "apply")}

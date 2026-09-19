@@ -73,7 +73,7 @@ function PiRuntimeSection() {
           {status?.updateAvailable ? ` → ${status.latest} available` : status?.latest ? " (latest)" : ""}
         </span>
         {status?.updateAvailable && phase !== "done" && (
-          <button className="settings-button" onClick={update} disabled={phase === "updating"}>
+          <button type="button" className="settings-button" onClick={update} disabled={phase === "updating"}>
             {phase === "updating" ? "Updating…" : `Update to ${status.latest}`}
           </button>
         )}

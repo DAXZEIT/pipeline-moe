@@ -56,45 +56,47 @@ export function RoomTabs({ rooms, activeRoomId, onSwitch, onCreateRoom, onDestro
         const isDefault = room.roomId === "default"
         const label = statusLabel(room.goalStatus)
         return (
-          <button
+          <div
             key={room.roomId}
             className={`room-tab${isActive ? " active" : ""}`}
-            onClick={() => onSwitch(room.roomId)}
             title={room.goalText ? `Goal: ${room.goalText}` : room.name}
           >
-            <span className={statusDotClass(room.goalStatus)} aria-label={room.goalStatus} />
-            <span
-              className="room-tab-name"
-              onDoubleClick={(e) => handleRename(e, room.roomId, room.name)}
-              title="Double-click to rename"
-            >
-              {room.name}
-            </span>
-            {label && <span className="room-tab-status">{label}</span>}
-            {room.goalStatus === "running" && (
+            <button type="button" className="room-tab-main" onClick={() => onSwitch(room.roomId)}>
+              <span className={statusDotClass(room.goalStatus)} role="img" aria-label={room.goalStatus} />
+              {/* biome-ignore lint/a11y/noStaticElementInteractions: double-click rename is a deliberate mouse-only secondary affordance (title says so); the tab's primary actions are all real buttons now. */}
               <span
+                className="room-tab-name"
+                onDoubleClick={(e) => handleRename(e, room.roomId, room.name)}
+                title="Double-click to rename"
+              >
+                {room.name}
+              </span>
+              {label && <span className="room-tab-status">{label}</span>}
+            </button>
+            {room.goalStatus === "running" && (
+              <button
+                type="button"
                 className="room-tab-stop"
-                role="button"
                 onClick={(e) => handleStop(e, room.roomId)}
                 title={`Stop ${room.name} — cancels the running goal, keeps the transcript`}
               >
                 ⏹
-              </span>
+              </button>
             )}
             {!isDefault && (
-              <span
+              <button
+                type="button"
                 className="room-tab-close"
-                role="button"
                 onClick={(e) => handleDestroy(e, room.roomId, room.name)}
                 title={`Destroy ${room.name}`}
               >
                 ×
-              </span>
+              </button>
             )}
-          </button>
+          </div>
         )
       })}
-      <button className="room-tab-new" onClick={onCreateRoom} title="Create a new room">
+      <button type="button" className="room-tab-new" onClick={onCreateRoom} title="Create a new room">
         + room
       </button>
     </div>

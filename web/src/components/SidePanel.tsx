@@ -63,25 +63,25 @@ export function SidePanel({
     <aside className="workspace">
       <div className="workspace-head">
         <div className="side-tabs">
-          <button
+          <button type="button"
             className={`side-tab${tab === "workspace" ? " active" : ""}`}
             onClick={() => setTab("workspace")}
           >
             Workspace
           </button>
-          <button
+          <button type="button"
             className={`side-tab${tab === "handoffs" ? " active" : ""}`}
             onClick={() => setTab("handoffs")}
           >
             Handoffs
           </button>
-          <button
+          <button type="button"
             className={`side-tab${tab === "presets" ? " active" : ""}`}
             onClick={() => setTab("presets")}
           >
             Presets
           </button>
-          <button
+          <button type="button"
             className={`side-tab${tab === "settings" ? " active" : ""}`}
             onClick={() => setTab("settings")}
           >

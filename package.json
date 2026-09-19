@@ -48,8 +48,8 @@
     "prepack": "npm -C web run build",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "lint": "biome lint src/ packages/",
-    "lint:fix": "biome lint src/ packages/ --write",
+    "lint": "biome lint src/ packages/ web/src/",
+    "lint:fix": "biome lint src/ packages/ web/src/ --write",
     "format": "biome format --write src/"
   },
   "dependencies": {

@@ -55,7 +55,7 @@ export function ConversationBar({
 
   return (
     <div className="conv-bar" ref={wrapRef}>
-      <button
+      <button type="button"
         className="conv-trigger"
         onClick={() => setOpen((o) => !o)}
         title="Switch discussion"
@@ -76,7 +76,7 @@ export function ConversationBar({
                 {editingId === c.id ? (
                   <input
                     className="conv-edit"
-                    autoFocus
+                    ref={(el) => el?.focus()}
                     value={draft}
                     onChange={(e) => setDraft(e.target.value)}
                     onKeyDown={(e) => {
@@ -86,7 +86,7 @@ export function ConversationBar({
                     onBlur={commitRename}
                   />
                 ) : (
-                  <button
+                  <button type="button"
                     className="conv-name"
                     disabled={turnActive && c.id !== currentId}
                     onClick={() => {
@@ -100,11 +100,11 @@ export function ConversationBar({
                 )}
 
                 <div className="conv-item-actions">
-                  <button className="mini" title="Rename" onClick={() => startRename(c)}>
+                  <button type="button" className="mini" title="Rename" onClick={() => startRename(c)}>
                     ✎
                   </button>
                   {confirmId === c.id ? (
-                    <button
+                    <button type="button"
                       className="mini danger"
                       title="Confirm delete"
                       onClick={() => {
@@ -115,7 +115,7 @@ export function ConversationBar({
                       ✓
                     </button>
                   ) : (
-                    <button
+                    <button type="button"
                       className="mini danger"
                       title="Delete"
                       disabled={turnActive}
@@ -129,7 +129,7 @@ export function ConversationBar({
             ))}
           </div>
 
-          <button
+          <button type="button"
             className="conv-new"
             disabled={turnActive}
             onClick={() => {

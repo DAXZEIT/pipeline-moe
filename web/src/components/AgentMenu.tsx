@@ -64,7 +64,7 @@ export function AgentMenu({ items }: { items: AgentMenuItem[] }) {
 
   return (
     <div className="agent-menu" ref={wrapRef}>
-      <button
+      <button type="button"
         ref={btnRef}
         className="agent-menu-btn"
         title="Agent actions"
@@ -76,10 +76,10 @@ export function AgentMenu({ items }: { items: AgentMenuItem[] }) {
       </button>
       {open && (
         <div className="agent-menu-dropdown" role="menu" style={{ top: pos.top, left: pos.left }}>
-          {items.map((it, i) => (
-            <div key={i}>
+          {items.map((it) => (
+            <div key={it.label}>
               {it.separatorBefore && <div className="agent-menu-sep" />}
-              <button
+              <button type="button"
                 className={`agent-menu-item${it.danger ? " danger" : ""}`}
                 role="menuitem"
                 disabled={it.disabled}

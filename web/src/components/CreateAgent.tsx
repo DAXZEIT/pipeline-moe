@@ -57,10 +57,10 @@ export function CreateAgent({ onCancel, onCreate }: Props) {
         ))}
       </div>
       <div className="ca-actions">
-        <button className="btn btn-ghost" onClick={onCancel} disabled={busy}>
+        <button type="button" className="btn btn-ghost" onClick={onCancel} disabled={busy}>
           Cancel
         </button>
-        <button
+        <button type="button"
           className="btn btn-send"
           disabled={busy || !name.trim() || !systemPrompt.trim()}
           onClick={async () => {

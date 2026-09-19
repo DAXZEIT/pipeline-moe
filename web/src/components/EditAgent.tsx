@@ -51,7 +51,7 @@ export function EditAgent({ agent, onFetch, onSave, onCancel, onSaved }: Props) 
     return () => {
       cancelled = true
     }
-  }, [agent.id])
+  }, [agent.id, onFetch])
 
   // Models offered for per-agent selection (local-only unless cloud enabled).
   useEffect(() => {
@@ -147,10 +147,10 @@ export function EditAgent({ agent, onFetch, onSave, onCancel, onSaved }: Props) 
         </select>
       </label>
       <div className="ca-actions">
-        <button className="btn btn-ghost" onClick={onCancel} disabled={busy}>
+        <button type="button" className="btn btn-ghost" onClick={onCancel} disabled={busy}>
           Cancel
         </button>
-        <button
+        <button type="button"
           className="btn btn-send"
           disabled={busy || !loaded || !name.trim() || !systemPrompt.trim()}
           onClick={async () => {

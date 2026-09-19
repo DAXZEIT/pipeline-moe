@@ -43,10 +43,10 @@ export function HandoffGraph({ messages, roster, initialView = "radial" }: Props
     <div className="hg">
       <div className="hg-head">
         <div className="hg-toggle">
-          <button className={`hg-tab${view === "radial" ? " on" : ""}`} onClick={() => setView("radial")}>
+          <button type="button" className={`hg-tab${view === "radial" ? " on" : ""}`} onClick={() => setView("radial")}>
             Flow
           </button>
-          <button className={`hg-tab${view === "matrix" ? " on" : ""}`} onClick={() => setView("matrix")}>
+          <button type="button" className={`hg-tab${view === "matrix" ? " on" : ""}`} onClick={() => setView("matrix")}>
             Matrix
           </button>
         </div>

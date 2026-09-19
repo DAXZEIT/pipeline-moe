@@ -94,25 +94,36 @@ export function CreateRoomDialog({ onClose, onCreated }: Props) {
     if (e.target === e.currentTarget) onClose()
   }
 
+  // Keyboard path for closing the dialog (the backdrop click is mouse-only).
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose()
+    }
+    document.addEventListener("keydown", onKey)
+    return () => document.removeEventListener("keydown", onKey)
+  }, [onClose])
+
   return (
+    // biome-ignore lint/a11y/useKeyWithClickEvents: the keyboard path is the document-level Escape listener below.
+    // biome-ignore lint/a11y/noStaticElementInteractions: backdrop click-to-dismiss; focus starts on the form's first input and Escape closes.
     <div className="dialog-backdrop" onClick={handleBackdrop}>
       <div className="create-room-dialog">
         <div className="dialog-header">
           <div className="dialog-tabs">
-            <button
+            <button type="button"
               className={`dialog-tab${mode === "create" ? " active" : ""}`}
               onClick={() => setMode("create")}
             >
               Create new
             </button>
-            <button
+            <button type="button"
               className={`dialog-tab${mode === "resume" ? " active" : ""}`}
               onClick={() => setMode("resume")}
             >
               Resume
             </button>
           </div>
-          <button className="dialog-close" onClick={onClose}>×</button>
+          <button type="button" className="dialog-close" onClick={onClose}>×</button>
         </div>
 
         {mode === "create" ? (
@@ -125,7 +136,7 @@ export function CreateRoomDialog({ onClose, onCreated }: Props) {
                 placeholder="e.g. Cloud Sprint"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                autoFocus
+                ref={(el) => el?.focus()}
               />
             </label>
 
@@ -202,7 +213,7 @@ export function CreateRoomDialog({ onClose, onCreated }: Props) {
               <ul className="resume-list">
                 {resumable.map((r) => (
                   <li key={r.roomId}>
-                    <button
+                    <button type="button"
                       className="resume-item"
                       onClick={() => handleResume(r.roomId)}
                       disabled={submitting}

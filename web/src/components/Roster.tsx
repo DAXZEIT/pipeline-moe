@@ -205,12 +205,16 @@ export function Roster({
       {/* Seat-name prompt — „Share a seat with…" — fixed overlay to escape
        *  the roster scroll container, same placement strategy as AgentMenu. */}
       {seatPrompt && (
+        // biome-ignore lint/a11y/useKeyWithClickEvents: the prompt's focused input handles Escape/Enter — that is the keyboard path for this overlay.
+        // biome-ignore lint/a11y/noStaticElementInteractions: overlay click-to-dismiss; keyboard path exists via the input's Escape/Enter handlers.
         <div className="seat-prompt-overlay" onClick={() => setSeatPrompt(null)}>
+          {/* biome-ignore lint/a11y/useKeyWithClickEvents: never a keyboard target — its only job is swallowing the overlay's dismiss-click. */}
+          {/* biome-ignore lint/a11y/noStaticElementInteractions: stops the overlay's dismiss-click from firing when the user clicks inside the prompt panel. */}
           <div className="seat-prompt" onClick={(e) => e.stopPropagation()}>
             <div className="seat-prompt-title">Name the seat for {seatPrompt.name || "…"}</div>
             <div className="seat-prompt-subtitle">@{seatPrompt.creatorId} + @{seatPrompt.partnerId}</div>
             <input
-              autoFocus
+              ref={(el) => el?.focus()}
               className="seat-prompt-input"
               value={seatPrompt.name}
               placeholder="e.g. maker"
@@ -224,8 +228,8 @@ export function Roster({
               }}
             />
             <div className="seat-prompt-actions">
-              <button className="btn btn-ghost" onClick={() => setSeatPrompt(null)}>Cancel</button>
-              <button className="btn" onClick={() => confirmSeatPrompt()}>Create seat</button>
+              <button type="button" className="btn btn-ghost" onClick={() => setSeatPrompt(null)}>Cancel</button>
+              <button type="button" className="btn" onClick={() => confirmSeatPrompt()}>Create seat</button>
             </div>
             {seatPrompt.error && (
               <div className="seat-prompt-error">{seatPrompt.error}</div>
@@ -248,7 +252,7 @@ export function Roster({
             }}
           />
         ) : (
-          <button className="btn btn-ghost full" onClick={() => setCreating(true)}>
+          <button type="button" className="btn btn-ghost full" onClick={() => setCreating(true)}>
             + Add agent
           </button>
         )}
@@ -277,6 +281,7 @@ export function Roster({
           ]
           return (
           <div key={r.id}>
+            {/* biome-ignore lint/a11y/noStaticElementInteractions: HTML5 drag-and-drop reorder is mouse-inherent (no keyboard DnD equivalent); the ⋮ handle below carries the same limitation. */}
             <div
               className={`roster-item ${r.active ? "" : "inactive"} ${editingId === r.id ? "editing" : ""} ${dragId === r.id ? "dragging" : ""} ${overId === r.id ? "drag-over" : ""}`}
               onDragOver={(e) => {
@@ -289,6 +294,7 @@ export function Roster({
                 drop(r.id)
               }}
             >
+              {/* biome-ignore lint/a11y/noStaticElementInteractions: drag-to-reorder handle — HTML5 DnD is mouse-inherent by design. */}
               <span
                 className="drag-handle"
                 draggable
@@ -309,7 +315,7 @@ export function Roster({
               </span>
               <div className="roster-meta">
                 <div className="roster-top">
-                  <button
+                  <button type="button"
                     className="roster-name-btn"
                     title={turnActive ? "Stop the turn to edit" : "Edit persona / system prompt"}
                     onClick={() => { if (!turnActive) setEditingId((cur) => (cur === r.id ? null : r.id)) }}

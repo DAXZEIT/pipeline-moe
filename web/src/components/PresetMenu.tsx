@@ -127,7 +127,7 @@ export function PresetMenu({ turnActive, drift, onSave, onLoad, onApply, onPull,
 
   return (
     <div className="preset-bar" ref={wrapRef}>
-      <button
+      <button type="button"
         className="preset-trigger"
         onClick={() => setOpen((o) => !o)}
         title="Room presets"
@@ -139,15 +139,15 @@ export function PresetMenu({ turnActive, drift, onSave, onLoad, onApply, onPull,
         <div className="preset-menu">
           {drift && (
             <div className="preset-section preset-drift-section">
-              <label className="preset-label">
+              <span className="preset-label">
                 From preset “{drift.preset}”
                 {drift.deviates && <span className="preset-drift-star" title="Live roster deviates from this preset">*</span>}
-              </label>
+              </span>
               {drift.deviates ? (
                 <>
                   <div className="preset-drift-note">The live roster deviates from this preset.</div>
                   <div className="preset-drift-actions">
-                    <button
+                    <button type="button"
                       className="preset-save-btn"
                       title={`Restore the roster saved in preset "${drift.preset}"`}
                       disabled={turnActive || driftBusy !== null}
@@ -155,7 +155,7 @@ export function PresetMenu({ turnActive, drift, onSave, onLoad, onApply, onPull,
                     >
                       {driftBusy === "pull" ? "restoring…" : "Restore"}
                     </button>
-                    <button
+                    <button type="button"
                       className="preset-save-btn"
                       title={`Save the live roster back onto preset "${drift.preset}"`}
                       disabled={turnActive || driftBusy !== null}
@@ -171,7 +171,7 @@ export function PresetMenu({ turnActive, drift, onSave, onLoad, onApply, onPull,
             </div>
           )}
           <div className="preset-section">
-            <label className="preset-label">Save current roster</label>
+            <span className="preset-label">Save current roster</span>
             <div className="preset-save-row">
               <input
                 className="preset-input"
@@ -181,7 +181,7 @@ export function PresetMenu({ turnActive, drift, onSave, onLoad, onApply, onPull,
                 onKeyDown={(e) => e.key === "Enter" && handleSave()}
                 disabled={turnActive}
               />
-              <button
+              <button type="button"
                 className="preset-save-btn"
                 onClick={handleSave}
                 disabled={turnActive || !savingName.trim()}
@@ -192,7 +192,7 @@ export function PresetMenu({ turnActive, drift, onSave, onLoad, onApply, onPull,
           </div>
 
           <div className="preset-section">
-            <label className="preset-label">Loaded presets</label>
+            <span className="preset-label">Loaded presets</span>
             {presets.length === 0 && (
               <div className="preset-empty">No saved presets</div>
             )}
@@ -207,7 +207,7 @@ export function PresetMenu({ turnActive, drift, onSave, onLoad, onApply, onPull,
                   {loadingName === p.name ? (
                     <span className="preset-loading">loading…</span>
                   ) : (
-                    <button
+                    <button type="button"
                       className="mini"
                       title="Load preset (new conversation)"
                       disabled={turnActive}
@@ -219,7 +219,7 @@ export function PresetMenu({ turnActive, drift, onSave, onLoad, onApply, onPull,
                   {applyingName === p.name ? (
                     <span className="preset-loading">applying…</span>
                   ) : (
-                    <button
+                    <button type="button"
                       className="mini"
                       title="Apply preset (in-place)"
                       disabled={turnActive}
@@ -229,7 +229,7 @@ export function PresetMenu({ turnActive, drift, onSave, onLoad, onApply, onPull,
                     </button>
                   )}
                   {confirmId === p.name ? (
-                    <button
+                    <button type="button"
                       className="mini danger"
                       title="Confirm delete"
                       onClick={() => handleDelete(p.name)}
@@ -237,7 +237,7 @@ export function PresetMenu({ turnActive, drift, onSave, onLoad, onApply, onPull,
                       ✓
                     </button>
                   ) : (
-                    <button
+                    <button type="button"
                       className="mini danger"
                       title="Delete"
                       onClick={() => handleDelete(p.name)}

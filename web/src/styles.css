@@ -148,8 +148,10 @@ body {
 .roster-item:hover .drag-handle {
   opacity: 0.6;
 }
-.drag-handle:hover {
-  opacity: 1 !important;
+/* Specificity (0,4,0) beats .roster-item:hover .drag-handle (0,3,0) without
+ * needing !important. */
+.roster-item:hover .drag-handle:hover {
+  opacity: 1;
 }
 .drag-handle:active {
   cursor: grabbing;
@@ -192,6 +194,7 @@ body {
 .roster-name-btn:hover .roster-name {
   text-decoration: underline;
 }
+/* biome-ignore lint/style/noDescendingSpecificity: the higher-specificity hover rule above only sets text-decoration (absent here), so the order is safe to keep. */
 .roster-name {
   font-weight: 600;
   font-size: 13px;
@@ -768,6 +771,7 @@ body {
   opacity: 0.4;
   cursor: default;
 }
+/* biome-ignore lint/style/noDescendingSpecificity: selectors target different elements (button vs its text span) and share no properties, so the order is safe to keep. */
 .conv-name-text {
   flex: 1;
   overflow: hidden;
@@ -1761,9 +1765,11 @@ body {
   color: var(--text);
   font-size: 10px;
 }
-.hg-corner {
-  font-size: 9px !important;
-  color: var(--muted) !important;
+/* Specificity (0,2,1) beats .hg-matrix thead/tbody th (0,1,2) without
+ * needing !important. */
+.hg-matrix th.hg-corner {
+  font-size: 9px;
+  color: var(--muted);
 }
 .hg-cell {
   position: absolute;
@@ -1784,6 +1790,7 @@ body {
   color: var(--muted);
   font-variant-numeric: tabular-nums;
 }
+/* biome-ignore lint/style/noDescendingSpecificity: .hg-foot th/td re-declares only color (same value as .hg-tot), so reordering is unnecessary and riskier than keeping the cascade. */
 .hg-foot th,
 .hg-foot td {
   color: var(--muted);
@@ -2240,6 +2247,7 @@ body {
 .task-row.completed .task-glyph {
   color: var(--muted);
 }
+/* biome-ignore lint/style/noDescendingSpecificity: the base rule below declares only layout properties (no text-decoration/color), so the completed-row strike-through above is unaffected by the order. */
 .task-subject {
   flex: 1;
   min-width: 0;
@@ -2419,6 +2427,20 @@ body {
   border-color: var(--border);
 }
 
+/* The tab row is a div; the room name/status area is the real switch button. */
+.room-tab-main {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  min-width: 0;
+}
+
 .room-tab-name {
   max-width: 120px;
   overflow: hidden;
@@ -2433,8 +2455,11 @@ body {
 .room-tab-close {
   font-size: 14px;
   line-height: 1;
+  font-family: inherit;
   color: var(--muted);
   cursor: pointer;
+  border: none;
+  background: transparent;
   border-radius: 3px;
   padding: 0 2px;
   margin-left: 2px;
@@ -2448,8 +2473,11 @@ body {
 .room-tab-stop {
   font-size: 11px;
   line-height: 1;
+  font-family: inherit;
   color: var(--muted);
   cursor: pointer;
+  border: none;
+  background: transparent;
   border-radius: 3px;
   padding: 1px 3px;
   margin-left: 2px;

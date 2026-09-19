@@ -225,6 +225,7 @@ export function Composer({ roster, turnActive, runningAgentId, paused, pausedQue
           {trigger === "/" ? (
             // trigger === "/" guarantees command objects (see the suggestions memo).
             (suggestions as typeof SLASH_COMMANDS).map((c, i) => (
+              // biome-ignore lint/a11y/noStaticElementInteractions: keyboard selection lives on the textarea's onKeyDown (arrows/Tab/Enter accept the highlighted suggestion); these rows are the mouse-only complement of that same action.
               <div
                 key={c.cmd}
                 className={`mention-item ${i === highlight ? "active" : ""}`}
@@ -243,6 +244,7 @@ export function Composer({ roster, turnActive, runningAgentId, paused, pausedQue
             (suggestions as string[]).map((h, i) => {
               const r = roster.find((x) => x.id === h)
               return (
+                // biome-ignore lint/a11y/noStaticElementInteractions: keyboard selection lives on the textarea's onKeyDown (arrows/Tab/Enter accept the highlighted suggestion); these rows are the mouse-only complement of that same action.
                 <div
                   key={h}
                   className={`mention-item ${i === highlight ? "active" : ""}`}
@@ -272,8 +274,8 @@ export function Composer({ roster, turnActive, runningAgentId, paused, pausedQue
             <span className="ask-banner-text">&ldquo;{pausedQuestion}&rdquo;</span>
             {pausedOptions && pausedOptions.length > 0 && (
               <div className="ask-banner-options">
-                {pausedOptions.map((o, i) => (
-                  <button key={i} className="btn ask-option-btn" onClick={() => onSend(o)}>
+                {pausedOptions.map((o) => (
+                  <button type="button" key={o} className="btn ask-option-btn" onClick={() => onSend(o)}>
                     {o}
                   </button>
                 ))}
@@ -287,9 +289,9 @@ export function Composer({ roster, turnActive, runningAgentId, paused, pausedQue
       {pendingImages.length > 0 && (
         <div className="image-preview-strip">
           {pendingImages.map((uri, i) => (
-            <div key={i} className="image-preview-thumb">
+            <div key={uri} className="image-preview-thumb">
               <img src={uri} alt={`attachment ${i + 1}`} />
-              <button
+              <button type="button"
                 className="image-preview-remove"
                 onClick={() => removeImage(i)}
                 title="Remove image"
@@ -371,19 +373,19 @@ export function Composer({ roster, turnActive, runningAgentId, paused, pausedQue
         />
         {turnActive ? (
           <>
-            <button
+            <button type="button"
               className="btn btn-steer"
               onClick={submit}
               title={`Steer @${runningAgentId ?? "agent"}`}
             >
               ↪ Steer{runningAgentId ? ` @${runningAgentId}` : ""}
             </button>
-            <button className="btn btn-stop" onClick={onAbort} title="Abort current agent">
+            <button type="button" className="btn btn-stop" onClick={onAbort} title="Abort current agent">
               ■ Stop
             </button>
           </>
         ) : (
-          <button className="btn btn-send" onClick={submit}>
+          <button type="button" className="btn btn-send" onClick={submit}>
             Send
           </button>
         )}
