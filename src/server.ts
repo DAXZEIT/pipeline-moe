@@ -72,7 +72,6 @@ function printBanner(): void {
 import { downgradeUnavailableModels, isAllowedModel, listModels, resolveModel, setProviderApiKey, type ResolvedModel } from "./model.js"
 import { oauthProgressPayload } from "./oauth-events.js"
 import { assertInside } from "./path-guard.js"
-import { listWorkspace } from "./receipts.js"
 import { BASE_PROMPT, BUILDER_OVERLAY, PLANNER_OVERLAY, SEED_PERSONAS, soloPersona } from "./personas.js"
 import { type PresetPersona, stripSeedFields, rehydrateSeedFields } from "./preset-hydration.js"
 import { Room } from "./room.js"
@@ -858,9 +857,517 @@ async function main(): Promise<void> {
     res.write(`event: roster\ndata: ${JSON.stringify(registry.roster())}\n\n`)
   })
 
-  app.get("/api/participants", (_req, res) => {
-    res.json(registry.roster())
+  // ── Shared room-scoped handlers ────────────────────────────────────────────
+  // Single source of truth for endpoints that are mounted twice: as legacy
+  // /api/* routes against the default room (captured by closure) and under the
+  // room-scoped router (/api/rooms/:roomId/*, resolved per request via roomOf).
+  // Each family calls roomApi() with its own resolver — and gets its own
+  // rate-limiter instances, so the two route families keep separate counters.
+
+  const settingsPayload = (r: Room) => ({
+    chaining: r.getChaining(),
+    routingMode: r.getRoutingMode(),
+    defaultAgent: r.getDefaultAgent(),
+    fallbackAgent: r.getFallbackAgent(),
+    supervisorAgent: r.getSupervisorAgent(),
+    planAwareRouting: r.getPlanAwareRouting(),
+    maxChainHops: r.getMaxChainHops(),
+    defaultThinkingLevel: r.getDefaultThinkingLevel(),
+    allowCloud: r.getAllowCloud(),
+    compactionReserveTokens: r.getCompactionReserveTokens(),
+    defaultModel: r.getDefaultModel(),
+    maxRooms: config.maxRooms,
+    pendingRoute: r.getPendingRoute(),
+    handoffGates: r.getHandoffGates(),
+    drift: r.getDrift(),
+    roomUsage: r.getRoomUsage(),
   })
+
+  const parseRouteDecision = (body: Record<string, unknown>): RouteDecision | null => {
+    const action = body?.action
+    if (action !== "approve" && action !== "redirect" && action !== "drop") return null
+    const targetIds = Array.isArray(body?.targetIds) ? body.targetIds.map(String) : undefined
+    return { action, targetIds }
+  }
+
+  const roomApi = (resolve: (req: express.Request) => Room) => {
+    const messagesRateLimit = rateLimit({ windowMs: 60_000, max: 60, standardHeaders: true, legacyHeaders: false })
+    const shellRateLimit = rateLimit({ windowMs: 60_000, max: 30, standardHeaders: true, legacyHeaders: false })
+    const handlers = {
+      listParticipants: (_req: express.Request, res: express.Response) => {
+        res.json(resolve(_req).getRegistry().roster())
+      },
+
+      createParticipant: async (req: express.Request, res: express.Response) => {
+        const reg = resolve(req).getRegistry()
+        try {
+          const persona = parsePersona(req.body ?? {})
+          if (reg.has(persona.id)) {
+            res.status(409).json({ error: `participant "${persona.id}" already exists` })
+            return
+          }
+          await reg.create(persona)
+          res.status(201).json(reg.roster().find((r) => r.id === persona.id))
+        } catch (err) {
+          res.status(400).json({ error: err instanceof Error ? err.message : String(err) })
+        }
+      },
+
+      addParticipantFromTemplate: async (req: express.Request, res: express.Response) => {
+        try {
+          const item = await addFromTemplate(resolve(req), String(req.body?.templateId ?? ""))
+          res.status(201).json(item)
+        } catch (err) {
+          res.status(400).json({ error: err instanceof Error ? err.message : String(err) })
+        }
+      },
+
+      // Reorder the roster (first-turn / @all execution order). Must be
+      // registered before the "/:id" routes so "reorder" is never parsed as an id.
+      reorderParticipants: (req: express.Request, res: express.Response) => {
+        const order = req.body?.order
+        if (!Array.isArray(order) || !order.every((x: unknown) => typeof x === "string")) {
+          res.status(400).json({ error: "`order` must be an array of participant ids" })
+          return
+        }
+        const reg = resolve(req).getRegistry()
+        reg.reorder(order as string[])
+        res.json(reg.roster())
+      },
+
+      // Full persona (incl. systemPrompt) for the edit form.
+      getParticipant: (req: express.Request, res: express.Response) => {
+        const p = resolve(req).getRegistry().get(req.params.id)
+        if (!p) {
+          res.status(404).json({ error: `unknown participant "${req.params.id}"` })
+          return
+        }
+        res.json({ ...p.persona, availableThinkingLevels: p.getAvailableThinkingLevels() })
+      },
+
+      // Activate / deactivate AND edit persona (name, prompt, tools, color, icon).
+      patchParticipant: async (req: express.Request, res: express.Response) => {
+        const r = resolve(req)
+        const reg = r.getRegistry()
+        const { id } = req.params
+        if (!reg.has(id)) {
+          res.status(404).json({ error: `unknown participant "${id}"` })
+          return
+        }
+        const body = req.body ?? {}
+
+        // Build a persona patch from any editable fields present in the body.
+        const patch: Record<string, unknown> = {}
+        if (typeof body.name === "string" && body.name.trim()) patch.name = body.name.trim()
+        if (typeof body.systemPrompt === "string" && body.systemPrompt.trim())
+          patch.systemPrompt = body.systemPrompt.trim()
+        if (typeof body.color === "string" && body.color) patch.color = body.color
+        if (typeof body.icon === "string" && body.icon) patch.icon = body.icon
+        if (Array.isArray(body.tools))
+          patch.tools = body.tools.map(String).filter((t: string) => VALID_TOOLS.has(t))
+        const VALID_THINKING = new Set(["off", "minimal", "low", "medium", "high", "xhigh"])
+        if ("thinkingLevel" in body) {
+          const tv = body.thinkingLevel
+          if (tv === null || tv === "") {
+            patch.thinkingLevel = undefined // reset to the global default
+          } else if (typeof tv === "string" && VALID_THINKING.has(tv)) {
+            patch.thinkingLevel = tv
+          } else {
+            res.status(400).json({ error: `invalid thinkingLevel "${String(tv)}" — must be one of: off, minimal, low, medium, high, xhigh` })
+            return
+          }
+        }
+        if ("model" in body) {
+          const mv = body.model
+          if (mv === null || mv === "") {
+            patch.model = undefined // reset to the process default model
+          } else if (typeof mv === "string" && reg.isAllowedModel(mv)) {
+            patch.model = mv
+          } else {
+            res.status(400).json({
+              error: r.getAllowCloud()
+                ? `unknown model "${String(mv)}"`
+                : `model "${String(mv)}" unavailable — cloud is disabled (toggle in Settings)`,
+            })
+            return
+          }
+        }
+        if ("compactionInstructions" in body) {
+          const ci = body.compactionInstructions
+          if (ci === null || ci === "") {
+            patch.compactionInstructions = undefined
+          } else if (typeof ci === "string" && ci.length <= 500) {
+            patch.compactionInstructions = ci
+          } else if (typeof ci === "string") {
+            res.status(400).json({ error: `compactionInstructions too long (${ci.length} chars, max 500)` })
+            return
+          } else {
+            res.status(400).json({ error: "compactionInstructions must be a string" })
+            return
+          }
+        }
+
+        try {
+          if (typeof body.active === "boolean") reg.setActive(id, body.active)
+          if (typeof body.vision === "boolean") reg.setVision(id, body.vision)
+          if (typeof body.parallel === "boolean") reg.setParallel(id, body.parallel)
+          if (Object.keys(patch).length > 0) {
+            // Fast path: thinkingLevel-only change → in-place, no session recreation.
+            if (Object.keys(patch).length === 1 && "thinkingLevel" in patch && patch.thinkingLevel !== undefined) {
+              const level = patch.thinkingLevel as "off" | "minimal" | "low" | "medium" | "high" | "xhigh"
+              await reg.setThinkingLevel(id, level)
+            } else {
+              // Heavy path: dispose + recreate session.
+              if (r.isBusy()) {
+                res.status(409).json({ error: "a turn is running — press Stop before editing an agent" })
+                return
+              }
+              await reg.update(id, patch)
+            }
+          }
+          res.json(reg.roster().find((rosterEntry) => rosterEntry.id === id))
+        } catch (err) {
+          res.status(400).json({ error: err instanceof Error ? err.message : String(err) })
+        }
+      },
+
+      deleteParticipant: async (req: express.Request, res: express.Response) => {
+        const reg = resolve(req).getRegistry()
+        const { id } = req.params
+        if (!reg.has(id)) {
+          res.status(404).json({ error: `unknown participant "${id}"` })
+          return
+        }
+        await reg.kick(id)
+        res.status(204).end()
+      },
+
+      getTranscript: (_req: express.Request, res: express.Response) => {
+        res.json(resolve(_req).getTranscript())
+      },
+
+      getTasks: (_req: express.Request, res: express.Response) => {
+        res.json(resolve(_req).getTasks())
+      },
+
+      // The default room's listing is identical to the process workspace
+      // (createDefaultRoom scopes it to config.workspaceDir), so the legacy
+      // /api/workspace route and the room-scoped one share this handler.
+      getWorkspace: async (_req: express.Request, res: express.Response) => {
+        res.json(await resolve(_req).getWorkspaceListing())
+      },
+
+      listConversations: async (_req: express.Request, res: express.Response) => {
+        res.json(await resolve(_req).getConversations())
+      },
+
+      createConversation: async (req: express.Request, res: express.Response) => {
+        try {
+          const title = req.body?.title ? String(req.body.title) : undefined
+          res.status(201).json(await resolve(req).newConversation(title))
+        } catch (err) {
+          res.status(409).json({ error: err instanceof Error ? err.message : String(err) })
+        }
+      },
+
+      loadConversation: async (req: express.Request, res: express.Response) => {
+        try {
+          await resolve(req).switchConversation(req.params.id)
+          res.json({ ok: true })
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err)
+          res.status(msg.includes("unknown") ? 404 : 409).json({ error: msg })
+        }
+      },
+
+      renameConversation: async (req: express.Request, res: express.Response) => {
+        const title = String(req.body?.title ?? "").trim()
+        if (!title) {
+          res.status(400).json({ error: "`title` is required" })
+          return
+        }
+        try {
+          await resolve(req).renameConversation(req.params.id, title)
+          res.json({ ok: true })
+        } catch (err) {
+          res.status(404).json({ error: err instanceof Error ? err.message : String(err) })
+        }
+      },
+
+      deleteConversation: async (req: express.Request, res: express.Response) => {
+        try {
+          await resolve(req).deleteConversation(req.params.id)
+          res.status(204).end()
+        } catch (err) {
+          res.status(409).json({ error: err instanceof Error ? err.message : String(err) })
+        }
+      },
+
+      getSettings: (_req: express.Request, res: express.Response) => {
+        res.json(settingsPayload(resolve(_req)))
+      },
+
+      patchSettings: (req: express.Request, res: express.Response) => {
+        const r = resolve(req)
+        const body = req.body ?? {}
+        if ("chaining" in body) {
+          if (typeof body.chaining !== "boolean") {
+            res.status(400).json({ error: "`chaining` must be a boolean" })
+            return
+          }
+          r.setChaining(body.chaining)
+        }
+        if ("defaultAgent" in body) {
+          const da = body.defaultAgent
+          if (da !== null && typeof da !== "string") {
+            res.status(400).json({ error: "`defaultAgent` must be a string id or null" })
+            return
+          }
+          try {
+            r.setDefaultAgent(da)
+          } catch (err) {
+            res.status(404).json({ error: err instanceof Error ? err.message : String(err) })
+            return
+          }
+        }
+        if ("fallbackAgent" in body) {
+          const fa = body.fallbackAgent
+          if (fa !== null && typeof fa !== "string") {
+            res.status(400).json({ error: "`fallbackAgent` must be a string id or null" })
+            return
+          }
+          try {
+            r.setFallbackAgent(fa)
+          } catch (err) {
+            res.status(404).json({ error: err instanceof Error ? err.message : String(err) })
+            return
+          }
+        }
+        if ("supervisorAgent" in body) {
+          const sa = body.supervisorAgent
+          if (sa !== null && typeof sa !== "string") {
+            res.status(400).json({ error: "`supervisorAgent` must be a string id or null" })
+            return
+          }
+          try {
+            r.setSupervisorAgent(sa)
+          } catch (err) {
+            res.status(404).json({ error: err instanceof Error ? err.message : String(err) })
+            return
+          }
+        }
+        if ("planAwareRouting" in body) {
+          if (typeof body.planAwareRouting !== "boolean") {
+            res.status(400).json({ error: "`planAwareRouting` must be a boolean" })
+            return
+          }
+          r.setPlanAwareRouting(body.planAwareRouting)
+        }
+        if ("maxChainHops" in body) {
+          const n = body.maxChainHops
+          if (typeof n !== "number" || n < 1 || n > 100) {
+            res.status(400).json({ error: "`maxChainHops` must be a number between 1 and 100" })
+            return
+          }
+          r.setMaxChainHops(n)
+        }
+        if ("routingMode" in body) {
+          const m = body.routingMode
+          if (m !== "auto" && m !== "semi" && m !== "manual" && m !== "supervised") {
+            res.status(400).json({ error: "`routingMode` must be 'auto', 'semi', 'manual', or 'supervised'" })
+            return
+          }
+          r.setRoutingMode(m)
+        }
+        if ("defaultThinkingLevel" in body) {
+          const validLevels = ["off", "minimal", "low", "medium", "high", "xhigh"]
+          if (!validLevels.includes(body.defaultThinkingLevel)) {
+            res.status(400).json({ error: "`defaultThinkingLevel` must be one of: " + validLevels.join(", ") })
+            return
+          }
+          r.setDefaultThinkingLevel(body.defaultThinkingLevel)
+        }
+        if ("allowCloud" in body) {
+          if (typeof body.allowCloud !== "boolean") {
+            res.status(400).json({ error: "`allowCloud` must be a boolean" })
+            return
+          }
+          r.setAllowCloud(body.allowCloud)
+        }
+        if ("compactionReserveTokens" in body) {
+          const v = Number(body.compactionReserveTokens)
+          if (!Number.isFinite(v) || v < 5000 || v > 100000) {
+            res.status(400).json({ error: "`compactionReserveTokens` must be an integer between 5000 and 100000" })
+            return
+          }
+          r.setCompactionReserveTokens(v)
+        }
+        if ("handoffGates" in body) {
+          const gates = parseHandoffGates(body.handoffGates)
+          if (typeof gates === "string") {
+            res.status(400).json({ error: gates })
+            return
+          }
+          r.setHandoffGates(gates)
+        }
+        res.json(settingsPayload(r))
+      },
+
+      postRoute: (req: express.Request, res: express.Response) => {
+        const decision = parseRouteDecision(req.body ?? {})
+        if (!decision) {
+          res.status(400).json({ error: "`action` must be 'approve', 'redirect', or 'drop'" })
+          return
+        }
+        resolve(req).resolveRoute(decision)
+        res.status(202).json({ accepted: true })
+      },
+
+      // Post a message to the room. Returns immediately; results stream over SSE.
+      // Rate limited to prevent agent loops from flooding the queue. Mount with
+      // messagesRateLimit (one instance per route family, so legacy and
+      // room-scoped routes keep separate counters).
+      postMessage: async (req: express.Request, res: express.Response) => {
+        const text = String(req.body?.text ?? "").trim()
+        if (!text) {
+          res.status(400).json({ error: "`text` is required" })
+          return
+        }
+        // Save images and resolve to workspace-relative paths.
+        const images = await saveIncomingImages(req.body?.images)
+        resolve(req).submit(text, images.length > 0 ? images : undefined)
+        res.status(202).json({ accepted: true })
+      },
+
+      // Run a user shell command in the room's workspace; the command + output
+      // land in the shared transcript as context for every agent. Mount with
+      // shellRateLimit.
+      postShell: async (req: express.Request, res: express.Response) => {
+        const command = String(req.body?.command ?? "").trim()
+        if (!command) {
+          res.status(400).json({ error: "`command` is required" })
+          return
+        }
+        try {
+          res.json(await resolve(req).runShell(command))
+        } catch (err) {
+          res.status(500).json({ error: err instanceof Error ? err.message : String(err) })
+        }
+      },
+
+      // Truncate the shared transcript to its first `keep` entries (rollback).
+      rollbackTranscript: async (req: express.Request, res: express.Response) => {
+        try {
+          res.json({ ok: true, removed: await resolve(req).rollbackTo(Number(req.body?.keep)) })
+        } catch (err) {
+          res.status(400).json({ error: err instanceof Error ? err.message : String(err) })
+        }
+      },
+
+      // Record a shell command a client already ran interactively in its own
+      // terminal (TUI "!" mode) — no execution here, just shared context.
+      recordShell: (req: express.Request, res: express.Response) => {
+        const command = String(req.body?.command ?? "").trim()
+        if (!command) {
+          res.status(400).json({ error: "`command` is required" })
+          return
+        }
+        const output = String(req.body?.output ?? "").slice(0, 64_000)
+        const exitCode = typeof req.body?.exitCode === "number" ? req.body.exitCode : null
+        res.json(resolve(req).postShellRecord(command, output, exitCode))
+      },
+
+      // Compact a specific agent's session context. Routes through the shared Room
+      // op so this endpoint (the one the TUI/Web actually call) gets the same
+      // compact-then-broadcastSettings contract as the internal /compact command.
+      compactParticipant: async (req: express.Request, res: express.Response) => {
+        const outcome = await resolve(req).compactParticipant(req.params.id)
+        if (outcome.ok) res.json(outcome.result)
+        else if (outcome.reason === "unknown") res.status(404).json({ error: outcome.message })
+        else if (outcome.reason === "generating") res.status(409).json({ error: outcome.message })
+        else res.status(500).json({ error: outcome.message })
+      },
+
+      // Export agent's session as self-contained HTML.
+      exportParticipant: async (req: express.Request, res: express.Response) => {
+        const { id } = req.params
+        const p = resolve(req).getRegistry().get(id)
+        if (!p) {
+          res.status(404).json({ error: `unknown participant "${id}"` })
+          return
+        }
+        try {
+          const filePath = await p.exportToHtml()
+          const html = readFileSync(filePath, "utf-8")
+          const timestamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, -5)
+          const filename = `${id}-${timestamp}.html`
+          res.setHeader("Content-Type", "text/html; charset=utf-8")
+          res.setHeader("Content-Disposition", `attachment; filename="${filename}"`)
+          res.send(html)
+        } catch (err) {
+          res.status(500).json({ error: err instanceof Error ? err.message : String(err) })
+        }
+      },
+
+      // Export agent's session as JSONL (one JSON object per line).
+      exportParticipantJsonl: (req: express.Request, res: express.Response) => {
+        const { id } = req.params
+        const p = resolve(req).getRegistry().get(id)
+        if (!p) {
+          res.status(404).json({ error: `unknown participant "${id}"` })
+          return
+        }
+        try {
+          const filePath = p.exportToJsonl()
+          const jsonl = readFileSync(filePath, "utf-8")
+          const timestamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, -5)
+          const filename = `${id}-${timestamp}.jsonl`
+          res.setHeader("Content-Type", "application/x-ndjson; charset=utf-8")
+          res.setHeader("Content-Disposition", `attachment; filename="${filename}"`)
+          res.send(jsonl)
+        } catch (err) {
+          res.status(500).json({ error: err instanceof Error ? err.message : String(err) })
+        }
+      },
+
+      abortRoom: async (_req: express.Request, res: express.Response) => {
+        const aborted = await resolve(_req).abortCurrent()
+        res.json({ aborted })
+      },
+
+      // Steer a running agent mid-turn.
+      steerMessage: async (req: express.Request, res: express.Response) => {
+        const { text, target } = req.body
+        if (!text || !target) {
+          res.status(400).json({ error: "`text` and `target` are required" })
+          return
+        }
+        try {
+          await resolve(req).steer(target, String(text).trim())
+          res.json({ ok: true, target, text: String(text).trim() })
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err)
+          if (msg.includes("not running") || msg.includes("cannot steer")) {
+            res.status(409).json({ error: msg })
+          } else if (msg.includes("unknown participant")) {
+            res.status(404).json({ error: msg })
+          } else {
+            res.status(500).json({ error: msg })
+          }
+        }
+      },
+    }
+    // Rate limiters are exposed per family so each route family keeps its
+    // own counter (legacy /api/* vs room-scoped), as before the dedup.
+    return { ...handlers, messagesRateLimit, shellRateLimit }
+  }
+
+  // The two mounts of the shared handlers: legacy routes pin the default room,
+  // the room-scoped router resolves it from :roomId per request.
+  const defaultApi = roomApi(() => room)
+  const scopedApi = roomApi((req) => roomOf(req))
+
+  app.get("/api/participants", defaultApi.listParticipants)
 
   // Built-in persona templates for the "Add agent" picker — clone one into a room
   // (e.g. a second builder) without rebuilding it or loading a whole preset.
@@ -1156,399 +1663,59 @@ async function main(): Promise<void> {
     }
   })
 
-  app.post("/api/participants", async (req, res) => {
-    try {
-      const persona = parsePersona(req.body ?? {})
-      if (registry.has(persona.id)) {
-        res.status(409).json({ error: `participant "${persona.id}" already exists` })
-        return
-      }
-      await registry.create(persona)
-      res.status(201).json(registry.roster().find((r) => r.id === persona.id))
-    } catch (err) {
-      res.status(400).json({ error: err instanceof Error ? err.message : String(err) })
-    }
-  })
+  app.post("/api/participants", defaultApi.createParticipant)
 
-  app.post("/api/participants/from-template", async (req, res) => {
-    try {
-      const item = await addFromTemplate(room, String(req.body?.templateId ?? ""))
-      res.status(201).json(item)
-    } catch (err) {
-      res.status(400).json({ error: err instanceof Error ? err.message : String(err) })
-    }
-  })
+  app.post("/api/participants/from-template", defaultApi.addParticipantFromTemplate)
 
   // Reorder the roster (first-turn / @all execution order). Registered before
   // the "/:id" routes so "reorder" is never parsed as an id.
-  app.post("/api/participants/reorder", (req, res) => {
-    const order = req.body?.order
-    if (!Array.isArray(order) || !order.every((x: unknown) => typeof x === "string")) {
-      res.status(400).json({ error: "`order` must be an array of participant ids" })
-      return
-    }
-    registry.reorder(order as string[])
-    res.json(registry.roster())
-  })
+  app.post("/api/participants/reorder", defaultApi.reorderParticipants)
 
   // Full persona (incl. systemPrompt) for the edit form.
-  app.get("/api/participants/:id", (req, res) => {
-    const p = registry.get(req.params.id)
-    if (!p) {
-      res.status(404).json({ error: `unknown participant "${req.params.id}"` })
-      return
-    }
-    res.json({ ...p.persona, availableThinkingLevels: p.getAvailableThinkingLevels() })
-  })
+  app.get("/api/participants/:id", defaultApi.getParticipant)
 
   // Activate / deactivate AND edit persona (name, prompt, tools, color, icon).
-  app.patch("/api/participants/:id", async (req, res) => {
-    const { id } = req.params
-    if (!registry.has(id)) {
-      res.status(404).json({ error: `unknown participant "${id}"` })
-      return
-    }
-    const body = req.body ?? {}
+  app.patch("/api/participants/:id", defaultApi.patchParticipant)
 
-    // Build a persona patch from any editable fields present in the body.
-    const patch: Record<string, unknown> = {}
-    if (typeof body.name === "string" && body.name.trim()) patch.name = body.name.trim()
-    if (typeof body.systemPrompt === "string" && body.systemPrompt.trim())
-      patch.systemPrompt = body.systemPrompt.trim()
-    if (typeof body.color === "string") patch.color = body.color
-    if (typeof body.icon === "string") patch.icon = body.icon
-    if (Array.isArray(body.tools))
-      patch.tools = body.tools.map(String).filter((t: string) => VALID_TOOLS.has(t))
-    const VALID_THINKING = new Set(["off", "minimal", "low", "medium", "high", "xhigh"])
-    if ("thinkingLevel" in body) {
-      const tv = body.thinkingLevel
-      if (tv === null || tv === "") {
-        patch.thinkingLevel = undefined // reset to the global default
-      } else if (typeof tv === "string" && VALID_THINKING.has(tv)) {
-        patch.thinkingLevel = tv
-      } else {
-        res.status(400).json({ error: `invalid thinkingLevel "${String(tv)}" — must be one of: off, minimal, low, medium, high, xhigh` })
-        return
-      }
-    }
-    if ("model" in body) {
-      const mv = body.model
-      if (mv === null || mv === "") {
-        patch.model = undefined // reset to the process default model
-      } else if (typeof mv === "string" && registry.isAllowedModel(mv)) {
-        patch.model = mv
-      } else {
-        res.status(400).json({
-          error: room.getAllowCloud()
-            ? `unknown model "${String(mv)}"`
-            : `model "${String(mv)}" unavailable — cloud is disabled (toggle in Settings)`,
-        })
-        return
-      }
-    }
-    if ("compactionInstructions" in body) {
-      const ci = body.compactionInstructions
-      if (ci === null || ci === "") {
-        patch.compactionInstructions = undefined
-      } else if (typeof ci === "string" && ci.length <= 500) {
-        patch.compactionInstructions = ci
-      } else if (typeof ci === "string") {
-        res.status(400).json({ error: `compactionInstructions too long (${ci.length} chars, max 500)` })
-        return
-      } else {
-        res.status(400).json({ error: "compactionInstructions must be a string" })
-        return
-      }
-    }
+  app.delete("/api/participants/:id", defaultApi.deleteParticipant)
 
-    try {
-      if (typeof body.active === "boolean") registry.setActive(id, body.active)
-      if (typeof body.vision === "boolean") registry.setVision(id, body.vision)
-      if (typeof body.parallel === "boolean") registry.setParallel(id, body.parallel)
-      if (Object.keys(patch).length > 0) {
-        // Fast path: thinkingLevel-only change → in-place, no session recreation.
-        if (Object.keys(patch).length === 1 && "thinkingLevel" in patch && patch.thinkingLevel !== undefined) {
-          const level = patch.thinkingLevel as "off" | "minimal" | "low" | "medium" | "high" | "xhigh"
-          await registry.setThinkingLevel(id, level)
-        } else {
-          // Heavy path: dispose + recreate session.
-          if (room.isBusy()) {
-            res.status(409).json({ error: "a turn is running — press Stop before editing an agent" })
-            return
-          }
-          await registry.update(id, patch)
-        }
-      }
-      res.json(registry.roster().find((r) => r.id === id))
-    } catch (err) {
-      res.status(400).json({ error: err instanceof Error ? err.message : String(err) })
-    }
-  })
+  app.get("/api/transcript", defaultApi.getTranscript)
 
-  app.delete("/api/participants/:id", async (req, res) => {
-    const { id } = req.params
-    if (!registry.has(id)) {
-      res.status(404).json({ error: `unknown participant "${id}"` })
-      return
-    }
-    await registry.kick(id)
-    res.status(204).end()
-  })
+  app.get("/api/tasks", defaultApi.getTasks)
 
-  app.get("/api/transcript", (_req, res) => {
-    res.json(room.getTranscript())
-  })
-
-  app.get("/api/tasks", (_req, res) => {
-    res.json(room.getTasks())
-  })
-
-  app.get("/api/workspace", async (_req, res) => {
-    res.json(await listWorkspace(config.workspaceDir))
-  })
+  app.get("/api/workspace", defaultApi.getWorkspace)
 
   // ── Conversations (saved group discussions) ───────────────────────────────
-  app.get("/api/conversations", async (_req, res) => {
-    res.json(await room.getConversations())
-  })
+  app.get("/api/conversations", defaultApi.listConversations)
 
-  app.post("/api/conversations", async (req, res) => {
-    try {
-      const title = req.body?.title ? String(req.body.title) : undefined
-      res.status(201).json(await room.newConversation(title))
-    } catch (err) {
-      res.status(409).json({ error: err instanceof Error ? err.message : String(err) })
-    }
-  })
+  app.post("/api/conversations", defaultApi.createConversation)
 
-  app.post("/api/conversations/:id/load", async (req, res) => {
-    try {
-      await room.switchConversation(req.params.id)
-      res.json({ ok: true })
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err)
-      res.status(msg.includes("unknown") ? 404 : 409).json({ error: msg })
-    }
-  })
+  app.post("/api/conversations/:id/load", defaultApi.loadConversation)
 
-  app.patch("/api/conversations/:id", async (req, res) => {
-    const title = String(req.body?.title ?? "").trim()
-    if (!title) {
-      res.status(400).json({ error: "`title` is required" })
-      return
-    }
-    try {
-      await room.renameConversation(req.params.id, title)
-      res.json({ ok: true })
-    } catch (err) {
-      res.status(404).json({ error: err instanceof Error ? err.message : String(err) })
-    }
-  })
+  app.patch("/api/conversations/:id", defaultApi.renameConversation)
 
-  app.delete("/api/conversations/:id", async (req, res) => {
-    try {
-      await room.deleteConversation(req.params.id)
-      res.status(204).end()
-    } catch (err) {
-      res.status(409).json({ error: err instanceof Error ? err.message : String(err) })
-    }
-  })
+  app.delete("/api/conversations/:id", defaultApi.deleteConversation)
 
-  const settingsPayload = (r: Room) => ({
-    chaining: r.getChaining(),
-    routingMode: r.getRoutingMode(),
-    defaultAgent: r.getDefaultAgent(),
-    fallbackAgent: r.getFallbackAgent(),
-    supervisorAgent: r.getSupervisorAgent(),
-    planAwareRouting: r.getPlanAwareRouting(),
-    maxChainHops: r.getMaxChainHops(),
-    defaultThinkingLevel: r.getDefaultThinkingLevel(),
-    allowCloud: r.getAllowCloud(),
-    compactionReserveTokens: r.getCompactionReserveTokens(),
-    defaultModel: r.getDefaultModel(),
-    maxRooms: config.maxRooms,
-    pendingRoute: r.getPendingRoute(),
-    handoffGates: r.getHandoffGates(),
-    drift: r.getDrift(),
-    roomUsage: r.getRoomUsage(),
-  })
+  app.get("/api/settings", defaultApi.getSettings)
 
-  const parseRouteDecision = (body: Record<string, unknown>): RouteDecision | null => {
-    const action = body?.action
-    if (action !== "approve" && action !== "redirect" && action !== "drop") return null
-    const targetIds = Array.isArray(body?.targetIds) ? body.targetIds.map(String) : undefined
-    return { action, targetIds }
-  }
+  app.patch("/api/settings", defaultApi.patchSettings)
 
-  app.get("/api/settings", (_req, res) => {
-    res.json(settingsPayload(room))
-  })
-
-  app.patch("/api/settings", (req, res) => {
-    const body = req.body ?? {}
-    if ("chaining" in body) {
-      if (typeof body.chaining !== "boolean") {
-        res.status(400).json({ error: "`chaining` must be a boolean" })
-        return
-      }
-      room.setChaining(body.chaining)
-    }
-    if ("defaultAgent" in body) {
-      const da = body.defaultAgent
-      if (da !== null && typeof da !== "string") {
-        res.status(400).json({ error: "`defaultAgent` must be a string id or null" })
-        return
-      }
-      try {
-        room.setDefaultAgent(da)
-      } catch (err) {
-        res.status(404).json({ error: err instanceof Error ? err.message : String(err) })
-        return
-      }
-    }
-    if ("fallbackAgent" in body) {
-      const fa = body.fallbackAgent
-      if (fa !== null && typeof fa !== "string") {
-        res.status(400).json({ error: "`fallbackAgent` must be a string id or null" })
-        return
-      }
-      try {
-        room.setFallbackAgent(fa)
-      } catch (err) {
-        res.status(404).json({ error: err instanceof Error ? err.message : String(err) })
-        return
-      }
-    }
-    if ("supervisorAgent" in body) {
-      const sa = body.supervisorAgent
-      if (sa !== null && typeof sa !== "string") {
-        res.status(400).json({ error: "`supervisorAgent` must be a string id or null" })
-        return
-      }
-      try {
-        room.setSupervisorAgent(sa)
-      } catch (err) {
-        res.status(404).json({ error: err instanceof Error ? err.message : String(err) })
-        return
-      }
-    }
-    if ("planAwareRouting" in body) {
-      if (typeof body.planAwareRouting !== "boolean") {
-        res.status(400).json({ error: "`planAwareRouting` must be a boolean" })
-        return
-      }
-      room.setPlanAwareRouting(body.planAwareRouting)
-    }
-    if ("maxChainHops" in body) {
-      const n = body.maxChainHops
-      if (typeof n !== "number" || n < 1 || n > 100) {
-        res.status(400).json({ error: "`maxChainHops` must be a number between 1 and 100" })
-        return
-      }
-      room.setMaxChainHops(n)
-    }
-    if ("routingMode" in body) {
-      const m = body.routingMode
-      if (m !== "auto" && m !== "semi" && m !== "manual" && m !== "supervised") {
-        res.status(400).json({ error: "`routingMode` must be 'auto', 'semi', 'manual', or 'supervised'" })
-        return
-      }
-      room.setRoutingMode(m)
-    }
-    if ("defaultThinkingLevel" in body) {
-      const validLevels = ["off", "minimal", "low", "medium", "high", "xhigh"]
-      if (!validLevels.includes(body.defaultThinkingLevel)) {
-        res.status(400).json({ error: "`defaultThinkingLevel` must be one of: " + validLevels.join(", ") })
-        return
-      }
-      room.setDefaultThinkingLevel(body.defaultThinkingLevel)
-    }
-    if ("allowCloud" in body) {
-      if (typeof body.allowCloud !== "boolean") {
-        res.status(400).json({ error: "`allowCloud` must be a boolean" })
-        return
-      }
-      room.setAllowCloud(body.allowCloud)
-    }
-    if ("compactionReserveTokens" in body) {
-      const v = Number(body.compactionReserveTokens)
-      if (!Number.isFinite(v) || v < 5000 || v > 100000) {
-        res.status(400).json({ error: "`compactionReserveTokens` must be an integer between 5000 and 100000" })
-        return
-      }
-      room.setCompactionReserveTokens(v)
-    }
-    if ("handoffGates" in body) {
-      const gates = parseHandoffGates(body.handoffGates)
-      if (typeof gates === "string") {
-        res.status(400).json({ error: gates })
-        return
-      }
-      room.setHandoffGates(gates)
-    }
-    res.json(settingsPayload(room))
-  })
-
-  app.post("/api/route", (req, res) => {
-    const decision = parseRouteDecision(req.body ?? {})
-    if (!decision) {
-      res.status(400).json({ error: "`action` must be 'approve', 'redirect', or 'drop'" })
-      return
-    }
-    room.resolveRoute(decision)
-    res.status(202).json({ accepted: true })
-  })
+  app.post("/api/route", defaultApi.postRoute)
 
   // Post a message to the room. Returns immediately; results stream over SSE.
   // Rate limited to prevent agent loops from flooding the queue.
-  app.post("/api/messages", rateLimit({ windowMs: 60_000, max: 60, standardHeaders: true, legacyHeaders: false }), async (req, res) => {
-    const text = String(req.body?.text ?? "").trim()
-    if (!text) {
-      res.status(400).json({ error: "`text` is required" })
-      return
-    }
-    // Save images and resolve to workspace-relative paths.
-    const images = await saveIncomingImages(req.body?.images)
-    room.submit(text, images.length > 0 ? images : undefined)
-    res.status(202).json({ accepted: true })
-  })
+  app.post("/api/messages", defaultApi.messagesRateLimit, defaultApi.postMessage)
 
   // Run a user shell command in the room's workspace; the command + output
   // land in the shared transcript as context for every agent.
-  app.post("/api/shell", rateLimit({ windowMs: 60_000, max: 30, standardHeaders: true, legacyHeaders: false }), async (req, res) => {
-    const command = String(req.body?.command ?? "").trim()
-    if (!command) {
-      res.status(400).json({ error: "`command` is required" })
-      return
-    }
-    try {
-      res.json(await room.runShell(command))
-    } catch (err) {
-      res.status(500).json({ error: err instanceof Error ? err.message : String(err) })
-    }
-  })
+  app.post("/api/shell", defaultApi.shellRateLimit, defaultApi.postShell)
 
   // Truncate the shared transcript to its first `keep` entries (rollback).
-  app.post("/api/transcript/rollback", async (req, res) => {
-    try {
-      res.json({ ok: true, removed: await room.rollbackTo(Number(req.body?.keep)) })
-    } catch (err) {
-      res.status(400).json({ error: err instanceof Error ? err.message : String(err) })
-    }
-  })
+  app.post("/api/transcript/rollback", defaultApi.rollbackTranscript)
 
   // Record a shell command a client already ran interactively in its own
   // terminal (TUI "!" mode) — no execution here, just shared context.
-  app.post("/api/shell/record", (req, res) => {
-    const command = String(req.body?.command ?? "").trim()
-    if (!command) {
-      res.status(400).json({ error: "`command` is required" })
-      return
-    }
-    const output = String(req.body?.output ?? "").slice(0, 64_000)
-    const exitCode = typeof req.body?.exitCode === "number" ? req.body.exitCode : null
-    res.json(room.postShellRecord(command, output, exitCode))
-  })
+  app.post("/api/shell/record", defaultApi.recordShell)
 
   // ── pi runtime updates (process-global) ────────────────────────────────────
   // pi releases near-daily and its model catalog is frozen per version, so new
@@ -1593,85 +1760,22 @@ async function main(): Promise<void> {
     }
   })
 
+
   // Compact a specific agent's session context. Routes through the shared Room
   // op so this endpoint (the one the TUI/Web actually call) gets the same
   // compact-then-broadcastSettings contract as the internal /compact command.
-  app.post("/api/participants/:id/compact", async (req, res) => {
-    const outcome = await room.compactParticipant(req.params.id)
-    if (outcome.ok) res.json(outcome.result)
-    else if (outcome.reason === "unknown") res.status(404).json({ error: outcome.message })
-    else if (outcome.reason === "generating") res.status(409).json({ error: outcome.message })
-    else res.status(500).json({ error: outcome.message })
-  })
+  app.post("/api/participants/:id/compact", defaultApi.compactParticipant)
 
   // Export agent's session as self-contained HTML.
-  app.get("/api/participants/:id/export", async (req, res) => {
-    const { id } = req.params
-    const p = registry.get(id)
-    if (!p) {
-      res.status(404).json({ error: `unknown participant "${id}"` })
-      return
-    }
-    try {
-      const filePath = await p.exportToHtml()
-      const html = readFileSync(filePath, "utf-8")
-      const timestamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, -5)
-      const filename = `${id}-${timestamp}.html`
-      res.setHeader("Content-Type", "text/html; charset=utf-8")
-      res.setHeader("Content-Disposition", `attachment; filename="${filename}"`)
-      res.send(html)
-    } catch (err) {
-      res.status(500).json({ error: err instanceof Error ? err.message : String(err) })
-    }
-  })
+  app.get("/api/participants/:id/export", defaultApi.exportParticipant)
 
   // Export agent's session as JSONL (one JSON object per line).
-  app.get("/api/participants/:id/export-jsonl", (req, res) => {
-    const { id } = req.params
-    const p = registry.get(id)
-    if (!p) {
-      res.status(404).json({ error: `unknown participant "${id}"` })
-      return
-    }
-    try {
-      const filePath = p.exportToJsonl()
-      const jsonl = readFileSync(filePath, "utf-8")
-      const timestamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, -5)
-      const filename = `${id}-${timestamp}.jsonl`
-      res.setHeader("Content-Type", "application/x-ndjson; charset=utf-8")
-      res.setHeader("Content-Disposition", `attachment; filename="${filename}"`)
-      res.send(jsonl)
-    } catch (err) {
-      res.status(500).json({ error: err instanceof Error ? err.message : String(err) })
-    }
-  })
+  app.get("/api/participants/:id/export-jsonl", defaultApi.exportParticipantJsonl)
 
-  app.post("/api/abort", async (_req, res) => {
-    const aborted = await room.abortCurrent()
-    res.json({ aborted })
-  })
+  app.post("/api/abort", defaultApi.abortRoom)
 
   // Steer a running agent mid-turn.
-  app.post("/api/messages/steer", async (req, res) => {
-    const { text, target } = req.body
-    if (!text || !target) {
-      res.status(400).json({ error: "`text` and `target` are required" })
-      return
-    }
-    try {
-      await room.steer(target, String(text).trim())
-      res.json({ ok: true, target, text: String(text).trim() })
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err)
-      if (msg.includes("not running") || msg.includes("cannot steer")) {
-        res.status(409).json({ error: msg })
-      } else if (msg.includes("unknown participant")) {
-        res.status(404).json({ error: msg })
-      } else {
-        res.status(500).json({ error: msg })
-      }
-    }
-  })
+  app.post("/api/messages/steer", defaultApi.steerMessage)
 
   // ── Room management API ─────────────────────────────────────────────────
 
@@ -1843,277 +1947,31 @@ async function main(): Promise<void> {
   })
 
   // ── Room-scoped router (/api/rooms/:roomId/*) ─────────────────────────────
-  // Mirrors the legacy /api/* routes but resolves room dynamically via roomOf().
-  // Existing /api/* routes are unchanged — backward compat is preserved.
+  // Serves the shared roomApi handlers (see above) with the room resolved
+  // dynamically from :roomId via roomOf(). The legacy /api/* routes serve the
+  // same handlers against the default room — one source of truth, two mounts.
+  // requireRoom 404s unknown rooms before any handler runs.
 
   const roomRouter = Router({ mergeParams: true })
 
-  roomRouter.get("/participants", (req, res) => {
-    res.json(roomOf(req).getRegistry().roster())
-  })
+  roomRouter.get("/participants", scopedApi.listParticipants)
+  roomRouter.post("/participants", scopedApi.createParticipant)
+  roomRouter.post("/participants/from-template", scopedApi.addParticipantFromTemplate)
+  roomRouter.post("/participants/reorder", scopedApi.reorderParticipants)
+  roomRouter.get("/participants/:id", scopedApi.getParticipant)
+  roomRouter.patch("/participants/:id", scopedApi.patchParticipant)
+  roomRouter.delete("/participants/:id", scopedApi.deleteParticipant)
 
-  roomRouter.post("/participants", async (req, res) => {
-    const reg = roomOf(req).getRegistry()
-    try {
-      const persona = parsePersona(req.body ?? {})
-      if (reg.has(persona.id)) {
-        res.status(409).json({ error: `participant "${persona.id}" already exists` })
-        return
-      }
-      await reg.create(persona)
-      res.status(201).json(reg.roster().find((r) => r.id === persona.id))
-    } catch (err) {
-      res.status(400).json({ error: err instanceof Error ? err.message : String(err) })
-    }
-  })
-
-  roomRouter.post("/participants/from-template", async (req, res) => {
-    try {
-      const item = await addFromTemplate(roomOf(req), String(req.body?.templateId ?? ""))
-      res.status(201).json(item)
-    } catch (err) {
-      res.status(400).json({ error: err instanceof Error ? err.message : String(err) })
-    }
-  })
-
-  roomRouter.post("/participants/reorder", (req, res) => {
-    const order = req.body?.order
-    if (!Array.isArray(order) || !order.every((x: unknown) => typeof x === "string")) {
-      res.status(400).json({ error: "`order` must be an array of participant ids" })
-      return
-    }
-    const reg = roomOf(req).getRegistry()
-    reg.reorder(order as string[])
-    res.json(reg.roster())
-  })
-
-  roomRouter.get("/participants/:id", (req, res) => {
-    const p = roomOf(req).getRegistry().get(req.params.id)
-    if (!p) {
-      res.status(404).json({ error: `unknown participant "${req.params.id}"` })
-      return
-    }
-    res.json({ ...p.persona, availableThinkingLevels: p.getAvailableThinkingLevels() })
-  })
-
-  roomRouter.patch("/participants/:id", async (req, res) => {
-    const r = roomOf(req)
-    const reg = r.getRegistry()
-    const { id } = req.params
-    if (!reg.has(id)) {
-      res.status(404).json({ error: `unknown participant "${id}"` })
-      return
-    }
-    const body = req.body ?? {}
-    const patch: Record<string, unknown> = {}
-    if (typeof body.name === "string" && body.name.trim()) patch.name = body.name.trim()
-    if (typeof body.systemPrompt === "string" && body.systemPrompt.trim())
-      patch.systemPrompt = body.systemPrompt.trim()
-    if (typeof body.color === "string") patch.color = body.color
-    if (typeof body.icon === "string") patch.icon = body.icon
-    if (Array.isArray(body.tools))
-      patch.tools = body.tools.map(String).filter((t: string) => VALID_TOOLS.has(t))
-    const VALID_THINKING = new Set(["off", "minimal", "low", "medium", "high", "xhigh"])
-    if ("thinkingLevel" in body) {
-      const tv = body.thinkingLevel
-      if (tv === null || tv === "") {
-        patch.thinkingLevel = undefined
-      } else if (typeof tv === "string" && VALID_THINKING.has(tv)) {
-        patch.thinkingLevel = tv
-      } else {
-        res.status(400).json({ error: `invalid thinkingLevel "${String(tv)}" — must be one of: off, minimal, low, medium, high, xhigh` })
-        return
-      }
-    }
-    if ("model" in body) {
-      const mv = body.model
-      if (mv === null || mv === "") {
-        patch.model = undefined
-      } else if (typeof mv === "string" && reg.isAllowedModel(mv)) {
-        patch.model = mv
-      } else {
-        res.status(400).json({
-          error: r.getAllowCloud()
-            ? `unknown model "${String(mv)}"`
-            : `model "${String(mv)}" unavailable — cloud is disabled (toggle in Settings)`,
-        })
-        return
-      }
-    }
-    if ("compactionInstructions" in body) {
-      const ci = body.compactionInstructions
-      if (ci === null || ci === "") {
-        patch.compactionInstructions = undefined
-      } else if (typeof ci === "string" && ci.length <= 500) {
-        patch.compactionInstructions = ci
-      } else if (typeof ci === "string") {
-        res.status(400).json({ error: `compactionInstructions too long (${ci.length} chars, max 500)` })
-        return
-      } else {
-        res.status(400).json({ error: "compactionInstructions must be a string" })
-        return
-      }
-    }
-    try {
-      if (typeof body.active === "boolean") reg.setActive(id, body.active)
-      if (typeof body.vision === "boolean") reg.setVision(id, body.vision)
-      if (typeof body.parallel === "boolean") reg.setParallel(id, body.parallel)
-      if (Object.keys(patch).length > 0) {
-        if (Object.keys(patch).length === 1 && "thinkingLevel" in patch && patch.thinkingLevel !== undefined) {
-          await reg.setThinkingLevel(id, patch.thinkingLevel as "off" | "minimal" | "low" | "medium" | "high" | "xhigh")
-        } else {
-          if (r.isBusy()) {
-            res.status(409).json({ error: "a turn is running — press Stop before editing an agent" })
-            return
-          }
-          await reg.update(id, patch)
-        }
-      }
-      res.json(reg.roster().find((ri) => ri.id === id))
-    } catch (err) {
-      res.status(400).json({ error: err instanceof Error ? err.message : String(err) })
-    }
-  })
-
-  roomRouter.delete("/participants/:id", async (req, res) => {
-    const reg = roomOf(req).getRegistry()
-    const { id } = req.params
-    if (!reg.has(id)) {
-      res.status(404).json({ error: `unknown participant "${id}"` })
-      return
-    }
-    await reg.kick(id)
-    res.status(204).end()
-  })
-
-  roomRouter.get("/transcript", (req, res) => {
-    res.json(roomOf(req).getTranscript())
-  })
-
-  roomRouter.get("/tasks", (req, res) => {
-    res.json(roomOf(req).getTasks())
-  })
+  roomRouter.get("/transcript", scopedApi.getTranscript)
+  roomRouter.get("/tasks", scopedApi.getTasks)
 
   // Room-scoped workspace listing: initial snapshot for the WorkspacePanel.
   // Live updates arrive over SSE; this serves the first paint per room.
-  roomRouter.get("/workspace", async (req, res) => {
-    res.json(await roomOf(req).getWorkspaceListing())
-  })
+  roomRouter.get("/workspace", scopedApi.getWorkspace)
 
-  roomRouter.get("/settings", (req, res) => {
-    const r = roomOf(req)
-    res.json(settingsPayload(r))
-  })
-
-  roomRouter.patch("/settings", (req, res) => {
-    const r = roomOf(req)
-    const body = req.body ?? {}
-    if ("chaining" in body) {
-      if (typeof body.chaining !== "boolean") {
-        res.status(400).json({ error: "`chaining` must be a boolean" })
-        return
-      }
-      r.setChaining(body.chaining)
-    }
-    if ("defaultAgent" in body) {
-      const da = body.defaultAgent
-      if (da !== null && typeof da !== "string") {
-        res.status(400).json({ error: "`defaultAgent` must be a string id or null" })
-        return
-      }
-      try { r.setDefaultAgent(da) } catch (err) {
-        res.status(404).json({ error: err instanceof Error ? err.message : String(err) })
-        return
-      }
-    }
-    if ("fallbackAgent" in body) {
-      const fa = body.fallbackAgent
-      if (fa !== null && typeof fa !== "string") {
-        res.status(400).json({ error: "`fallbackAgent` must be a string id or null" })
-        return
-      }
-      try { r.setFallbackAgent(fa) } catch (err) {
-        res.status(404).json({ error: err instanceof Error ? err.message : String(err) })
-        return
-      }
-    }
-    if ("supervisorAgent" in body) {
-      const sa = body.supervisorAgent
-      if (sa !== null && typeof sa !== "string") {
-        res.status(400).json({ error: "`supervisorAgent` must be a string id or null" })
-        return
-      }
-      try { r.setSupervisorAgent(sa) } catch (err) {
-        res.status(404).json({ error: err instanceof Error ? err.message : String(err) })
-        return
-      }
-    }
-    if ("planAwareRouting" in body) {
-      if (typeof body.planAwareRouting !== "boolean") {
-        res.status(400).json({ error: "`planAwareRouting` must be a boolean" })
-        return
-      }
-      r.setPlanAwareRouting(body.planAwareRouting)
-    }
-    if ("maxChainHops" in body) {
-      const n = body.maxChainHops
-      if (typeof n !== "number" || n < 1 || n > 100) {
-        res.status(400).json({ error: "`maxChainHops` must be a number between 1 and 100" })
-        return
-      }
-      r.setMaxChainHops(n)
-    }
-    if ("routingMode" in body) {
-      const m = body.routingMode
-      if (m !== "auto" && m !== "semi" && m !== "manual" && m !== "supervised") {
-        res.status(400).json({ error: "`routingMode` must be 'auto', 'semi', 'manual', or 'supervised'" })
-        return
-      }
-      r.setRoutingMode(m)
-    }
-    if ("defaultThinkingLevel" in body) {
-      const validLevels = ["off", "minimal", "low", "medium", "high", "xhigh"]
-      if (!validLevels.includes(body.defaultThinkingLevel)) {
-        res.status(400).json({ error: "`defaultThinkingLevel` must be one of: " + validLevels.join(", ") })
-        return
-      }
-      r.setDefaultThinkingLevel(body.defaultThinkingLevel)
-    }
-    if ("allowCloud" in body) {
-      if (typeof body.allowCloud !== "boolean") {
-        res.status(400).json({ error: "`allowCloud` must be a boolean" })
-        return
-      }
-      r.setAllowCloud(body.allowCloud)
-    }
-    if ("compactionReserveTokens" in body) {
-      const v = Number(body.compactionReserveTokens)
-      if (!Number.isFinite(v) || v < 5000 || v > 100000) {
-        res.status(400).json({ error: "`compactionReserveTokens` must be an integer between 5000 and 100000" })
-        return
-      }
-      r.setCompactionReserveTokens(v)
-    }
-    if ("handoffGates" in body) {
-      const gates = parseHandoffGates(body.handoffGates)
-      if (typeof gates === "string") {
-        res.status(400).json({ error: gates })
-        return
-      }
-      r.setHandoffGates(gates)
-    }
-    res.json(settingsPayload(r))
-  })
-
-  roomRouter.post("/route", (req, res) => {
-    const decision = parseRouteDecision(req.body ?? {})
-    if (!decision) {
-      res.status(400).json({ error: "`action` must be 'approve', 'redirect', or 'drop'" })
-      return
-    }
-    roomOf(req).resolveRoute(decision)
-    res.status(202).json({ accepted: true })
-  })
+  roomRouter.get("/settings", scopedApi.getSettings)
+  roomRouter.patch("/settings", scopedApi.patchSettings)
+  roomRouter.post("/route", scopedApi.postRoute)
 
   // Room-scoped preset actions — target the room in the URL, not the default.
   roomRouter.post("/presets", async (req, res) => {
@@ -2124,120 +1982,15 @@ async function main(): Promise<void> {
   roomRouter.post("/presets/:name/apply", (req, res) => doApplyPreset(roomOf(req), req.params.name, res))
   roomRouter.post("/presets/:name/push", (req, res) => doPushPreset(roomOf(req), req.params.name, res))
 
-  roomRouter.post("/messages", rateLimit({ windowMs: 60_000, max: 60, standardHeaders: true, legacyHeaders: false }), async (req, res) => {
-    const text = String(req.body?.text ?? "").trim()
-    if (!text) {
-      res.status(400).json({ error: "`text` is required" })
-      return
-    }
-    const images = await saveIncomingImages(req.body?.images)
-    roomOf(req).submit(text, images.length > 0 ? images : undefined)
-    res.status(202).json({ accepted: true })
-  })
-
-  roomRouter.post("/shell", rateLimit({ windowMs: 60_000, max: 30, standardHeaders: true, legacyHeaders: false }), async (req, res) => {
-    const command = String(req.body?.command ?? "").trim()
-    if (!command) {
-      res.status(400).json({ error: "`command` is required" })
-      return
-    }
-    try {
-      res.json(await roomOf(req).runShell(command))
-    } catch (err) {
-      res.status(500).json({ error: err instanceof Error ? err.message : String(err) })
-    }
-  })
-
-  roomRouter.post("/transcript/rollback", async (req, res) => {
-    try {
-      res.json({ ok: true, removed: await roomOf(req).rollbackTo(Number(req.body?.keep)) })
-    } catch (err) {
-      res.status(400).json({ error: err instanceof Error ? err.message : String(err) })
-    }
-  })
-
-  roomRouter.post("/shell/record", (req, res) => {
-    const command = String(req.body?.command ?? "").trim()
-    if (!command) {
-      res.status(400).json({ error: "`command` is required" })
-      return
-    }
-    const output = String(req.body?.output ?? "").slice(0, 64_000)
-    const exitCode = typeof req.body?.exitCode === "number" ? req.body.exitCode : null
-    res.json(roomOf(req).postShellRecord(command, output, exitCode))
-  })
-
-  roomRouter.post("/messages/steer", async (req, res) => {
-    const { text, target } = req.body
-    if (!text || !target) {
-      res.status(400).json({ error: "`text` and `target` are required" })
-      return
-    }
-    try {
-      await roomOf(req).steer(target, String(text).trim())
-      res.json({ ok: true, target, text: String(text).trim() })
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err)
-      if (msg.includes("not running") || msg.includes("cannot steer")) {
-        res.status(409).json({ error: msg })
-      } else if (msg.includes("unknown participant")) {
-        res.status(404).json({ error: msg })
-      } else {
-        res.status(500).json({ error: msg })
-      }
-    }
-  })
-
-  roomRouter.post("/abort", async (req, res) => {
-    const aborted = await roomOf(req).abortCurrent()
-    res.json({ aborted })
-  })
-
-  roomRouter.post("/participants/:id/compact", async (req, res) => {
-    const outcome = await roomOf(req).compactParticipant(req.params.id)
-    if (outcome.ok) res.json(outcome.result)
-    else if (outcome.reason === "unknown") res.status(404).json({ error: outcome.message })
-    else if (outcome.reason === "generating") res.status(409).json({ error: outcome.message })
-    else res.status(500).json({ error: outcome.message })
-  })
-
-  roomRouter.get("/participants/:id/export", async (req, res) => {
-    const p = roomOf(req).getRegistry().get(req.params.id)
-    if (!p) {
-      res.status(404).json({ error: `unknown participant "${req.params.id}"` })
-      return
-    }
-    try {
-      const filePath = await p.exportToHtml()
-      const html = readFileSync(filePath, "utf-8")
-      const timestamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, -5)
-      const filename = `${req.params.id}-${timestamp}.html`
-      res.setHeader("Content-Type", "text/html; charset=utf-8")
-      res.setHeader("Content-Disposition", `attachment; filename="${filename}"`)
-      res.send(html)
-    } catch (err) {
-      res.status(500).json({ error: err instanceof Error ? err.message : String(err) })
-    }
-  })
-
-  roomRouter.get("/participants/:id/export-jsonl", (req, res) => {
-    const p = roomOf(req).getRegistry().get(req.params.id)
-    if (!p) {
-      res.status(404).json({ error: `unknown participant "${req.params.id}"` })
-      return
-    }
-    try {
-      const filePath = p.exportToJsonl()
-      const jsonl = readFileSync(filePath, "utf-8")
-      const timestamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, -5)
-      const filename = `${req.params.id}-${timestamp}.jsonl`
-      res.setHeader("Content-Type", "application/x-ndjson; charset=utf-8")
-      res.setHeader("Content-Disposition", `attachment; filename="${filename}"`)
-      res.send(jsonl)
-    } catch (err) {
-      res.status(500).json({ error: err instanceof Error ? err.message : String(err) })
-    }
-  })
+  roomRouter.post("/messages", scopedApi.messagesRateLimit, scopedApi.postMessage)
+  roomRouter.post("/shell", scopedApi.shellRateLimit, scopedApi.postShell)
+  roomRouter.post("/transcript/rollback", scopedApi.rollbackTranscript)
+  roomRouter.post("/shell/record", scopedApi.recordShell)
+  roomRouter.post("/messages/steer", scopedApi.steerMessage)
+  roomRouter.post("/abort", scopedApi.abortRoom)
+  roomRouter.post("/participants/:id/compact", scopedApi.compactParticipant)
+  roomRouter.get("/participants/:id/export", scopedApi.exportParticipant)
+  roomRouter.get("/participants/:id/export-jsonl", scopedApi.exportParticipantJsonl)
 
   // Per-room SSE stream — filtered to only this room's events via the roomId
   // passed to addClient(). Every room-scoped broadcast carries its roomId param
@@ -2253,51 +2006,11 @@ async function main(): Promise<void> {
     res.write(`event: transcript\ndata: ${JSON.stringify(r.getTranscript())}\n\n`)
   })
 
-  roomRouter.get("/conversations", async (req, res) => {
-    res.json(await roomOf(req).getConversations())
-  })
-
-  roomRouter.post("/conversations", async (req, res) => {
-    try {
-      const title = req.body?.title ? String(req.body.title) : undefined
-      res.status(201).json(await roomOf(req).newConversation(title))
-    } catch (err) {
-      res.status(409).json({ error: err instanceof Error ? err.message : String(err) })
-    }
-  })
-
-  roomRouter.post("/conversations/:id/load", async (req, res) => {
-    try {
-      await roomOf(req).switchConversation(req.params.id)
-      res.json({ ok: true })
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err)
-      res.status(msg.includes("unknown") ? 404 : 409).json({ error: msg })
-    }
-  })
-
-  roomRouter.patch("/conversations/:id", async (req, res) => {
-    const title = String(req.body?.title ?? "").trim()
-    if (!title) {
-      res.status(400).json({ error: "`title` is required" })
-      return
-    }
-    try {
-      await roomOf(req).renameConversation(req.params.id, title)
-      res.json({ ok: true })
-    } catch (err) {
-      res.status(404).json({ error: err instanceof Error ? err.message : String(err) })
-    }
-  })
-
-  roomRouter.delete("/conversations/:id", async (req, res) => {
-    try {
-      await roomOf(req).deleteConversation(req.params.id)
-      res.status(204).end()
-    } catch (err) {
-      res.status(409).json({ error: err instanceof Error ? err.message : String(err) })
-    }
-  })
+  roomRouter.get("/conversations", scopedApi.listConversations)
+  roomRouter.post("/conversations", scopedApi.createConversation)
+  roomRouter.post("/conversations/:id/load", scopedApi.loadConversation)
+  roomRouter.patch("/conversations/:id", scopedApi.renameConversation)
+  roomRouter.delete("/conversations/:id", scopedApi.deleteConversation)
 
   // Mount the room-scoped router. CRUD routes above must come before this.
   app.use("/api/rooms/:roomId", requireRoom, roomRouter)
