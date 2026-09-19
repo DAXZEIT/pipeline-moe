@@ -84,11 +84,17 @@ export class ConversationStore {
    *  serialized so concurrent saves of the same conversation can't collide on
    *  the tmp path (see writeChain). Each write uses a unique tmp so a failed
    *  rename can never take out a sibling's tmp, and cleans up its own tmp on
-   *  failure rather than leaking it. */
+   *  failure rather than leaking it. The dir is (re)created here rather than
+   *  assumed from init(): a save racing init() — or a session dir removed
+   *  mid-run — used to die with ENOENT and lose the snapshot silently
+   *  (saveCurrent swallows by design), and room-manager tests have no init()
+   *  at all, so the dir existed only as a side effect of a racing meta write
+   *  (flaky ~1/6 under load, 2026-09-19). mkdir on an existing dir is a no-op. */
   async write(conv: Conversation): Promise<void> {
     const run = this.writeChain.then(async () => {
       const final = this.file(conv.id)
       const tmp = `${final}.${process.pid}.${++this.writeSeq}.tmp`
+      await mkdir(this.dir, { recursive: true })
       await writeFile(tmp, JSON.stringify(conv, null, 2), "utf8")
       try {
         await rename(tmp, final)
