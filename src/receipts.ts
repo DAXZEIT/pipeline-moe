@@ -2,6 +2,7 @@
 // A "signature" is size + mtimeMs, which is cheap and changes on any write.
 
 import { readdir, stat } from "node:fs/promises"
+import type { Dirent } from "node:fs"
 import { join, relative } from "node:path"
 import type { ToolActivity, WorkReceipt } from "./types.js"
 
@@ -11,7 +12,7 @@ const IGNORED = new Set([".git", "node_modules", ".pi", "__pycache__", "sessions
 export type Snapshot = Map<string, string>
 
 async function walk(dir: string, root: string, out: Snapshot): Promise<void> {
-  let entries
+  let entries: Dirent[]
   try {
     entries = await readdir(dir, { withFileTypes: true })
   } catch {

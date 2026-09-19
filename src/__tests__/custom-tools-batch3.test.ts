@@ -128,8 +128,7 @@ describe("arxiv_search — XML parsing", () => {
 </feed>`
     const re = /<entry>([\s\S]*?)<\/entry>/gi
     const results: string[] = []
-    let m
-    while ((m = re.exec(xml)) !== null) {
+    for (let m = re.exec(xml); m !== null; m = re.exec(xml)) {
       results.push(m[1])
     }
     expect(results).toHaveLength(3)
@@ -142,8 +141,7 @@ describe("arxiv_search — XML parsing", () => {
     const xml = `<author><name>Smith, J.</name></author><author><name>Jones, K.</name></author>`
     const re = new RegExp(`<name[^>]*>([^<]*)</name>`, "gi")
     const results: string[] = []
-    let m
-    while ((m = re.exec(xml)) !== null) {
+    for (let m = re.exec(xml); m !== null; m = re.exec(xml)) {
       results.push(m[1])
     }
     expect(results).toHaveLength(2)

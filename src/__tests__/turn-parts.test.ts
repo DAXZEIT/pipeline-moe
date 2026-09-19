@@ -40,7 +40,7 @@ describe("TurnSegmenter", () => {
     seg.tool("call-1")
     const parts = seg.finish()
     expect(shape(parts)).toBe("r 🔧call-1")
-    expect((parts?.[0] as { content: string }).content).toBe("I should look")
+    expect((parts?.[0] as { content: string })?.content).toBe("I should look")
   })
 
   test("a type flip alone opens a new segment — no tool needed", () => {
@@ -61,8 +61,8 @@ describe("TurnSegmenter", () => {
     seg.tool("call-1")
     seg.delta("text", "single")
     const parts = seg.finish()
-    expect((parts?.[0] as { content: string }).content).toBe("line one\nline two\nline three")
-    expect((parts?.[2] as { content: string }).content).toBe("single")
+    expect((parts?.[0] as { content: string })?.content).toBe("line one\nline two\nline three")
+    expect((parts?.[2] as { content: string })?.content).toBe("single")
   })
 
   test("segments are trimmed, and a whitespace-only run is dropped entirely", () => {
@@ -75,7 +75,7 @@ describe("TurnSegmenter", () => {
     seg.tool("call-2")
     const parts = seg.finish()
     expect(shape(parts)).toBe("r 🔧call-1 🔧call-2")
-    expect((parts?.[0] as { content: string }).content).toBe("thinking")
+    expect((parts?.[0] as { content: string })?.content).toBe("thinking")
   })
 
   test("a tool-only turn still yields parts; an empty turn yields none", () => {
@@ -106,7 +106,7 @@ describe("TurnSegmenter", () => {
     seg.delta("text", "turn two")
     const parts = seg.finish()
     expect(shape(parts)).toBe("t")
-    expect((parts?.[0] as { content: string }).content).toBe("turn two")
+    expect((parts?.[0] as { content: string })?.content).toBe("turn two")
   })
 
   test("finish() closes the open segment without needing a trailing event", () => {
@@ -116,7 +116,7 @@ describe("TurnSegmenter", () => {
     seg.delta("text", "Done.")
     const parts = seg.finish()
     expect(shape(parts)).toBe("🔧call-1 t")
-    expect((parts?.[1] as { content: string }).content).toBe("Done.")
+    expect((parts?.[1] as { content: string })?.content).toBe("Done.")
   })
 
   test("no content is lost — the segments reconstruct the buffers", () => {

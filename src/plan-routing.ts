@@ -72,14 +72,14 @@ const OWNER_RE = /^\[([a-z][a-z0-9_-]*)\]\s*/
 export function extractJsonHeader(content: string): string | null {
   let depth = 0
   let inString = false
-  let escape = false
+  let escaped = false
   for (let i = 0; i < content.length; i++) {
     const ch = content[i]
     if (inString) {
-      if (escape) {
-        escape = false
+      if (escaped) {
+        escaped = false
       } else if (ch === "\\") {
-        escape = true
+        escaped = true
       } else if (ch === '"') {
         inString = false
       }

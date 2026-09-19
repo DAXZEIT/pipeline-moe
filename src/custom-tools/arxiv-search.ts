@@ -53,8 +53,7 @@ function extractTag(xml: string, tag: string): string | null {
 function extractAllTags(xml: string, tag: string): string[] {
   const re = new RegExp(`<${tag}[^>]*>([^<]*)</${tag}>`, "gi")
   const results: string[] = []
-  let m
-  while ((m = re.exec(xml)) !== null) {
+  for (let m = re.exec(xml); m !== null; m = re.exec(xml)) {
     results.push(m[1].replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&").replace(/&quot;/g, '"'))
   }
   return results
@@ -64,8 +63,7 @@ function extractAllTags(xml: string, tag: string): string[] {
 function extractEntries(xml: string): string[] {
   const re = /<entry>([\s\S]*?)<\/entry>/gi
   const results: string[] = []
-  let m
-  while ((m = re.exec(xml)) !== null) {
+  for (let m = re.exec(xml); m !== null; m = re.exec(xml)) {
     results.push(m[1])
   }
   return results

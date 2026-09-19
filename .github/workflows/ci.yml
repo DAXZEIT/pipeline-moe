@@ -197,15 +197,14 @@ jobs:
       # script runs against.
       - run: npm ci
 
-      # Check mode, no --write. The rest of the lint surface is still red
-      # (21 errors in src/ alone at introduction), so a whole-repo lint gate
-      # would fail on pre-existing diagnostics — this job gates the two rules
-      # raised to error in biome.json for this chantier: useTemplate and
-      # useOptionalChain stay at zero without a human running --unsafe fixes
-      # by hand. Widen to `npx biome lint .` once the remaining errors are
-      # cleared.
-      - name: biome lint (gated rules, check mode)
-        run: npx biome lint --only=style/useTemplate --only=complexity/useOptionalChain .
+      # Check mode, no --write. The lint surface of src/ is at zero ERRORS;
+      # the remaining warnings/infos are knowingly not gated yet (chantier
+      # step 2, 2026-09-19) — biome exits non-zero only on errors, so this
+      # gates the whole src/ rule set without forcing the warning backlog.
+      # Scope stays src/ (not `biome lint .`): site/ is untracked and must not
+      # gate; packages/ and web/ widen in their own steps when they go green.
+      - name: biome lint src/ (full rule set, errors gate)
+        run: npm run lint
 
   deps:
     name: pi packages pinned in lockstep

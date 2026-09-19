@@ -582,14 +582,14 @@ describe("preset drift — provenance, dormancy, latch", () => {
     // shared transcript, NOT a per-seat sum, and carries no percent in v1.
     registry.onChange!()
     const ev = cap.settingsEvents.at(-1)
-    expect((ev?.roomUsage as any).tokens).toBeGreaterThan(0)
-    expect((ev?.roomUsage as any).hotPercent).toBeNull()
-    const t1 = (ev?.roomUsage as any).tokens
+    expect((ev?.roomUsage as any)?.tokens).toBeGreaterThan(0)
+    expect((ev?.roomUsage as any)?.hotPercent).toBeNull()
+    const t1 = (ev?.roomUsage as any)?.tokens
 
     // Grow the transcript → the next refresh reflects the bigger shared log.
     ;(room as any).post("user", "You", "more ".repeat(500))
     registry.onChange!()
-    expect((cap.settingsEvents.at(-1)?.roomUsage as any).tokens).toBeGreaterThan(t1)
+    expect((cap.settingsEvents.at(-1)?.roomUsage as any)?.tokens).toBeGreaterThan(t1)
   })
 
   test("applyPreset without a name leaves the room dormant", async () => {

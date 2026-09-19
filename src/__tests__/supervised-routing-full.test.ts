@@ -105,7 +105,7 @@ async function makeRoom(registry: MockRegistry, store: MockStore, mode: "auto"|"
 }
 
 function addAgents(registry: MockRegistry, ...agents: {id: string, handoffTo?: string}[]) {
-  agents.forEach(a => registry.add(new MockParticipant(a.id, registry, a.handoffTo || null)))
+  agents.forEach(a => { registry.add(new MockParticipant(a.id, registry, a.handoffTo || null)) })
 }
 
 describe("back-compat load", () => {
